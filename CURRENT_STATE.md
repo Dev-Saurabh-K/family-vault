@@ -29,7 +29,19 @@ The repository contains a complete, fully tested, functional implementation of F
   - `src/main/ipc.js`: Strictly typed and validated IPC handlers including metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma 2 2B download/setup, semantic vector search, encrypted audit log queries, and encrypted backup/restore.
   - `src/preload.js`: Secure context-isolated bridge exposing `window.familyVault`.
   - `src/index.js`: Electron main process with strict Content Security Policy (`connect-src 'none'`), sandbox mode, and lock-on-exit key cleanup.
-  - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive dark-mode desktop UI supporting vault launcher, backup restore tab, document workspace, category filters, family member (person) dropdown filter, upcoming expiries sidebar views, search bar with Keyword vs Semantic search toggle, import modal, detail drawer with in-memory preview, extracted OCR & plaintext inspection panel with 1-click clipboard copy, metadata review and confirmation modal, provenance snippets, immutable version history timeline, version upload, password change modal, encrypted audit log history modal, and interactive Grounded AI Assistant modal with 1-click Gemma 2 2B setup card, 1-click answer copy, and clickable citations.
+  - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive dark-mode desktop UI supporting:
+    - Secure vault launcher with password-only unlock and restore tabs.
+    - Category sidebar filters and dynamic Family Member (Person) dropdown filter.
+    - Time-sensitive Expiry Alert Banner with quick-view and session dismissal.
+    - Clickable tag filtering with active tag bar and 1-click clear.
+    - Search bar with Keyword vs Semantic search toggle.
+    - Document import modal and detail drawer with in-memory preview.
+    - Extracted OCR & plaintext inspection panel with 1-click clipboard copy.
+    - Metadata review and confirmation modal with provenance snippets.
+    - Immutable version history timeline and new version upload.
+    - Master password change modal.
+    - Tamper-evident encrypted audit log viewer modal with 1-click JSON export (`btn-export-audit-logs`).
+    - Conversational multi-turn Grounded AI Assistant modal with chat bubbles, 1-click Gemma 2 2B setup card, answer copy, clickable citations, and clear chat button.
 - **Test Suite**:
   - `tests/crypto.test.js`: Unit tests for Argon2id, VMK wrapping/unwrapping, AES-256-GCM envelope, HKDF, and zeroization.
   - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, in-memory preview, export, password rewrapping, and encrypted audit logging.

@@ -174,6 +174,30 @@
 
           <!-- Main Document Area -->
           <main class="content-area">
+            <!-- Expiry Awareness Alert Banner -->
+            <div id="expiry-alert-banner" class="hidden" style="margin-bottom: 12px; background: rgba(234, 88, 12, 0.15); border: 1px solid rgba(234, 88, 12, 0.4); border-radius: var(--radius-sm); padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 18px;">⏳</span>
+                <div>
+                  <strong id="expiry-alert-title" style="color: #fb923c; font-size: 12px; font-weight: 600;">Time-Sensitive Documents Need Attention</strong>
+                  <div id="expiry-alert-subtitle" style="font-size: 11px; color: #cbd5e1; margin-top: 1px;">You have documents expiring soon or already expired.</div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button id="btn-banner-view-expiries" class="btn btn-secondary" style="font-size: 11px; padding: 3px 10px; background: rgba(234, 88, 12, 0.3); border-color: rgba(234, 88, 12, 0.6); color: #fff;">View Expiries</button>
+                <button id="btn-banner-dismiss" class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;">✕</button>
+              </div>
+            </div>
+
+            <!-- Active Tag Filter Bar -->
+            <div id="active-tag-filter-bar" class="hidden" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px;">
+              <span style="color: var(--text-muted);">Filtered by tag:</span>
+              <span id="active-tag-badge" class="badge badge-blue" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12px;">
+                <span id="active-tag-text">tag</span>
+                <span id="btn-clear-tag-filter" style="cursor: pointer; font-weight: bold; font-size: 14px; line-height: 1;">✕</span>
+              </span>
+            </div>
+
             <div class="toolbar">
               <div class="search-box">
                 <span class="icon">🔍</span>
@@ -435,7 +459,10 @@
               <span style="font-size: 20px;">🤖</span>
               <h3>Ask FamilyVault Assistant</h3>
             </div>
-            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button id="btn-clear-ai-history" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" title="Clear conversation history">🗑️ Clear Chat</button>
+              <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+            </div>
           </div>
 
           <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
@@ -496,6 +523,15 @@
             </button>
           </div>
 
+          <!-- Chat Thread Container -->
+          <div id="ai-chat-thread" style="flex: 1; max-height: 380px; min-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-top: 8px; margin-bottom: 10px; padding: 12px; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+            <div id="ai-thread-welcome" style="text-align: center; padding: 24px 12px; color: var(--text-muted); font-size: 12px;">
+              <div style="font-size: 28px; margin-bottom: 8px;">💬</div>
+              <strong style="color: var(--text-secondary); display: block; margin-bottom: 4px;">Private &amp; Offline Assistant</strong>
+              Ask anything about your stored documents, insurance deadlines, passport numbers, tax forms, or train schedules.
+            </div>
+          </div>
+
           <div class="form-group" style="margin-bottom: 8px;">
             <div class="file-picker-group">
               <input type="text" id="ai-query-input" class="input-field" placeholder="e.g. What is my passport number? When does my car insurance expire?" />
@@ -503,31 +539,7 @@
             </div>
           </div>
 
-          <div id="ai-loading" class="hidden" style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 13px;">
-            Searching documents and synthesizing grounded answer...
-          </div>
-
-          <!-- Answer & Citations Container -->
-          <div id="ai-result-box" class="hidden" style="overflow-y: auto; display: flex; flex-direction: column; gap: 14px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px;">
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--accent);">Grounded Answer:</span>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <button id="btn-copy-ai-answer" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;">📋 Copy Answer</button>
-                  <span id="ai-mode-badge" class="badge badge-blue">Local Extractive</span>
-                </div>
-              </div>
-              <div id="ai-answer-text" style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: var(--text-primary);"></div>
-            </div>
-
-            <!-- Citations -->
-            <div id="ai-citations-container">
-              <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 6px;">Source Citations:</span>
-              <div id="ai-citations-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
-            </div>
-          </div>
-
-          <div class="modal-footer" style="margin-top: 10px;">
+          <div class="modal-footer" style="margin-top: 6px;">
             <button class="btn btn-secondary modal-close-btn">Close</button>
           </div>
         </div>
@@ -595,7 +607,8 @@
             </table>
           </div>
 
-          <div class="modal-footer" style="margin-top: 14px;">
+          <div class="modal-footer" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+            <button id="btn-export-audit-logs" class="btn btn-secondary" style="font-size: 11px;">💾 Export Audit Logs (JSON)</button>
             <button class="btn btn-secondary modal-close-btn">Close</button>
           </div>
         </div>

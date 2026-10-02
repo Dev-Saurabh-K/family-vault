@@ -737,6 +737,20 @@ class VaultService {
     return dbLayer.listAuditEvents(this._db, limit);
   }
 
+  /**
+   * Exports audit log records as formatted JSON to a user-chosen destination.
+   * @param {string} destinationPath 
+   * @returns {{ success: boolean, count: number, destinationPath: string }}
+   */
+  exportAuditLogs(destinationPath) {
+    this._assertUnlocked();
+    if (!destinationPath) throw new Error('destinationPath is required');
+    const logs = this.listAuditLogs(1000);
+    fs.writeFileSync(destinationPath, JSON.stringify(logs, null, 2), 'utf-8');
+    dbLayer.recordAuditEvent(this._db, 'AUDIT_LOGS_EXPORTED', { destination: destinationPath, count: logs.length });
+    return { success: true, count: logs.length, destinationPath };
+  }
+
   _guessMimeType(ext) {
     switch (ext) {
       case '.pdf': return 'application/pdf';

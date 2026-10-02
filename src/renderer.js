@@ -9,6 +9,8 @@
 let currentCategory = '';
 let currentExpiryFilter = '';
 let currentSearch = '';
+let currentTag = '';
+let bannerDismissedThisSession = false;
 let documents = [];
 let selectedDocumentId = null;
 let activeDocumentRecord = null;
@@ -57,8 +59,22 @@ const docGrid = document.getElementById('doc-grid');
 const emptyState = document.getElementById('empty-state');
 const sidebarItems = document.querySelectorAll('.sidebar-item');
 
+// Expiry Alert Banner & Tag Filter Bar
+const expiryAlertBanner = document.getElementById('expiry-alert-banner');
+const expiryAlertTitle = document.getElementById('expiry-alert-title');
+const expiryAlertSubtitle = document.getElementById('expiry-alert-subtitle');
+const btnBannerViewExpiries = document.getElementById('btn-banner-view-expiries');
+const btnBannerDismiss = document.getElementById('btn-banner-dismiss');
+const activeTagFilterBar = document.getElementById('active-tag-filter-bar');
+const activeTagBadge = document.getElementById('active-tag-badge');
+const activeTagText = document.getElementById('active-tag-text');
+const btnClearTagFilter = document.getElementById('btn-clear-tag-filter');
+
 // AI Modal
 const modalAiQa = document.getElementById('modal-ai-qa');
+const aiChatThread = document.getElementById('ai-chat-thread');
+const aiThreadWelcome = document.getElementById('ai-thread-welcome');
+const btnClearAiHistory = document.getElementById('btn-clear-ai-history');
 const aiQueryInput = document.getElementById('ai-query-input');
 const aiSubmitQueryBtn = document.getElementById('ai-submit-query-btn');
 const aiLoading = document.getElementById('ai-loading');
@@ -320,6 +336,18 @@ btnLockVault.addEventListener('click', async () => {
   }
 });
 
+// Tag Filter Bar Helper
+function updateTagBar() {
+  if (activeTagFilterBar && activeTagText) {
+    if (currentTag) {
+      activeTagText.textContent = currentTag;
+      activeTagFilterBar.classList.remove('hidden');
+    } else {
+      activeTagFilterBar.classList.add('hidden');
+    }
+  }
+}
+
 // Load & Filter Documents
 async function loadDocuments() {
   try {
@@ -337,12 +365,17 @@ async function loadDocuments() {
             }
           }
         }
-        documents = Array.from(docMap.values());
+        let results = Array.from(docMap.values());
+        if (currentTag) {
+          results = results.filter(d => Array.isArray(d.tags) && d.tags.includes(currentTag));
+        }
+        documents = results;
       } else {
         documents = [];
       }
       renderDocuments();
       updateCounts();
+      updateTagBar();
       return;
     }
 
@@ -356,9 +389,13 @@ async function loadDocuments() {
     if (filterPersonSelect && filterPersonSelect.value) {
       docs = docs.filter(d => d.person === filterPersonSelect.value);
     }
+    if (currentTag) {
+      docs = docs.filter(d => Array.isArray(d.tags) && d.tags.includes(currentTag));
+    }
     documents = docs;
     renderDocuments();
     updateCounts();
+    updateTagBar();
   } catch (err) {
     showToast('Failed to load documents: ' + err.message, 'error');
   }
@@ -400,6 +437,25 @@ async function updateCounts() {
 
     const expiredBadge = document.getElementById('count-expired');
     if (expiredBadge) expiredBadge.textContent = expiredCount;
+
+    // Update Expiry Alert Banner
+    if (expiryAlertBanner) {
+      if (!bannerDismissedThisSession && (upcomingCount > 0 || expiredCount > 0)) {
+        expiryAlertBanner.classList.remove('hidden');
+        if (expiredCount > 0 && upcomingCount > 0) {
+          if (expiryAlertTitle) expiryAlertTitle.textContent = `⚠️ Action Needed: ${expiredCount} expired & ${upcomingCount} upcoming expiries`;
+          if (expiryAlertSubtitle) expiryAlertSubtitle.textContent = 'Some critical family documents have expired or are nearing their renewal deadline.';
+        } else if (expiredCount > 0) {
+          if (expiryAlertTitle) expiryAlertTitle.textContent = `⚠️ Action Needed: ${expiredCount} document(s) have expired`;
+          if (expiryAlertSubtitle) expiryAlertSubtitle.textContent = 'Please review expired documents to update renewal records or upload current versions.';
+        } else {
+          if (expiryAlertTitle) expiryAlertTitle.textContent = `⏳ Attention: ${upcomingCount} document(s) expiring within 30 days`;
+          if (expiryAlertSubtitle) expiryAlertSubtitle.textContent = 'Check your documents soon to prevent lapses in policies or certifications.';
+        }
+      } else {
+        expiryAlertBanner.classList.add('hidden');
+      }
+    }
   } catch (e) {}
 }
 
@@ -460,7 +516,7 @@ function renderDocuments() {
         ` : ''}
         ${doc.tags && doc.tags.length ? `
           <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;">
-            ${doc.tags.map(t => `<span class="badge badge-gray">${escapeHtml(t)}</span>`).join('')}
+            ${doc.tags.map(t => `<span class="badge badge-gray doc-tag-badge" data-tag="${escapeHtml(t)}" style="cursor: pointer; transition: background 0.15s;" title="Filter by tag: ${escapeHtml(t)}">${escapeHtml(t)}</span>`).join('')}
           </div>
         ` : ''}
         ${semanticSnippetHtml}
@@ -471,7 +527,46 @@ function renderDocuments() {
       </div>
     `;
 
+    // Hook clickable tag badges
+    card.querySelectorAll('.doc-tag-badge').forEach(badge => {
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentTag = badge.getAttribute('data-tag');
+        loadDocuments();
+      });
+    });
+
     docGrid.appendChild(card);
+  });
+}
+
+// Clear active tag filter
+if (btnClearTagFilter) {
+  btnClearTagFilter.addEventListener('click', () => {
+    currentTag = '';
+    loadDocuments();
+  });
+}
+
+// Dismiss Expiry Alert Banner for current session
+if (btnBannerDismiss) {
+  btnBannerDismiss.addEventListener('click', () => {
+    bannerDismissedThisSession = true;
+    if (expiryAlertBanner) expiryAlertBanner.classList.add('hidden');
+  });
+}
+
+// Banner action: View expiries
+if (btnBannerViewExpiries) {
+  btnBannerViewExpiries.addEventListener('click', () => {
+    const expItem = document.querySelector('.sidebar-item[data-expiry="upcoming"]');
+    if (expItem) {
+      sidebarItems.forEach(i => i.classList.remove('active'));
+      expItem.classList.add('active');
+      currentCategory = '';
+      currentExpiryFilter = 'expiring_soon';
+      loadDocuments();
+    }
   });
 }
 
@@ -967,46 +1062,118 @@ btnOpenAiQa.addEventListener('click', async () => {
   } catch (e) {}
 });
 
+let aiHistory = [];
+
 async function runAiQuery() {
   const query = aiQueryInput.value.trim();
   if (!query) return;
 
-  aiLoading.classList.remove('hidden');
-  aiResultBox.classList.add('hidden');
+  aiQueryInput.value = '';
   aiSubmitQueryBtn.disabled = true;
   aiSubmitQueryBtn.textContent = 'Searching...';
 
+  if (aiThreadWelcome) {
+    aiThreadWelcome.classList.add('hidden');
+  }
+
+  // Append user query message bubble
+  const userMsgEl = document.createElement('div');
+  userMsgEl.style.cssText = 'align-self: flex-end; max-width: 82%; background: #4338ca; color: #fff; padding: 10px 14px; border-radius: 12px 12px 2px 12px; font-size: 13px; line-height: 1.4; word-break: break-word; box-shadow: 0 1px 3px rgba(0,0,0,0.2);';
+  userMsgEl.textContent = query;
+  if (aiChatThread) {
+    aiChatThread.appendChild(userMsgEl);
+  }
+
+  // Append loading indicator bubble
+  const loadingBubble = document.createElement('div');
+  loadingBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border); border-radius: 12px 12px 12px 2px; padding: 10px 14px; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;';
+  loadingBubble.innerHTML = `<span style="display: inline-block;">⚡</span> Synthesizing grounded answer from stored documents...`;
+  if (aiChatThread) {
+    aiChatThread.appendChild(loadingBubble);
+    aiChatThread.scrollTop = aiChatThread.scrollHeight;
+  }
+
   try {
     const res = await window.familyVault.askQuestion(query);
-    aiLoading.classList.add('hidden');
-    aiResultBox.classList.remove('hidden');
-    aiAnswerText.textContent = res.answer;
-    aiModeBadge.textContent = res.mode === 'llama-server' ? 'Local Gemma 2 2B GGUF' : 'Local Extractive Assistant';
-
-    aiCitationsList.innerHTML = '';
-    if (res.sources && res.sources.length > 0) {
-      document.getElementById('ai-citations-container').classList.remove('hidden');
-      res.sources.forEach(src => {
-        const item = document.createElement('div');
-        item.style.cssText = 'background: rgba(30, 41, 59, 0.5); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border); font-size: 12px; cursor: pointer;';
-        item.innerHTML = `
-          <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-            <strong style="color: #60a5fa;">📄 ${escapeHtml(src.documentTitle)}</strong>
-            <span style="font-size: 10px; color: var(--text-muted);">${escapeHtml(src.fileName)}</span>
-          </div>
-          <div style="font-style: italic; color: #cbd5e1;">"${escapeHtml(src.snippet)}"</div>
-        `;
-        item.addEventListener('click', () => {
-          modalAiQa.classList.add('hidden');
-          openDocumentDrawer(src.documentId);
-        });
-        aiCitationsList.appendChild(item);
-      });
-    } else {
-      document.getElementById('ai-citations-container').classList.add('hidden');
+    if (loadingBubble && loadingBubble.parentNode) {
+      loadingBubble.remove();
     }
+
+    const botMsgEl = document.createElement('div');
+    botMsgEl.style.cssText = 'align-self: flex-start; max-width: 92%; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border); border-radius: 12px 12px 12px 2px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 1.5; color: var(--text-primary); box-shadow: 0 2px 6px rgba(0,0,0,0.3);';
+
+    const engineBadgeText = res.mode === 'llama-server' ? 'Local Gemma 2 2B GGUF' : 'Local Extractive Assistant';
+    const escapedAnswer = escapeHtml(res.answer);
+
+    let citationsHtml = '';
+    if (res.sources && res.sources.length > 0) {
+      citationsHtml = `
+        <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
+          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 6px;">Grounding Sources (${res.sources.length}):</span>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${res.sources.map(src => `
+              <div class="ai-citation-pill" data-doc-id="${escapeHtml(src.documentId)}" style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 6px 10px; font-size: 11px; cursor: pointer; transition: background 0.15s;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                  <strong style="color: #60a5fa;">📄 ${escapeHtml(src.documentTitle)}</strong>
+                  <span style="font-size: 10px; color: var(--text-muted);">${escapeHtml(src.fileName || '')}</span>
+                </div>
+                <div style="font-style: italic; color: #cbd5e1; font-size: 11px;">"${escapeHtml(src.snippet)}"</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    botMsgEl.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="badge badge-blue" style="font-size: 10px;">${engineBadgeText}</span>
+        <button class="btn btn-secondary btn-copy-turn-answer" style="padding: 2px 6px; font-size: 10px;">📋 Copy</button>
+      </div>
+      <div style="white-space: pre-wrap;">${escapedAnswer}</div>
+      ${citationsHtml}
+    `;
+
+    // Hook copy button for this answer turn
+    const copyBtn = botMsgEl.querySelector('.btn-copy-turn-answer');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(res.answer).then(() => {
+          showToast('Answer copied to clipboard!', 'success');
+        }).catch(() => {
+          showToast('Failed to copy', 'error');
+        });
+      });
+    }
+
+    // Hook citations to open drawer
+    botMsgEl.querySelectorAll('.ai-citation-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const docId = pill.getAttribute('data-doc-id');
+        if (docId) {
+          modalAiQa.classList.add('hidden');
+          openDocumentDrawer(docId);
+        }
+      });
+    });
+
+    if (aiChatThread) {
+      aiChatThread.appendChild(botMsgEl);
+      aiChatThread.scrollTop = aiChatThread.scrollHeight;
+    }
+
+    aiHistory.push({ query, response: res });
   } catch (err) {
-    aiLoading.classList.add('hidden');
+    if (loadingBubble && loadingBubble.parentNode) {
+      loadingBubble.remove();
+    }
+    const errorBubble = document.createElement('div');
+    errorBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #f87171;';
+    errorBubble.textContent = 'Assistant Error: ' + err.message;
+    if (aiChatThread) {
+      aiChatThread.appendChild(errorBubble);
+      aiChatThread.scrollTop = aiChatThread.scrollHeight;
+    }
     showToast('Assistant error: ' + err.message, 'error');
   } finally {
     aiSubmitQueryBtn.disabled = false;
@@ -1018,6 +1185,22 @@ aiSubmitQueryBtn.addEventListener('click', runAiQuery);
 aiQueryInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') runAiQuery();
 });
+
+// Clear AI Chat History
+if (btnClearAiHistory) {
+  btnClearAiHistory.addEventListener('click', () => {
+    aiHistory = [];
+    if (aiChatThread) {
+      aiChatThread.innerHTML = `
+        <div id="ai-thread-welcome" style="text-align: center; padding: 24px 12px; color: var(--text-muted); font-size: 12px;">
+          <div style="font-size: 28px; margin-bottom: 8px;">💬</div>
+          <strong style="color: var(--text-secondary); display: block; margin-bottom: 4px;">Private &amp; Offline Assistant</strong>
+          Ask anything about your stored documents, insurance deadlines, passport numbers, tax forms, or train schedules.
+        </div>
+      `;
+    }
+  });
+}
 
 // AI Neural Model Settings
 const btnToggleAiSettings = document.getElementById('btn-toggle-ai-settings');
@@ -1263,6 +1446,25 @@ if (btnOpenAuditLogs) {
       if (auditLogsTableBody) {
         auditLogsTableBody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px; color: #f87171;">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
       }
+    }
+  });
+}
+
+// Export Audit Logs to JSON file
+const btnExportAuditLogs = document.getElementById('btn-export-audit-logs');
+if (btnExportAuditLogs) {
+  btnExportAuditLogs.addEventListener('click', async () => {
+    try {
+      const destPath = await window.familyVault.saveFileDialog({
+        title: 'Export Encrypted Vault Audit Log',
+        defaultName: 'familyvault-audit-log.json'
+      });
+      if (destPath) {
+        await window.familyVault.exportAuditLogs(destPath);
+        showToast('Audit logs successfully exported to ' + destPath.split(/[\\/]/).pop(), 'success');
+      }
+    } catch (err) {
+      showToast('Failed to export audit logs: ' + err.message, 'error');
     }
   });
 }

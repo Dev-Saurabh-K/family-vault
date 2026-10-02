@@ -135,6 +135,11 @@ function registerIpcHandlers(mainWindow) {
     return vaultService.listAuditLogs(limit);
   });
 
+  ipcMain.handle('vault:export-audit-logs', async (_event, { destinationPath }) => {
+    if (!destinationPath) throw new Error('Missing destinationPath');
+    return vaultService.exportAuditLogs(destinationPath);
+  });
+
   // Document Operations
   ipcMain.handle('document:import', async (_event, rawArgs) => {
     const validated = ImportDocumentSchema.parse(rawArgs);

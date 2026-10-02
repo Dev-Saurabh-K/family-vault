@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('familyVault', {
   createBackup: (destinationFilePath) => ipcRenderer.invoke('vault:create-backup', { destinationFilePath }),
   restoreBackup: (args) => ipcRenderer.invoke('vault:restore-backup', args),
   getAuditLogs: (limit) => ipcRenderer.invoke('vault:get-audit-logs', { limit }),
+  exportAuditLogs: (destinationPath) => ipcRenderer.invoke('vault:export-audit-logs', { destinationPath }),
 
   // Document management
   importDocument: (args) => ipcRenderer.invoke('document:import', args),
