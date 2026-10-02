@@ -12,14 +12,21 @@
   },
   "main": "./src/index.js",
   "scripts": {
-    "start": "electron-forge start",
+    "start": "electron .",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "release": "electron-forge release",
+    "test": "node --test \"tests/**/*.test.js\"",
     "lint": "echo \"No linting configured\""
   },
   "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
+    "@noble/hashes": "^2.4.0",
+    "better-sqlite3-multiple-ciphers": "^13.0.3",
+    "electron-squirrel-startup": "^1.0.1",
+    "pdf-parse": "^2.4.5",
+    "tesseract.js": "^7.0.0",
+    "uuid": "^14.0.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",

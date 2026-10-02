@@ -1,12 +1,500 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Hello World!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FamilyVault — Secure Offline Document Vault</title>
     <link rel="stylesheet" href="index.css" />
   </head>
   <body>
-    <h1>💖 Hello World!</h1>
-    <p>Welcome to your Electron application.</p>
+    <div id="app">
+      <!-- 1. LAUNCHER SCREEN (Create / Unlock Vault) -->
+      <section id="view-launcher" class="launcher-container">
+        <div class="launcher-card">
+          <div class="launcher-header">
+            <div class="app-icon">🔒</div>
+            <h1>FamilyVault</h1>
+            <p>100% Offline &amp; Encrypted Family Document Keeper</p>
+          </div>
+
+          <div class="tab-nav">
+            <button id="tab-unlock-btn" class="tab-btn active">Open Vault</button>
+            <button id="tab-create-btn" class="tab-btn">Create Vault</button>
+            <button id="tab-restore-btn" class="tab-btn">Restore Backup</button>
+          </div>
+
+          <!-- Open Vault Form -->
+          <div id="form-unlock-container">
+            <div class="form-group">
+              <label>Vault Folder (.vault)</label>
+              <div class="file-picker-group">
+                <input type="text" id="unlock-path-input" class="input-field" placeholder="Select your .vault folder..." readonly />
+                <button id="unlock-browse-btn" class="btn btn-secondary">Browse</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Master Password</label>
+              <input type="password" id="unlock-password-input" class="input-field" placeholder="Enter vault password" />
+            </div>
+
+            <button id="submit-unlock-btn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+              Unlock Vault
+            </button>
+          </div>
+
+          <!-- Create Vault Form -->
+          <div id="form-create-container" class="hidden">
+            <div class="security-notice">
+              <span>🛡️</span>
+              <span>Your vault is encrypted with <strong>Argon2id</strong> and <strong>AES-256-GCM</strong>. Your password never leaves this machine and is never sent over any network.</span>
+            </div>
+
+            <div class="form-group">
+              <label>Vault Location &amp; Name</label>
+              <div class="file-picker-group">
+                <input type="text" id="create-path-input" class="input-field" placeholder="Select destination directory..." readonly />
+                <button id="create-browse-btn" class="btn btn-secondary">Browse</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Vault Master Password (min 8 characters)</label>
+              <input type="password" id="create-password-input" class="input-field" placeholder="Create strong master password" />
+            </div>
+
+            <div class="form-group">
+              <label>Confirm Master Password</label>
+              <input type="password" id="create-password-confirm-input" class="input-field" placeholder="Re-enter master password" />
+            </div>
+
+            <button id="submit-create-btn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+              Create &amp; Secure Vault
+            </button>
+          </div>
+
+          <!-- Restore Vault Form -->
+          <div id="form-restore-container" class="hidden">
+            <div class="security-notice">
+              <span>📦</span>
+              <span>Restore a portable encrypted <strong>.fvbackup</strong> archive. The backup integrity is cryptographically validated before restoring.</span>
+            </div>
+
+            <div class="form-group">
+              <label>Backup File (.fvbackup)</label>
+              <div class="file-picker-group">
+                <input type="text" id="restore-file-input" class="input-field" placeholder="Select .fvbackup file..." readonly />
+                <button id="restore-file-browse-btn" class="btn btn-secondary">Browse</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Restore Destination Folder</label>
+              <div class="file-picker-group">
+                <input type="text" id="restore-target-input" class="input-field" placeholder="Select destination folder..." readonly />
+                <button id="restore-target-browse-btn" class="btn btn-secondary">Browse</button>
+              </div>
+            </div>
+
+            <button id="submit-restore-btn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+              Restore Encrypted Vault
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. WORKSPACE SCREEN (When Unlocked) -->
+      <section id="view-workspace" class="workspace hidden">
+        <!-- Top Bar -->
+        <header class="top-bar">
+          <div class="vault-info">
+            <span style="font-size: 20px;">🛡️</span>
+            <div>
+              <div class="vault-title" id="active-vault-name">MyFamily.vault</div>
+              <span class="badge badge-green">100% Offline &amp; Encrypted</span>
+            </div>
+          </div>
+
+          <div class="top-bar-actions">
+            <button id="btn-open-ai-qa" class="btn btn-primary" style="background: #4f46e5;">Ask Assistant 🤖</button>
+            <button id="btn-create-backup" class="btn btn-secondary">Backup Vault 💾</button>
+            <button id="btn-change-password-modal" class="btn btn-secondary">Change Password</button>
+            <button id="btn-lock-vault" class="btn btn-danger">Lock Vault</button>
+          </div>
+        </header>
+
+        <div class="main-body">
+          <!-- Sidebar -->
+          <aside class="sidebar">
+            <div class="sidebar-heading">Filter by Category</div>
+            <ul class="sidebar-nav">
+              <li class="sidebar-item active" data-category="">
+                <span>All Documents</span>
+                <span id="count-all" class="badge badge-gray">0</span>
+              </li>
+              <li class="sidebar-item" data-category="identity">
+                <span>Identity &amp; Passports</span>
+                <span id="count-identity" class="badge badge-gray">0</span>
+              </li>
+              <li class="sidebar-item" data-category="insurance">
+                <span>Insurance</span>
+                <span id="count-insurance" class="badge badge-gray">0</span>
+              </li>
+              <li class="sidebar-item" data-category="medical">
+                <span>Medical Records</span>
+                <span id="count-medical" class="badge badge-gray">0</span>
+              </li>
+              <li class="sidebar-item" data-category="tax">
+                <span>Tax &amp; Finance</span>
+                <span id="count-tax" class="badge badge-gray">0</span>
+              </li>
+              <li class="sidebar-item" data-category="property">
+                <span>Property &amp; Legal</span>
+                <span id="count-property" class="badge badge-gray">0</span>
+              </li>
+              <li class="sidebar-item" data-category="other">
+                <span>Other</span>
+                <span id="count-other" class="badge badge-gray">0</span>
+              </li>
+            </ul>
+
+            <div class="sidebar-heading" style="margin-top: 14px;">Expiry Awareness</div>
+            <ul class="sidebar-nav">
+              <li class="sidebar-item" data-expiry="upcoming">
+                <span>Upcoming Expiries ⏳</span>
+                <span id="count-expiries" class="badge badge-orange">0</span>
+              </li>
+              <li class="sidebar-item" data-expiry="expired">
+                <span>Expired Documents ⚠️</span>
+                <span id="count-expired" class="badge badge-gray">0</span>
+              </li>
+            </ul>
+          </aside>
+
+          <!-- Main Document Area -->
+          <main class="content-area">
+            <div class="toolbar">
+              <div class="search-box">
+                <span class="icon">🔍</span>
+                <input type="text" id="search-input" class="input-field" placeholder="Search documents by title, tags, or notes..." />
+              </div>
+              <button id="btn-open-import" class="btn btn-primary">
+                <span>+</span> Import Document
+              </button>
+            </div>
+
+            <div class="doc-list-container">
+              <div id="doc-grid" class="doc-grid"></div>
+              <div id="empty-state" class="empty-state hidden">
+                <div class="icon">📁</div>
+                <h3>No documents in this view</h3>
+                <p>Import a PDF, scan, or photo to securely store it in your encrypted vault.</p>
+              </div>
+            </div>
+          </main>
+
+          <!-- Detail & Version History Drawer -->
+          <aside id="drawer-detail" class="detail-drawer hidden">
+            <div class="drawer-header">
+              <h2 id="drawer-title">Document Details</h2>
+              <button id="drawer-close-btn" class="btn btn-secondary" style="padding: 4px 8px;">✕</button>
+            </div>
+
+            <div class="drawer-content">
+              <!-- Preview Box -->
+              <div id="drawer-preview-box" class="preview-container">
+                <div class="pdf-preview-box">
+                  <div style="font-size: 32px;">📄</div>
+                  <div id="preview-filename">document.pdf</div>
+                  <div id="preview-size" style="font-size: 11px; color: var(--text-muted);">0 KB</div>
+                </div>
+              </div>
+
+              <!-- Metadata & Expiry Analysis -->
+              <div class="doc-card-meta" style="background: rgba(30, 41, 59, 0.6); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                <div class="meta-row">
+                  <span>Category:</span>
+                  <span id="drawer-category" class="badge badge-blue">Identity</span>
+                </div>
+                <div class="meta-row">
+                  <span>Family Member:</span>
+                  <strong id="drawer-person">-</strong>
+                </div>
+                <div class="meta-row">
+                  <span>Current Version:</span>
+                  <span id="drawer-version-badge" class="badge badge-green">v1</span>
+                </div>
+                <div class="meta-row">
+                  <span>Expiry Date:</span>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span id="drawer-expiry-date" style="font-weight: 600;">Not set</span>
+                    <span id="drawer-expiry-badge" class="badge badge-gray">-</span>
+                  </div>
+                </div>
+                <div id="drawer-snippet-container" class="meta-row hidden" style="flex-direction: column; align-items: flex-start; gap: 4px; background: rgba(0,0,0,0.2); padding: 6px 8px; border-radius: 4px;">
+                  <span style="font-size: 11px; color: var(--text-muted);">Source Match / Provenance:</span>
+                  <span id="drawer-expiry-snippet" style="font-size: 11px; font-style: italic; color: #cbd5e1; word-break: break-word;">-</span>
+                </div>
+                <div class="meta-row">
+                  <span>Review Status:</span>
+                  <span id="drawer-review-status" class="badge badge-orange">Proposed</span>
+                </div>
+                <div class="meta-row">
+                  <span>SHA-256 Hash:</span>
+                  <span id="drawer-hash" style="font-family: monospace; font-size: 11px; color: var(--text-muted);">-</span>
+                </div>
+                <button id="btn-open-review-metadata" class="btn btn-secondary" style="width: 100%; margin-top: 8px; font-size: 12px; padding: 6px;">
+                  ✏️ Review &amp; Correct Metadata
+                </button>
+              </div>
+
+              <!-- Action buttons -->
+              <div style="display: flex; gap: 8px;">
+                <button id="btn-export-current" class="btn btn-secondary" style="flex: 1;">Export Copy</button>
+                <button id="btn-open-add-version" class="btn btn-primary" style="flex: 1;">+ Upload New Version</button>
+              </div>
+
+              <!-- Immutable Version History -->
+              <div>
+                <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">Immutable Version History</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                  All revisions are permanently preserved and encrypted. Older versions are never overwritten.
+                </p>
+                <div id="drawer-versions-list" class="version-history-box"></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- 3. MODAL: IMPORT DOCUMENT -->
+      <div id="modal-import" class="modal-overlay hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Import Document to Vault</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <div class="form-group">
+            <label>Select File (PDF, PNG, JPG, WEBP, TIFF)</label>
+            <div class="file-picker-group">
+              <input type="text" id="import-filepath-input" class="input-field" placeholder="Select file..." readonly />
+              <button id="import-browse-btn" class="btn btn-secondary">Browse</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Document Title</label>
+            <input type="text" id="import-title-input" class="input-field" placeholder="e.g. Passport, Health Insurance Policy" />
+          </div>
+
+          <div class="form-group">
+            <label>Category</label>
+            <select id="import-category-select" class="input-field">
+              <option value="identity">Identity &amp; Passports</option>
+              <option value="insurance">Insurance</option>
+              <option value="medical">Medical Records</option>
+              <option value="tax">Tax &amp; Finance</option>
+              <option value="property">Property &amp; Legal</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Family Member / Person (optional)</label>
+            <input type="text" id="import-person-input" class="input-field" placeholder="e.g. John Doe" />
+          </div>
+
+          <div class="form-group">
+            <label>Tags (comma separated)</label>
+            <input type="text" id="import-tags-input" class="input-field" placeholder="e.g. travel, 2026, policy" />
+          </div>
+
+          <div class="form-group">
+            <label>Notes (optional)</label>
+            <textarea id="import-notes-input" class="input-field" rows="2" placeholder="Any details..."></textarea>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button id="submit-import-btn" class="btn btn-primary">Encrypt &amp; Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. MODAL: ADD IMMUTABLE VERSION -->
+      <div id="modal-new-version" class="modal-overlay hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Add New Document Version</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <p style="font-size: 13px; color: var(--text-secondary);">
+            The existing version will remain preserved as immutable history.
+          </p>
+
+          <div class="form-group">
+            <label>Updated File</label>
+            <div class="file-picker-group">
+              <input type="text" id="new-version-filepath-input" class="input-field" placeholder="Select updated document..." readonly />
+              <button id="new-version-browse-btn" class="btn btn-secondary">Browse</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Version Revision Notes</label>
+            <input type="text" id="new-version-notes-input" class="input-field" placeholder="e.g. 2026 renewal, address change" />
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button id="submit-new-version-btn" class="btn btn-primary">Save New Version</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. MODAL: REVIEW & CONFIRM METADATA -->
+      <div id="modal-review-metadata" class="modal-overlay hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Review &amp; Confirm Metadata</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <p style="font-size: 12px; color: var(--text-secondary);">
+            Verify and correct details extracted by local offline text analysis.
+          </p>
+
+          <div class="form-group">
+            <label>Document Classification</label>
+            <select id="review-doctype-select" class="input-field">
+              <option value="passport">Passport</option>
+              <option value="driving_license">Driving License</option>
+              <option value="insurance_policy">Insurance Policy</option>
+              <option value="medical_record">Medical Record</option>
+              <option value="tax_document">Tax Document</option>
+              <option value="property_document">Property / Deed</option>
+              <option value="other">Other Document</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Issuer / Authority</label>
+            <input type="text" id="review-issuer-input" class="input-field" placeholder="e.g. Passport Office, State Farm" />
+          </div>
+
+          <div class="form-group">
+            <label>Issue Date (YYYY-MM-DD)</label>
+            <input type="date" id="review-issuedate-input" class="input-field" />
+          </div>
+
+          <div class="form-group">
+            <label>Expiry Date (YYYY-MM-DD)</label>
+            <input type="date" id="review-expirydate-input" class="input-field" />
+          </div>
+
+          <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="review-confirm-checkbox" checked style="width: 16px; height: 16px; cursor: pointer;" />
+            <label for="review-confirm-checkbox" style="margin-bottom: 0; cursor: pointer;">
+              Mark as verified and confirmed
+            </label>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button id="submit-review-metadata-btn" class="btn btn-primary">Save &amp; Confirm</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6. MODAL: GROUNDED LOCAL AI Q&A -->
+      <div id="modal-ai-qa" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 600px; max-height: 85vh; display: flex; flex-direction: column;">
+          <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 20px;">🤖</span>
+              <h3>Ask FamilyVault Assistant</h3>
+            </div>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+            Ask questions about your family documents. Answers are generated entirely offline, grounded strictly in stored documents, and include verifiable citations.
+          </div>
+
+          <div class="form-group" style="margin-bottom: 8px;">
+            <div class="file-picker-group">
+              <input type="text" id="ai-query-input" class="input-field" placeholder="e.g. What is my passport number? When does my car insurance expire?" />
+              <button id="ai-submit-query-btn" class="btn btn-primary" style="background: #4f46e5;">Ask</button>
+            </div>
+          </div>
+
+          <div id="ai-loading" class="hidden" style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 13px;">
+            Searching documents and synthesizing grounded answer...
+          </div>
+
+          <!-- Answer & Citations Container -->
+          <div id="ai-result-box" class="hidden" style="overflow-y: auto; display: flex; flex-direction: column; gap: 14px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--accent);">Grounded Answer:</span>
+                <span id="ai-mode-badge" class="badge badge-blue">Local Extractive</span>
+              </div>
+              <div id="ai-answer-text" style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: var(--text-primary);"></div>
+            </div>
+
+            <!-- Citations -->
+            <div id="ai-citations-container">
+              <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 6px;">Source Citations:</span>
+              <div id="ai-citations-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+            </div>
+          </div>
+
+          <div class="modal-footer" style="margin-top: 10px;">
+            <button class="btn btn-secondary modal-close-btn">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. MODAL: CHANGE MASTER PASSWORD -->
+      <div id="modal-change-password" class="modal-overlay hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Change Vault Password</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <p style="font-size: 12px; color: var(--text-muted);">
+            Rewraps your Master Key with new Argon2id parameters. Stored documents do not need to be re-encrypted.
+          </p>
+
+          <div class="form-group">
+            <label>Current Password</label>
+            <input type="password" id="change-pass-current" class="input-field" />
+          </div>
+
+          <div class="form-group">
+            <label>New Password (min 8 characters)</label>
+            <input type="password" id="change-pass-new" class="input-field" />
+          </div>
+
+          <div class="form-group">
+            <label>Confirm New Password</label>
+            <input type="password" id="change-pass-confirm" class="input-field" />
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button id="submit-change-password-btn" class="btn btn-primary">Update Password</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast Notification -->
+      <div id="toast" class="hidden"></div>
+    </div>
+
+    <script src="renderer.js"></script>
   </body>
 </html>
