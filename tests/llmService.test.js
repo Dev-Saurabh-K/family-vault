@@ -60,15 +60,39 @@ test('LlmService: Grounded extractive QA returns citations and source references
   assert.ok(res2.answer.includes('Cetirizine') || res2.answer.includes('daily'));
   assert.strictEqual(res2.sources[0].documentTitle, 'Dr Smith Prescription');
 
-  // 3. Question about something not present
+  // 3. Question about metadata (person / expiry date)
   const res3 = await service.answerQuestion({
+    query: 'When does the State Farm insurance policy expire?',
+    documents: mockDocs
+  });
+  assert.ok(res3.answer.includes('2026-11-30') || res3.answer.includes('State Farm'));
+  assert.strictEqual(res3.sources[0].documentTitle, 'State Farm Auto Insurance');
+
+  // 4. Question with semantic match
+  const res4 = await service.answerQuestion({
+    query: 'What pills should I take before bed?',
+    documents: mockDocs,
+    semanticMatches: [{
+      documentId: 'doc-2',
+      documentTitle: 'Dr Smith Prescription',
+      fileName: 'prescription.pdf',
+      category: 'medical',
+      chunkText: 'Take Cetirizine 10mg once daily before sleep.',
+      similarity: 0.85
+    }]
+  });
+  assert.ok(res4.answer.includes('Cetirizine'));
+  assert.strictEqual(res4.sources[0].documentTitle, 'Dr Smith Prescription');
+
+  // 5. Question about something not present
+  const res5 = await service.answerQuestion({
     query: 'What is the password for the Wi-Fi router in the garage?',
     documents: mockDocs
   });
 
-  assert.ok(res3.answer.includes('could not find information'));
-  assert.strictEqual(res3.sources.length, 0);
-  assert.strictEqual(res3.confidence, 0);
+  assert.ok(res5.answer.includes('could not find information'));
+  assert.strictEqual(res5.sources.length, 0);
+  assert.strictEqual(res5.confidence, 0);
 });
 
 test('LlmService: Status and host binding security configuration', () => {
@@ -77,4 +101,17 @@ test('LlmService: Status and host binding security configuration', () => {
 
   assert.strictEqual(typeof status.isServerRunning, 'boolean');
   assert.strictEqual(status.port, 18432);
+  assert.strictEqual(typeof status.isModelDownloaded, 'boolean');
+  assert.strictEqual(typeof status.isBinaryAvailable, 'boolean');
+});
+
+test('LlmService: Directory resolution for download and runtime environments', () => {
+  const service = new LlmService();
+  const modelsDir = service.getModelsDirectory(true);
+  const binDir = service.getBinDirectory(true);
+
+  assert.ok(typeof modelsDir === 'string' && modelsDir.length > 0);
+  assert.ok(typeof binDir === 'string' && binDir.length > 0);
+  assert.ok(modelsDir.includes('models'));
+  assert.ok(binDir.includes('bin'));
 });

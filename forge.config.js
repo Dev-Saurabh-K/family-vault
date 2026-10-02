@@ -1,9 +1,19 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+
+const extraResources = [];
+if (fs.existsSync(path.join(__dirname, 'bin'))) extraResources.push('./bin');
+// Keep the installer small by default (~80 MB). The user can download Gemma 2 2B on-demand in the app.
+if (process.env.BUNDLE_MODEL === 'true' && fs.existsSync(path.join(__dirname, 'models'))) {
+  extraResources.push('./models');
+}
 
 module.exports = {
   packagerConfig: {
     asar: true,
+    extraResource: extraResources,
   },
   rebuildConfig: {},
   makers: [

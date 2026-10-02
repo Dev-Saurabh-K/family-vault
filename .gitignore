@@ -144,3 +144,9 @@ vite.config.ts.timestamp-*
 
 # Electron-Forge
 out/
+
+# Local AI weights and binaries
+models/*.gguf
+bin/*.exe
+!models/README.md
+!bin/README.md

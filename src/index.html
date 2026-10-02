@@ -176,7 +176,11 @@
             <div class="toolbar">
               <div class="search-box">
                 <span class="icon">🔍</span>
-                <input type="text" id="search-input" class="input-field" placeholder="Search documents by title, tags, or notes..." />
+                <input type="text" id="search-input" class="input-field" placeholder="Search documents by keyword or semantic meaning..." />
+              </div>
+              <div class="search-mode-group" style="display: flex; gap: 4px; background: #1e293b; padding: 3px; border-radius: 6px; border: 1px solid #334155;">
+                <button id="search-mode-keyword" class="btn active-mode" style="padding: 4px 10px; font-size: 12px; background: #3b82f6; color: #fff;">Keyword</button>
+                <button id="search-mode-semantic" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px; background: transparent; border: none;">Semantic ✨</button>
               </div>
               <button id="btn-open-import" class="btn btn-primary">
                 <span>+</span> Import Document
@@ -421,6 +425,60 @@
 
           <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
             Ask questions about your family documents. Answers are generated entirely offline, grounded strictly in stored documents, and include verifiable citations.
+          </div>
+
+          <div id="ai-engine-status" style="font-size: 11px; padding: 6px 10px; border-radius: 4px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); color: #93c5fd; display: flex; align-items: center; justify-content: space-between;">
+            <span>Engine: <strong id="ai-active-engine-text">Local Extractive &amp; Semantic Retrieval</strong></span>
+            <button id="btn-toggle-ai-settings" class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px;">Model Settings ⚙️</button>
+          </div>
+
+          <!-- Optional Neural Model Settings Panel -->
+          <div id="ai-settings-panel" class="hidden" style="margin-top: 4px; padding: 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); font-size: 12px;">
+            <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">Neural Inference Configuration (Optional)</div>
+            <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">
+              FamilyVault automatically answers questions using its built-in offline Extractive &amp; Semantic Assistant without any downloads. If you have <code>llama-server.exe</code> and a Gemma 2 2B GGUF model, you can link them below for neural LLM generation:
+            </p>
+            <div class="form-group" style="margin-bottom: 6px;">
+              <label style="font-size: 11px;">llama-server.exe Executable</label>
+              <div class="file-picker-group">
+                <input type="text" id="ai-llama-bin-input" class="input-field" placeholder="Select llama-server.exe..." readonly style="font-size: 11px;" />
+                <button id="ai-llama-bin-browse-btn" class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;">Browse</button>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label style="font-size: 11px;">GGUF Model File (*.gguf)</label>
+              <div class="file-picker-group">
+                <input type="text" id="ai-model-file-input" class="input-field" placeholder="Select .gguf model file..." readonly style="font-size: 11px;" />
+                <button id="ai-model-file-browse-btn" class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;">Browse</button>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="btn-start-ai-server" class="btn btn-primary" style="padding: 4px 10px; font-size: 11px;">Start Neural Engine</button>
+              <button id="btn-stop-ai-server" class="btn btn-danger hidden" style="padding: 4px 10px; font-size: 11px;">Stop Neural Engine</button>
+            </div>
+          </div>
+
+          <!-- One-Click Gemma 2 2B Setup Card -->
+          <div id="ai-quick-setup-box" class="hidden" style="margin-top: 8px; margin-bottom: 10px; padding: 12px; border-radius: 6px; background: rgba(79, 70, 229, 0.12); border: 1px solid rgba(79, 70, 229, 0.35);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <strong id="ai-setup-title" style="color: #a5b4fc; font-size: 13px;">⚡ One-Click Setup: Gemma 2 2B Neural Model</strong>
+              <span class="badge badge-green" style="font-size: 10px;">100% Local</span>
+            </div>
+            <p id="ai-setup-desc" style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.4;">
+              Automatically download and configure Google's Gemma 2 2B model (~1.6 GB) to run neural question answering completely offline on your computer.
+            </p>
+            <div id="ai-download-progress-container" class="hidden" style="margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; font-size: 11px; color: #cbd5e1; margin-bottom: 4px;">
+                <span id="ai-download-status-text">Preparing download...</span>
+                <span id="ai-download-percent-text">0%</span>
+              </div>
+              <div style="width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
+                <div id="ai-download-progress-bar" style="width: 0%; height: 100%; background: #4f46e5; transition: width 0.2s;"></div>
+              </div>
+            </div>
+            <button id="btn-download-setup-gemma" class="btn btn-primary" style="background: #4f46e5; font-size: 12px; padding: 6px 14px;">
+              ⬇️ Download &amp; Enable Gemma 2 2B
+            </button>
           </div>
 
           <div class="form-group" style="margin-bottom: 8px;">

@@ -35,8 +35,19 @@ contextBridge.exposeInMainWorld('familyVault', {
   exportVersion: (args) => ipcRenderer.invoke('document:export-version', args),
   updateMetadata: (args) => ipcRenderer.invoke('document:update-metadata', args),
   getUpcomingExpiries: () => ipcRenderer.invoke('document:upcoming-expiries'),
+  searchSemantic: (args) => ipcRenderer.invoke('search:semantic', args),
 
   // Grounded local AI Q&A
   askQuestion: (query) => ipcRenderer.invoke('ai:ask', { query }),
-  getAiStatus: () => ipcRenderer.invoke('ai:status')
+  getAiStatus: () => ipcRenderer.invoke('ai:status'),
+  selectModelFile: () => ipcRenderer.invoke('dialog:select-model-file'),
+  selectLlamaServer: () => ipcRenderer.invoke('dialog:select-llama-server'),
+  startAiServer: (args) => ipcRenderer.invoke('ai:start-server', args),
+  stopAiServer: () => ipcRenderer.invoke('ai:stop-server'),
+  downloadGemmaModel: () => ipcRenderer.invoke('ai:download-gemma'),
+  onAiDownloadProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('ai:download-progress', handler);
+    return () => ipcRenderer.removeListener('ai:download-progress', handler);
+  }
 });

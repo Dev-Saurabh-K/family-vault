@@ -49,6 +49,9 @@ const btnChangePasswordModal = document.getElementById('btn-change-password-moda
 const btnOpenAiQa = document.getElementById('btn-open-ai-qa');
 const btnCreateBackup = document.getElementById('btn-create-backup');
 const searchInput = document.getElementById('search-input');
+const searchModeKeywordBtn = document.getElementById('search-mode-keyword');
+const searchModeSemanticBtn = document.getElementById('search-mode-semantic');
+let searchMode = 'keyword'; // 'keyword' | 'semantic'
 const btnOpenImport = document.getElementById('btn-open-import');
 const docGrid = document.getElementById('doc-grid');
 const emptyState = document.getElementById('empty-state');
@@ -63,6 +66,12 @@ const aiResultBox = document.getElementById('ai-result-box');
 const aiAnswerText = document.getElementById('ai-answer-text');
 const aiModeBadge = document.getElementById('ai-mode-badge');
 const aiCitationsList = document.getElementById('ai-citations-list');
+const aiQuickSetupBox = document.getElementById('ai-quick-setup-box');
+const btnDownloadSetupGemma = document.getElementById('btn-download-setup-gemma');
+const aiDownloadProgressContainer = document.getElementById('ai-download-progress-container');
+const aiDownloadStatusText = document.getElementById('ai-download-status-text');
+const aiDownloadPercentText = document.getElementById('ai-download-percent-text');
+const aiDownloadProgressBar = document.getElementById('ai-download-progress-bar');
 
 // Drawer
 const drawerDetail = document.getElementById('drawer-detail');
@@ -314,6 +323,29 @@ btnLockVault.addEventListener('click', async () => {
 // Load & Filter Documents
 async function loadDocuments() {
   try {
+    if (searchMode === 'semantic' && currentSearch) {
+      const semanticMatches = await window.familyVault.searchSemantic({ query: currentSearch, limit: 15 });
+      if (semanticMatches && semanticMatches.length > 0) {
+        const docMap = new Map();
+        for (const m of semanticMatches) {
+          if (!docMap.has(m.documentId)) {
+            const doc = await window.familyVault.getDocument(m.documentId);
+            if (doc) {
+              doc._semanticScore = Math.round(m.similarity * 100);
+              doc._semanticSnippet = m.chunkText;
+              docMap.set(m.documentId, doc);
+            }
+          }
+        }
+        documents = Array.from(docMap.values());
+      } else {
+        documents = [];
+      }
+      renderDocuments();
+      updateCounts();
+      return;
+    }
+
     const filters = {};
     if (currentCategory) filters.category = currentCategory;
     if (currentSearch) filters.search = currentSearch;
@@ -379,10 +411,18 @@ function renderDocuments() {
       expiryBadgeHtml = `<span class="badge badge-green" style="font-size: 10px;">Exp: ${expiryDate}</span>`;
     }
 
+    const semanticBadgeHtml = doc._semanticScore != null 
+      ? `<span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4);">✨ ${doc._semanticScore}%</span>`
+      : '';
+    const semanticSnippetHtml = doc._semanticSnippet
+      ? `<div style="font-size: 11px; color: #cbd5e1; font-style: italic; margin-top: 6px; border-left: 2px solid #6366f1; padding-left: 6px; background: rgba(99, 102, 241, 0.08); padding-top: 2px; padding-bottom: 2px; border-radius: 2px;">"${escapeHtml(doc._semanticSnippet.length > 110 ? doc._semanticSnippet.substring(0, 110) + '...' : doc._semanticSnippet)}"</div>`
+      : '';
+
     card.innerHTML = `
       <div class="doc-card-header">
         <div class="doc-card-title">${escapeHtml(doc.title)}</div>
         <div style="display: flex; gap: 4px;">
+          ${semanticBadgeHtml}
           ${expiryBadgeHtml}
           <span class="badge badge-green">${vNum}</span>
         </div>
@@ -403,6 +443,7 @@ function renderDocuments() {
             ${doc.tags.map(t => `<span class="badge badge-gray">${escapeHtml(t)}</span>`).join('')}
           </div>
         ` : ''}
+        ${semanticSnippetHtml}
       </div>
       <div class="doc-card-footer">
         <span>${fSize}</span>
@@ -434,6 +475,29 @@ sidebarItems.forEach(item => {
     loadDocuments();
   });
 });
+
+// Search mode selection
+if (searchModeKeywordBtn && searchModeSemanticBtn) {
+  searchModeKeywordBtn.addEventListener('click', () => {
+    searchMode = 'keyword';
+    searchModeKeywordBtn.style.background = '#3b82f6';
+    searchModeKeywordBtn.style.color = '#fff';
+    searchModeSemanticBtn.style.background = 'transparent';
+    searchModeSemanticBtn.style.color = '#94a3b8';
+    searchInput.placeholder = 'Search documents by title, tags, or notes...';
+    loadDocuments();
+  });
+
+  searchModeSemanticBtn.addEventListener('click', () => {
+    searchMode = 'semantic';
+    searchModeSemanticBtn.style.background = '#3b82f6';
+    searchModeSemanticBtn.style.color = '#fff';
+    searchModeKeywordBtn.style.background = 'transparent';
+    searchModeKeywordBtn.style.color = '#94a3b8';
+    searchInput.placeholder = 'Search by meaning (e.g., "dental checkup coverage")...';
+    loadDocuments();
+  });
+}
 
 // Search input
 let searchDebounce = null;
@@ -822,12 +886,58 @@ btnCreateBackup.addEventListener('click', async () => {
 });
 
 // Grounded Local AI Document Assistant
-btnOpenAiQa.addEventListener('click', () => {
+btnOpenAiQa.addEventListener('click', async () => {
   aiQueryInput.value = '';
   aiResultBox.classList.add('hidden');
   aiLoading.classList.add('hidden');
   modalAiQa.classList.remove('hidden');
   aiQueryInput.focus();
+
+  try {
+    const status = await window.familyVault.getAiStatus();
+    const engineText = document.getElementById('ai-active-engine-text');
+    if (engineText) {
+      engineText.textContent = status.isServerRunning
+        ? 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)'
+        : 'Local Extractive & Semantic Retrieval';
+    }
+
+    if (aiLlamaBinInput && status.binaryPath && !aiLlamaBinInput.value) {
+      aiLlamaBinInput.value = status.binaryPath;
+    }
+    if (aiModelFileInput && status.modelPath && !aiModelFileInput.value) {
+      aiModelFileInput.value = status.modelPath;
+    }
+
+    if (btnStartAiServer && btnStopAiServer) {
+      if (status.isServerRunning) {
+        btnStartAiServer.classList.add('hidden');
+        btnStopAiServer.classList.remove('hidden');
+      } else {
+        btnStartAiServer.classList.remove('hidden');
+        btnStopAiServer.classList.add('hidden');
+      }
+    }
+
+    const setupTitle = document.getElementById('ai-setup-title');
+    const setupDesc = document.getElementById('ai-setup-desc');
+
+    if (aiQuickSetupBox) {
+      if (status.isServerRunning) {
+        aiQuickSetupBox.classList.add('hidden');
+      } else if (!status.isModelDownloaded) {
+        aiQuickSetupBox.classList.remove('hidden');
+        if (setupTitle) setupTitle.textContent = '⚡ One-Click Setup: Gemma 2 2B Neural Model';
+        if (setupDesc) setupDesc.textContent = "Automatically download Google's Gemma 2 2B model (~1.6 GB) to run neural questions completely offline on your computer.";
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = '⬇️ Download & Enable Gemma 2 2B';
+      } else {
+        aiQuickSetupBox.classList.remove('hidden');
+        if (setupTitle) setupTitle.textContent = '⚡ Gemma 2 2B Model is Ready';
+        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local engine.';
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = '🚀 Start Gemma 2 2B Engine';
+      }
+    }
+  } catch (e) {}
 });
 
 async function runAiQuery() {
@@ -844,7 +954,7 @@ async function runAiQuery() {
     aiLoading.classList.add('hidden');
     aiResultBox.classList.remove('hidden');
     aiAnswerText.textContent = res.answer;
-    aiModeBadge.textContent = res.mode === 'llama-server' ? 'Local Qwen3 GGUF' : 'Local Extractive Assistant';
+    aiModeBadge.textContent = res.mode === 'llama-server' ? 'Local Gemma 2 2B GGUF' : 'Local Extractive Assistant';
 
     aiCitationsList.innerHTML = '';
     if (res.sources && res.sources.length > 0) {
@@ -881,6 +991,159 @@ aiSubmitQueryBtn.addEventListener('click', runAiQuery);
 aiQueryInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') runAiQuery();
 });
+
+// AI Neural Model Settings
+const btnToggleAiSettings = document.getElementById('btn-toggle-ai-settings');
+const aiSettingsPanel = document.getElementById('ai-settings-panel');
+const aiLlamaBinInput = document.getElementById('ai-llama-bin-input');
+const aiLlamaBinBrowseBtn = document.getElementById('ai-llama-bin-browse-btn');
+const aiModelFileInput = document.getElementById('ai-model-file-input');
+const aiModelFileBrowseBtn = document.getElementById('ai-model-file-browse-btn');
+const btnStartAiServer = document.getElementById('btn-start-ai-server');
+const btnStopAiServer = document.getElementById('btn-stop-ai-server');
+
+if (btnToggleAiSettings) {
+  btnToggleAiSettings.addEventListener('click', () => {
+    aiSettingsPanel.classList.toggle('hidden');
+  });
+}
+
+if (aiLlamaBinBrowseBtn) {
+  aiLlamaBinBrowseBtn.addEventListener('click', async () => {
+    const file = await window.familyVault.selectLlamaServer();
+    if (file) aiLlamaBinInput.value = file;
+  });
+}
+
+if (aiModelFileBrowseBtn) {
+  aiModelFileBrowseBtn.addEventListener('click', async () => {
+    const file = await window.familyVault.selectModelFile();
+    if (file) aiModelFileInput.value = file;
+  });
+}
+
+if (btnStartAiServer) {
+  btnStartAiServer.addEventListener('click', async () => {
+    const binaryPath = aiLlamaBinInput.value.trim();
+    const modelPath = aiModelFileInput.value.trim();
+    if (!binaryPath) {
+      showToast('Please select your llama-server.exe executable', 'error');
+      return;
+    }
+    if (!modelPath) {
+      showToast('Please select your GGUF model file (*.gguf)', 'error');
+      return;
+    }
+
+    btnStartAiServer.disabled = true;
+    btnStartAiServer.textContent = 'Starting Engine...';
+
+    try {
+      const ready = await window.familyVault.startAiServer({ binaryPath, modelPath });
+      if (ready) {
+        showToast('Local Neural LLM engine started successfully (127.0.0.1:18432)', 'success');
+        document.getElementById('ai-active-engine-text').textContent = 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)';
+        btnStartAiServer.classList.add('hidden');
+        btnStopAiServer.classList.remove('hidden');
+        if (aiQuickSetupBox) aiQuickSetupBox.classList.add('hidden');
+        aiSettingsPanel.classList.add('hidden');
+      } else {
+        showToast('Server started but health check timed out', 'error');
+      }
+    } catch (err) {
+      showToast('Failed to start llama-server: ' + err.message, 'error');
+    } finally {
+      btnStartAiServer.disabled = false;
+      btnStartAiServer.textContent = 'Start Neural Engine';
+    }
+  });
+}
+
+if (btnStopAiServer) {
+  btnStopAiServer.addEventListener('click', async () => {
+    try {
+      await window.familyVault.stopAiServer();
+      showToast('Neural engine stopped; using local extractive assistant', 'info');
+      document.getElementById('ai-active-engine-text').textContent = 'Local Extractive & Semantic Retrieval';
+      btnStartAiServer.classList.remove('hidden');
+      btnStopAiServer.classList.add('hidden');
+      if (aiQuickSetupBox) {
+        aiQuickSetupBox.classList.remove('hidden');
+        const setupTitle = document.getElementById('ai-setup-title');
+        const setupDesc = document.getElementById('ai-setup-desc');
+        if (setupTitle) setupTitle.textContent = '⚡ Gemma 2 2B Model is Ready';
+        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local engine.';
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = '🚀 Start Gemma 2 2B Engine';
+      }
+    } catch (err) {
+      showToast('Failed to stop engine: ' + err.message, 'error');
+    }
+  });
+}
+
+// 1-Click Gemma 2 2B Download & Setup
+if (btnDownloadSetupGemma) {
+  btnDownloadSetupGemma.addEventListener('click', async () => {
+    btnDownloadSetupGemma.disabled = true;
+    btnDownloadSetupGemma.textContent = 'Setting Up...';
+
+    if (aiDownloadProgressContainer) {
+      aiDownloadProgressContainer.classList.remove('hidden');
+    }
+    if (aiDownloadStatusText) {
+      aiDownloadStatusText.textContent = 'Connecting to download source...';
+    }
+    if (aiDownloadProgressBar) {
+      aiDownloadProgressBar.style.width = '0%';
+    }
+    if (aiDownloadPercentText) {
+      aiDownloadPercentText.textContent = '0%';
+    }
+
+    const unsubscribe = window.familyVault.onAiDownloadProgress((data) => {
+      if (aiDownloadStatusText) {
+        aiDownloadStatusText.textContent = data.message || data.stage || 'Downloading...';
+      }
+      if (typeof data.percent === 'number') {
+        if (aiDownloadPercentText) {
+          aiDownloadPercentText.textContent = `${data.percent}%`;
+        }
+        if (aiDownloadProgressBar) {
+          aiDownloadProgressBar.style.width = `${data.percent}%`;
+        }
+      }
+    });
+
+    try {
+      const res = await window.familyVault.downloadGemmaModel();
+      if (res && res.success) {
+        showToast('Gemma 2 2B model installed & local engine started! (127.0.0.1:18432)', 'success');
+        if (aiQuickSetupBox) {
+          aiQuickSetupBox.classList.add('hidden');
+        }
+        const engineText = document.getElementById('ai-active-engine-text');
+        if (engineText) {
+          engineText.textContent = 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)';
+        }
+        if (btnStartAiServer) btnStartAiServer.classList.add('hidden');
+        if (btnStopAiServer) btnStopAiServer.classList.remove('hidden');
+      } else {
+        showToast('Download finished, but engine did not start. You can start it from Model Settings.', 'warning');
+      }
+    } catch (err) {
+      showToast('Model setup failed: ' + err.message, 'error');
+      if (aiDownloadStatusText) {
+        aiDownloadStatusText.textContent = 'Error: ' + err.message;
+      }
+    } finally {
+      btnDownloadSetupGemma.disabled = false;
+      btnDownloadSetupGemma.textContent = '⬇️ Download & Enable Gemma 2 2B';
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    }
+  });
+}
 
 // Modal close button handlers
 document.querySelectorAll('.modal-close-btn').forEach(btn => {

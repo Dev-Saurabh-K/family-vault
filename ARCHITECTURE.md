@@ -11,7 +11,7 @@ Electron main process
     ├── SQLCipher database and search
     ├── import / processing job system
     ├── OCRService → PaddleOCR runtime (primary)
-    ├── LLMService → bundled llama-server.exe → Qwen3 4B GGUF
+    ├── LLMService → bundled llama-server.exe → Gemma 2 2B GGUF
     └── optional EmbeddingService + VectorStore
 ```
 
@@ -72,7 +72,7 @@ The LLM may parse a query into a constrained schema or write a grounded answer; 
 
 ## Local AI runtime
 
-Bundle `llama-server.exe` and the initial Qwen3 4B GGUF with the application distribution; keep model assets outside `app.asar`. The server is launched and supervised by the main process on an application-selected local port with an explicit `127.0.0.1` host binding. It is inference-only, not a general agent or files tool. The LLM and embedding interfaces must remain replaceable.
+Bundle `llama-server.exe` and the initial Gemma 2 2B GGUF with the application distribution; keep model assets outside `app.asar`. The server is launched and supervised by the main process on an application-selected local port with an explicit `127.0.0.1` host binding. It is inference-only, not a general agent or files tool. The LLM and embedding interfaces must remain replaceable.
 
 ## Backups and future sync
 

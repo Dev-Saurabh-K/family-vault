@@ -16,6 +16,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "release": "electron-forge release",
+    "setup:ai": "node scripts/setup-ai.js",
     "test": "node --test \"tests/**/*.test.js\"",
     "lint": "echo \"No linting configured\""
   },

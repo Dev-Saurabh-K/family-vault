@@ -4,6 +4,7 @@ const { app, BrowserWindow, session } = require('electron');
 const path = require('node:path');
 const { registerIpcHandlers } = require('./main/ipc');
 const { vaultService } = require('./main/vault/vaultService');
+const { llmService } = require('./main/services/llmService');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -47,6 +48,9 @@ const createWindow = () => {
 app.whenReady().then(() => {
   createWindow();
 
+  // Attempt auto-detection of local llama-server and model if present
+  llmService.autoDetectAndStart().catch(() => {});
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -58,6 +62,7 @@ app.on('before-quit', () => {
   // Lock vault and zeroize all sensitive keys in memory before closing
   try {
     vaultService.lockVault();
+    llmService.stopServer();
   } catch (e) {}
 });
 

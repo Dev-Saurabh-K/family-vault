@@ -20,6 +20,7 @@ const extractionService = require('../services/extractionService');
 const { llmService } = require('../services/llmService');
 const { createVaultBackup, restoreVaultBackup } = require('./backupService');
 const dbLayer = require('./database');
+const { embeddingService } = require('../services/embeddingService');
 
 const SUPPORTED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.tiff', '.bmp'];
 
@@ -382,6 +383,25 @@ class VaultService {
         if (category === 'other' && analysis.category && analysis.category !== 'other') {
           this._db.prepare('UPDATE documents SET category = ? WHERE id = ?').run(analysis.category, doc.id);
         }
+
+        // Generate and store vector embeddings for semantic search
+        try {
+          const chunks = embeddingService.chunkText(text);
+          if (chunks.length > 0) {
+            const chunkEmbeddings = [];
+            for (let i = 0; i < chunks.length; i++) {
+              const vector = await embeddingService.generateEmbedding(chunks[i]);
+              chunkEmbeddings.push({
+                chunkIndex: i,
+                chunkText: chunks[i],
+                vector
+              });
+            }
+            dbLayer.saveVectorEmbeddings(this._db, version.id, doc.id, chunkEmbeddings);
+          }
+        } catch (embErr) {
+          // Embedding generation failure should never abort import
+        }
       }
     } catch (e) {
       // extraction failure should never abort import
@@ -459,6 +479,25 @@ class VaultService {
           reviewStatus: analysis.reviewStatus,
           textContent: text
         });
+
+        // Generate and store vector embeddings for semantic search
+        try {
+          const chunks = embeddingService.chunkText(text);
+          if (chunks.length > 0) {
+            const chunkEmbeddings = [];
+            for (let i = 0; i < chunks.length; i++) {
+              const vector = await embeddingService.generateEmbedding(chunks[i]);
+              chunkEmbeddings.push({
+                chunkIndex: i,
+                chunkText: chunks[i],
+                vector
+              });
+            }
+            dbLayer.saveVectorEmbeddings(this._db, version.id, documentId, chunkEmbeddings);
+          }
+        } catch (embErr) {
+          // Non-blocking
+        }
       }
     } catch (e) {}
 
@@ -494,6 +533,22 @@ class VaultService {
   listUpcomingExpiries() {
     this._assertUnlocked();
     return dbLayer.listUpcomingExpiries(this._db);
+  }
+
+  /**
+   * Performs semantic similarity search across embedded text passages.
+   * @param {object} options
+   * @param {string} options.query
+   * @param {number} [options.limit=5]
+   * @param {number} [options.minScore=0.05]
+   */
+  async searchSemantic({ query, limit = 5, minScore = 0.05 }) {
+    this._assertUnlocked();
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      return [];
+    }
+    const queryVector = await embeddingService.generateEmbedding(query.trim());
+    return dbLayer.searchVectorEmbeddings(this._db, queryVector, { limit, minScore });
   }
 
   /**
@@ -591,7 +646,14 @@ class VaultService {
   async askQuestion(query) {
     this._assertUnlocked();
     const allDocs = dbLayer.listDocuments(this._db, {});
-    return await llmService.answerQuestion({ query, documents: allDocs });
+    let semanticMatches = [];
+    try {
+      if (query && typeof query === 'string' && query.trim()) {
+        const queryVector = await embeddingService.generateEmbedding(query.trim());
+        semanticMatches = dbLayer.searchVectorEmbeddings(this._db, queryVector, { limit: 5, minScore: 0.08 });
+      }
+    } catch (e) {}
+    return await llmService.answerQuestion({ query, documents: allDocs, semanticMatches });
   }
 
   getAiStatus() {

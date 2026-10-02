@@ -9,6 +9,7 @@
 const { ipcMain, dialog } = require('electron');
 const { z } = require('zod');
 const { vaultService } = require('./vault/vaultService');
+const { llmService } = require('./services/llmService');
 
 const CreateVaultSchema = z.object({
   vaultPath: z.string().min(1),
@@ -170,6 +171,14 @@ function registerIpcHandlers(mainWindow) {
     return vaultService.listUpcomingExpiries();
   });
 
+  ipcMain.handle('search:semantic', async (_event, args) => {
+    const query = args && typeof args === 'object' ? args.query : args;
+    if (!query || typeof query !== 'string') throw new Error('Query is required');
+    const limit = args && args.limit ? args.limit : 5;
+    const minScore = args && args.minScore ? args.minScore : 0.05;
+    return await vaultService.searchSemantic({ query, limit, minScore });
+  });
+
   // Local AI Grounded Q&A
   ipcMain.handle('ai:ask', async (_event, { query }) => {
     if (!query) throw new Error('Query is required');
@@ -178,6 +187,42 @@ function registerIpcHandlers(mainWindow) {
 
   ipcMain.handle('ai:status', async () => {
     return vaultService.getAiStatus();
+  });
+
+  ipcMain.handle('dialog:select-model-file', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'GGUF Models (*.gguf)', extensions: ['gguf'] }],
+      title: 'Select GGUF Model File'
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
+
+  ipcMain.handle('dialog:select-llama-server', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'llama-server (*.exe)', extensions: ['exe'] }],
+      title: 'Select llama-server.exe Executable'
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
+
+  ipcMain.handle('ai:start-server', async (_event, { binaryPath, modelPath }) => {
+    if (!binaryPath || !modelPath) throw new Error('binaryPath and modelPath are required');
+    return await llmService.startServer(binaryPath, modelPath);
+  });
+
+  ipcMain.handle('ai:stop-server', async () => {
+    llmService.stopServer();
+    return { success: true };
+  });
+
+  ipcMain.handle('ai:download-gemma', async () => {
+    return await llmService.downloadAndSetupGemma((progress) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ai:download-progress', progress);
+      }
+    });
   });
 }
 

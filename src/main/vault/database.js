@@ -9,6 +9,7 @@
 const Database = require('better-sqlite3-multiple-ciphers');
 const { v4: uuidv4 } = require('uuid');
 const { computeExpiryStatus } = require('../services/extractionService');
+const { embeddingService } = require('../services/embeddingService');
 
 const DB_FILE_NAME = 'vault.db';
 
@@ -99,11 +100,23 @@ function initSchema(db) {
       timestamp TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS vector_embeddings (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      version_id TEXT NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE,
+      chunk_index INTEGER NOT NULL,
+      chunk_text TEXT NOT NULL,
+      vector_blob BLOB NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_versions_doc_id ON document_versions(document_id);
     CREATE INDEX IF NOT EXISTS idx_metadata_expiry ON extracted_metadata(expiry_date);
     CREATE INDEX IF NOT EXISTS idx_docs_person ON documents(person);
     CREATE INDEX IF NOT EXISTS idx_docs_category ON documents(category);
     CREATE INDEX IF NOT EXISTS idx_versions_sha256 ON document_versions(sha256);
+    CREATE INDEX IF NOT EXISTS idx_vector_doc_id ON vector_embeddings(document_id);
+    CREATE INDEX IF NOT EXISTS idx_vector_version_id ON vector_embeddings(version_id);
   `);
 
   // Migrate columns if upgrading from earlier table definitions
@@ -440,6 +453,74 @@ function formatDocumentRow(row) {
   };
 }
 
+/**
+ * Persists vector embeddings for text chunks belonging to a document version.
+ * @param {Database} db 
+ * @param {string} versionId 
+ * @param {string} documentId 
+ * @param {Array<{ chunkIndex: number, chunkText: string, vector: Float32Array }>} chunkEmbeddings 
+ */
+function saveVectorEmbeddings(db, versionId, documentId, chunkEmbeddings) {
+  if (!chunkEmbeddings || chunkEmbeddings.length === 0) return;
+
+  const insertStmt = db.prepare(`
+    INSERT INTO vector_embeddings (id, document_id, version_id, chunk_index, chunk_text, vector_blob, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const now = new Date().toISOString();
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM vector_embeddings WHERE version_id = ?').run(versionId);
+    for (const item of chunkEmbeddings) {
+      const id = uuidv4();
+      const blob = embeddingService.vectorToBlob(item.vector);
+      insertStmt.run(id, documentId, versionId, item.chunkIndex, item.chunkText, blob, now);
+    }
+  });
+
+  tx();
+}
+
+/**
+ * Searches stored vector embeddings using cosine similarity against the query vector.
+ * @param {Database} db 
+ * @param {Float32Array} queryVector 
+ * @param {object} options 
+ * @returns {Array<object>}
+ */
+function searchVectorEmbeddings(db, queryVector, { limit = 5, minScore = 0.05 } = {}) {
+  const rows = db.prepare(`
+    SELECT v.id, v.document_id, v.version_id, v.chunk_index, v.chunk_text, v.vector_blob,
+           d.title as document_title, d.category, d.person, ver.file_name
+    FROM vector_embeddings v
+    JOIN documents d ON v.document_id = d.id
+    JOIN document_versions ver ON v.version_id = ver.id
+  `).all();
+
+  const scored = [];
+  for (const row of rows) {
+    const chunkVector = embeddingService.blobToVector(row.vector_blob);
+    const score = embeddingService.cosineSimilarity(queryVector, chunkVector);
+    if (score >= minScore) {
+      scored.push({
+        id: row.id,
+        documentId: row.document_id,
+        versionId: row.version_id,
+        chunkIndex: row.chunk_index,
+        chunkText: row.chunk_text,
+        documentTitle: row.document_title,
+        category: row.category,
+        person: row.person,
+        fileName: row.file_name,
+        similarity: Math.round(score * 1000) / 1000
+      });
+    }
+  }
+
+  scored.sort((a, b) => b.similarity - a.similarity);
+  return scored.slice(0, limit);
+}
+
 module.exports = {
   DB_FILE_NAME,
   openVaultDatabase,
@@ -453,5 +534,7 @@ module.exports = {
   getVersionById,
   findVersionByHash,
   saveMetadata,
-  recordAuditEvent
+  recordAuditEvent,
+  saveVectorEmbeddings,
+  searchVectorEmbeddings
 };

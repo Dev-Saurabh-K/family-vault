@@ -22,7 +22,7 @@ The installed application is replaceable. A user's vault is their data and must 
 - Local text extraction and PaddleOCR-based OCR.
 - Structured metadata and full-text search/filtering.
 - Optional, separately enabled semantic-search layer later.
-- Bundled local AI inference using `llama-server.exe` and an initial Qwen3 4B GGUF model.
+- Bundled local AI inference using `llama-server.exe` and an initial Gemma 2 2B GGUF model.
 - Encrypted portable backups.
 
 ## Explicitly out of scope for now

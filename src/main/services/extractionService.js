@@ -42,6 +42,12 @@ async function extractTextFromBuffer(buffer, mimeType) {
         method: 'native-pdf'
       };
     } catch (err) {
+      try {
+        const str = buffer.toString('utf8');
+        if (str && /^[\x20-\x7E\s\r\n\t]+$/.test(str.substring(0, 100))) {
+          return { text: str.trim(), pageCount: 1, method: 'plaintext-fallback' };
+        }
+      } catch (e) {}
       return { text: '', pageCount: 1, method: 'pdf-parse-error' };
     }
   }
