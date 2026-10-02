@@ -115,3 +115,45 @@ test('LlmService: Directory resolution for download and runtime environments', (
   assert.ok(modelsDir.includes('models'));
   assert.ok(binDir.includes('bin'));
 });
+
+test('LlmService: Handles OCR ticket data and travel schedule questions with synonym expansion', async () => {
+  const service = new LlmService();
+
+  const ticketDoc = {
+    id: 'doc-ticket',
+    title: 'shubham ticket',
+    category: 'transport',
+    person: 'Shubham Tiwari',
+    currentVersion: {
+      fileName: 'shubham ticket.pdf',
+      metadata: {
+        docType: 'ticket',
+        textContent: `Electronic Reservation Slip (ERS) orl user
+BUKAR (BXR) BUXAR (BXR) HOWRAH IN (WH)
+Start Date" 22.5ept- 2026 Departure* 23:23 22-Sep-2026 Arial* 11:30 23 Sept 2026
+PR Train No Name Css
+2704285754 13042 / HIMGIRI EXPRESS SLEEPER CLASS (SL)
+Passenger Details
+1. SHUBHAM TAR now curfsTIso/uPER EE`
+      }
+    }
+  };
+
+  // 1. Person timing query
+  const res1 = await service.answerQuestion({
+    query: 'when is shubham train timing?',
+    documents: [ticketDoc]
+  });
+  assert.ok(res1.sources.length > 0);
+  assert.strictEqual(res1.sources[0].documentTitle, 'shubham ticket');
+  assert.ok(res1.sources[0].snippet.includes('23:23') || res1.sources[0].snippet.includes('HIMGIRI'));
+
+  // 2. Schedule synonym query
+  const res2 = await service.answerQuestion({
+    query: 'tell me train schedule',
+    documents: [ticketDoc]
+  });
+  assert.ok(res2.sources.length > 0);
+  assert.strictEqual(res2.sources[0].documentTitle, 'shubham ticket');
+  assert.ok(res2.sources[0].snippet.includes('13042') || res2.sources[0].snippet.includes('HIMGIRI'));
+});

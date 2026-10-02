@@ -14,6 +14,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
+const os = require('node:os');
 
 const GEMMA_MODEL_URL = 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf';
 const GEMMA_MODEL_FILENAME = 'gemma-2-2b-it-Q4_K_M.gguf';
@@ -283,10 +284,13 @@ class LlmService {
       this.stopServer();
     }
 
-    if (!fs.existsSync(binaryPath)) {
+    binaryPath = binaryPath || this.findBinaryPath();
+    modelPath = modelPath || this.findModelPath();
+
+    if (!binaryPath || !fs.existsSync(binaryPath)) {
       throw new Error(`llama-server executable not found at: ${binaryPath}`);
     }
-    if (!fs.existsSync(modelPath)) {
+    if (!modelPath || !fs.existsSync(modelPath)) {
       throw new Error(`GGUF model not found at: ${modelPath}`);
     }
 
@@ -294,11 +298,14 @@ class LlmService {
     this._modelPath = modelPath;
 
     // Strict local-only parameters: host 127.0.0.1, no web UI, no remote endpoints
+    const cpuCount = os.cpus() ? os.cpus().length : 4;
+    const threadCount = Math.max(2, Math.min(8, Math.floor(cpuCount / 2)));
     const args = [
       '--host', '127.0.0.1',
       '--port', String(port),
       '-m', modelPath,
-      '-c', '4096'
+      '-c', '4096',
+      '-t', String(threadCount)
     ];
 
     this._process = spawn(binaryPath, args, {
@@ -322,50 +329,31 @@ class LlmService {
    */
   async autoDetectAndStart() {
     try {
-      const appDir = path.resolve(__dirname, '../../..');
-      const resourcesDir = process.resourcesPath || '';
-      const userDataDir = getUserDataDir();
-
-      const candidateBins = [
-        path.join(resourcesDir, 'bin', 'llama-server.exe'),
-        path.join(resourcesDir, 'llama-server.exe'),
-        path.join(userDataDir, 'bin', 'llama-server.exe'),
-        path.join(appDir, 'bin', 'llama-server.exe'),
-        path.join(appDir, 'llama-server.exe'),
-        path.join(process.cwd(), 'bin', 'llama-server.exe'),
-        path.join(process.cwd(), 'llama-server.exe')
-      ];
-
-      const candidateModelDirs = [
-        path.join(resourcesDir, 'models'),
-        resourcesDir,
-        path.join(userDataDir, 'models'),
-        path.join(appDir, 'models'),
-        path.join(process.cwd(), 'models'),
-        appDir,
-        process.cwd()
-      ];
-
-      const foundBin = candidateBins.find(p => p && fs.existsSync(p));
-      if (!foundBin) return false;
-
-      let foundModel = null;
-      for (const dir of candidateModelDirs) {
-        if (fs.existsSync(dir)) {
-          const entries = fs.readdirSync(dir);
-          const gguf = entries.find(f => f.toLowerCase().endsWith('.gguf'));
-          if (gguf) {
-            foundModel = path.join(dir, gguf);
-            break;
-          }
-        }
+      // Check if llama-server is already running and responding on this port
+      const isAlreadyHealthy = await new Promise((resolve) => {
+        const req = http.get({
+          hostname: '127.0.0.1',
+          port: this._port,
+          path: '/health',
+          timeout: 800
+        }, res => resolve(res.statusCode === 200));
+        req.on('error', () => resolve(false));
+      });
+      if (isAlreadyHealthy) {
+        this._isReady = true;
+        return true;
       }
+
+      const foundBin = this.findBinaryPath();
+      const foundModel = this.findModelPath();
 
       if (foundBin && foundModel) {
         return await this.startServer(foundBin, foundModel);
+      } else {
+        console.warn('[llmService] autoDetectAndStart missing files:', { foundBin, foundModel });
       }
     } catch (e) {
-      // Auto-detection failure should not crash app
+      console.warn('[llmService] autoDetectAndStart caught error:', e.message || e);
     }
     return false;
   }
@@ -373,7 +361,7 @@ class LlmService {
   stopServer() {
     if (this._process) {
       try {
-        this._process.kill('SIGTERM');
+        this._process.kill();
       } catch (e) {}
       this._process = null;
     }
@@ -391,10 +379,35 @@ class LlmService {
     }
 
     // 1. Retrieve and score document candidates
-    const searchTerms = query.toLowerCase()
+    const rawTerms = query.toLowerCase()
       .replace(/[^\w\s]/g, ' ')
       .split(/\s+/)
       .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+
+    // Travel & document synonym expansion for enhanced retrieval recall
+    const SYNONYM_MAP = {
+      schedule: ['timing', 'departure', 'arrival', 'time', 'train', 'flight', 'ticket', 'date'],
+      timing: ['schedule', 'time', 'departure', 'arrival', 'train', 'flight'],
+      time: ['timing', 'schedule', 'departure', 'arrival', 'hours'],
+      train: ['express', 'railway', 'irctc', 'pnr', 'ticket', 'berth', 'station', 'bogey', 'coach'],
+      ticket: ['pnr', 'booking', 'train', 'flight', 'reservation', 'boarding'],
+      flight: ['airline', 'ticket', 'departure', 'arrival', 'airport'],
+      when: ['date', 'time', 'timing', 'schedule', 'departure', 'expiry', 'validity'],
+      where: ['station', 'city', 'address', 'location', 'airport', 'terminal'],
+      cost: ['fare', 'price', 'amount', 'total', 'fee', 'charge'],
+      fee: ['fare', 'price', 'amount', 'cost', 'total'],
+      fare: ['fee', 'price', 'cost', 'amount', 'total', 'ticket']
+    };
+
+    const expandedTerms = new Set(rawTerms);
+    for (const term of rawTerms) {
+      if (SYNONYM_MAP[term]) {
+        for (const syn of SYNONYM_MAP[term]) {
+          expandedTerms.add(syn);
+        }
+      }
+    }
+    const searchTerms = [...expandedTerms];
 
     const scoredSegments = [];
 
@@ -424,6 +437,15 @@ class LlmService {
       const issuer = doc.currentVersion?.metadata?.issuer || '';
       const expiryDate = doc.currentVersion?.metadata?.expiryDate || '';
 
+      // Check if document title, filename, or person matches raw query terms
+      const docName = `${title} ${doc.currentVersion?.fileName || ''} ${doc.person || ''}`.toLowerCase();
+      let docTitleBonus = 0;
+      for (const term of rawTerms) {
+        if (docName.includes(term)) {
+          docTitleBonus += 15;
+        }
+      }
+
       // Split document into coherent passages
       const passages = [];
 
@@ -447,72 +469,104 @@ class LlmService {
       if (notes && !passages.includes(notes)) passages.push(notes);
 
       if (text) {
-        // Split by double newline or chunk into ~300 character sliding windows
-        const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-        for (const p of paras) {
-          if (p.length <= 400) {
-            passages.push(p);
-          } else {
-            // Split into sentences and group into ~300 char chunks
-            const sents = p.match(/[^.!?]+[.!?]+(\s|$)/g) || [p];
-            let current = '';
-            for (const s of sents) {
-              if ((current + s).length > 350) {
-                if (current.trim()) passages.push(current.trim());
-                current = s;
-              } else {
-                current += s;
-              }
-            }
-            if (current.trim()) passages.push(current.trim());
+        const trimmedText = text.trim();
+        // If document is concise (tickets, invoices, IDs, certificates <= 2500 chars),
+        // keep the entire document intact as a primary context block
+        if (trimmedText.length <= 2500) {
+          passages.push(trimmedText);
+        }
+
+        // Sliding overlapping window chunking (window size 800, overlap 150)
+        let start = 0;
+        const maxChunkLen = 800;
+        const overlap = 150;
+        while (start < trimmedText.length) {
+          let end = start + maxChunkLen;
+          if (end >= trimmedText.length) {
+            const lastChunk = trimmedText.substring(start).trim();
+            if (lastChunk && !passages.includes(lastChunk)) passages.push(lastChunk);
+            break;
           }
+          let breakPoint = trimmedText.lastIndexOf('\n', end);
+          if (breakPoint <= start + (maxChunkLen * 0.5)) {
+            breakPoint = trimmedText.lastIndexOf(' ', end);
+          }
+          if (breakPoint <= start + (maxChunkLen * 0.5)) {
+            breakPoint = end;
+          }
+
+          const chunk = trimmedText.substring(start, breakPoint).trim();
+          if (chunk && !passages.includes(chunk)) {
+            passages.push(chunk);
+          }
+          start = Math.max(breakPoint - overlap, start + 1);
         }
       }
 
       for (const p of passages) {
-        let distinctMatches = 0;
+        let distinctRawMatches = 0;
+        let distinctExpandedMatches = 0;
         let totalMatches = 0;
         const lowerP = p.toLowerCase();
 
-        for (const term of searchTerms) {
+        for (const term of rawTerms) {
           const regex = new RegExp(`\\b${term}\\b`, 'i');
           if (regex.test(p)) {
-            distinctMatches += 1;
+            distinctRawMatches += 1;
             totalMatches += 1;
           } else if (lowerP.includes(term)) {
             totalMatches += 0.5;
           }
         }
 
-        if (totalMatches > 0) {
-          // Distinct terms receive heavy weighting (IR best practice)
-          const score = (distinctMatches * 10) + (totalMatches * 2);
+        for (const term of searchTerms) {
+          if (!rawTerms.includes(term)) {
+            const regex = new RegExp(`\\b${term}\\b`, 'i');
+            if (regex.test(p)) {
+              distinctExpandedMatches += 1;
+              totalMatches += 0.5;
+            }
+          }
+        }
+
+        const totalRelevance = (distinctRawMatches * 15) + (distinctExpandedMatches * 5) + (totalMatches * 2) + docTitleBonus;
+        if (totalRelevance > 0) {
           scoredSegments.push({
             documentId: doc.id,
-            documentTitle: title,
+            documentTitle: title || doc.currentVersion?.fileName || 'Document',
             fileName: doc.currentVersion?.fileName || 'document',
             category: doc.category,
             snippet: p,
-            score
+            score: totalRelevance
           });
         }
       }
     }
 
-    // Deduplicate passages by documentId + snippet
-    const uniqueSegments = [];
-    const seen = new Set();
+    // Deduplicate passages by documentId + snippet, retaining highest score
+    const segmentMap = new Map();
     for (const seg of scoredSegments) {
       const key = `${seg.documentId}::${seg.snippet}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueSegments.push(seg);
+      if (!segmentMap.has(key) || segmentMap.get(key).score < seg.score) {
+        segmentMap.set(key, seg);
       }
     }
 
-    // Sort by relevance score
+    const uniqueSegments = Array.from(segmentMap.values());
     uniqueSegments.sort((a, b) => b.score - a.score);
-    const topSegments = uniqueSegments.slice(0, 5);
+
+    // Prune redundant sub-snippets from the same document
+    const nonRedundant = [];
+    for (const seg of uniqueSegments) {
+      const isSub = nonRedundant.some(existing => 
+        existing.documentId === seg.documentId && existing.snippet.includes(seg.snippet)
+      );
+      if (!isSub) {
+        nonRedundant.push(seg);
+      }
+    }
+
+    const topSegments = nonRedundant.slice(0, 3);
 
     if (topSegments.length === 0) {
       return {
@@ -540,6 +594,7 @@ class LlmService {
           mode: 'llama-server'
         };
       } catch (err) {
+        console.warn('[llmService] Llama server query error:', err.message || err);
         // Fall back gracefully to local deterministic extraction
       }
     }
@@ -567,7 +622,21 @@ class LlmService {
 
   _buildPrompt(query, segments) {
     const context = segments.map((s, i) => `[Source ${i+1}: ${s.documentTitle}]\n${s.snippet}`).join('\n\n');
-    return `<start_of_turn>user\nYou are FamilyVault's private offline document assistant. Answer the user question strictly using only the provided document sources. If the answer cannot be found in the sources, say "I could not find information regarding this in your stored documents." Do not invent facts. Always cite the document title.\n\nSources:\n${context}\n\nQuestion: ${query}<end_of_turn>\n<start_of_turn>model\n`;
+    return `<start_of_turn>user
+You are FamilyVault's private offline document assistant. Answer the user's question directly, accurately, and concisely using the provided document sources.
+- Synthesize facts across the sources, including document titles, passenger or person names, dates, times, train or flight names, stations, and reference numbers.
+- The sources may contain OCR text with minor scanning typos (e.g., "5ept" for "Sept", "Arial" for "Arrival", "Departure* 23:23"). Accurately interpret these travel details.
+- When asked about a specific person (e.g., "shubham"), check the document titles and passenger sections to find the relevant ticket or document.
+- State the exact facts (times, dates, train/flight names, locations) found in the sources.
+- If and only if the sources genuinely contain no relevant information to answer the question, say "I could not find information regarding this in your stored documents."
+- Always cite the document title.
+
+Sources:
+${context}
+
+Question: ${query}<end_of_turn>
+<start_of_turn>model
+`;
   }
 
   async _queryLlamaServer(prompt) {
@@ -588,7 +657,7 @@ class LlmService {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(data)
         },
-        timeout: 10000
+        timeout: 60000
       }, (res) => {
         let body = '';
         res.on('data', chunk => body += chunk);

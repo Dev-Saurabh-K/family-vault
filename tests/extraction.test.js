@@ -6,8 +6,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const { findDateCandidates, analyzeDocumentText, computeExpiryStatus } = require('../src/main/services/extractionService');
+const { findDateCandidates, analyzeDocumentText, computeExpiryStatus, extractTextFromBuffer } = require('../src/main/services/extractionService');
 const { VaultService } = require('../src/main/vault/vaultService');
+
+test('ExtractionService: extractTextFromBuffer handles plaintext and invalid buffers gracefully', async () => {
+  const plainBuf = Buffer.from('Hello world plain text content', 'utf8');
+  const resPlain = await extractTextFromBuffer(plainBuf, 'application/pdf');
+  assert.strictEqual(typeof resPlain.text, 'string');
+
+  const emptyBuf = Buffer.from('', 'utf8');
+  const resEmpty = await extractTextFromBuffer(emptyBuf, 'application/pdf');
+  assert.strictEqual(resEmpty.text, '');
+});
 
 test('ExtractionService: Deterministic date detection and candidate matching', () => {
   const sampleText = `

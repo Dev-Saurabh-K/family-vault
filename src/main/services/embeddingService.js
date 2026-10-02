@@ -23,33 +23,70 @@ class EmbeddingService {
   }
 
   /**
-   * Splits long text into passages suitable for vector embedding.
+   * Splits text into coherent passages suitable for vector embedding and retrieval.
+   * Preserves short documents intact and uses sliding overlapping windows for longer content.
    * @param {string} text 
    * @param {number} maxChunkLen 
+   * @param {number} overlap 
    * @returns {string[]}
    */
-  chunkText(text, maxChunkLen = 350) {
+  chunkText(text, maxChunkLen = 700, overlap = 150) {
     if (!text || typeof text !== 'string') return [];
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+
     const passages = [];
-    const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-    for (const p of paras) {
-      if (p.length <= maxChunkLen) {
-        passages.push(p);
-      } else {
-        const sents = p.match(/[^.!?]+[.!?]+(\s|$)/g) || [p];
-        let current = '';
-        for (const s of sents) {
-          if ((current + s).length > maxChunkLen) {
-            if (current.trim()) passages.push(current.trim());
-            current = s;
-          } else {
-            current += s;
+    const paras = trimmed.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    if (paras.length > 1) {
+      for (const p of paras) {
+        if (p.length <= maxChunkLen) {
+          passages.push(p);
+        } else {
+          let start = 0;
+          while (start < p.length) {
+            let end = start + maxChunkLen;
+            if (end >= p.length) {
+              passages.push(p.substring(start).trim());
+              break;
+            }
+            let breakPoint = p.lastIndexOf(' ', end);
+            if (breakPoint <= start + (maxChunkLen * 0.5)) breakPoint = end;
+            const chunk = p.substring(start, breakPoint).trim();
+            if (chunk) passages.push(chunk);
+            start = Math.max(breakPoint - overlap, start + 1);
           }
         }
-        if (current.trim()) passages.push(current.trim());
       }
+      return passages;
     }
-    return passages.length > 0 ? passages : (text.trim() ? [text.trim()] : []);
+
+    // Single block or OCR text without double newlines
+    if (trimmed.length <= maxChunkLen) {
+      return [trimmed];
+    }
+
+    let start = 0;
+    while (start < trimmed.length) {
+      let end = start + maxChunkLen;
+      if (end >= trimmed.length) {
+        passages.push(trimmed.substring(start).trim());
+        break;
+      }
+      let breakPoint = trimmed.lastIndexOf('\n', end);
+      if (breakPoint <= start + (maxChunkLen * 0.5)) {
+        breakPoint = trimmed.lastIndexOf(' ', end);
+      }
+      if (breakPoint <= start + (maxChunkLen * 0.5)) {
+        breakPoint = end;
+      }
+
+      const chunk = trimmed.substring(start, breakPoint).trim();
+      if (chunk) passages.push(chunk);
+
+      start = Math.max(breakPoint - overlap, start + 1);
+    }
+
+    return passages.length > 0 ? passages : [trimmed];
   }
 
   /**

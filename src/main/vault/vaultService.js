@@ -645,6 +645,7 @@ class VaultService {
    */
   async askQuestion(query) {
     this._assertUnlocked();
+    await this._ensureDocumentsIndexed();
     const allDocs = dbLayer.listDocuments(this._db, {});
     let semanticMatches = [];
     try {
@@ -654,6 +655,52 @@ class VaultService {
       }
     } catch (e) {}
     return await llmService.answerQuestion({ query, documents: allDocs, semanticMatches });
+  }
+
+  /**
+   * Auto-indexes or repairs text content for documents that were imported without text.
+   */
+  async _ensureDocumentsIndexed() {
+    if (!this._db || !this._activeVaultPath || !this._objectKey) return;
+    try {
+      const docs = dbLayer.listDocuments(this._db, {});
+      for (const doc of docs) {
+        const existingText = doc.currentVersion?.metadata?.textContent || '';
+        const cleanedExisting = existingText.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, '').trim();
+        if (doc.currentVersion && (!existingText || cleanedExisting.length < 40)) {
+          try {
+            const decryptedBuffer = readObject(this._activeVaultPath, this._objectKey, doc.currentVersion.objectId);
+            const { text } = await extractionService.extractTextFromBuffer(decryptedBuffer, doc.currentVersion.mimeType);
+            if (text && text.trim()) {
+              const analysis = extractionService.analyzeDocumentText(text, doc.currentVersion.fileName);
+              dbLayer.saveMetadata(this._db, {
+                versionId: doc.currentVersion.id,
+                docType: analysis.docType || doc.currentVersion.metadata?.docType || 'other',
+                issuer: analysis.issuer || doc.currentVersion.metadata?.issuer || null,
+                issueDate: analysis.issueDate || doc.currentVersion.metadata?.issueDate || null,
+                expiryDate: analysis.expiryDate || doc.currentVersion.metadata?.expiryDate || null,
+                expirySnippet: analysis.expirySnippet || doc.currentVersion.metadata?.expirySnippet || null,
+                issueSnippet: analysis.issueSnippet || doc.currentVersion.metadata?.issueSnippet || null,
+                confidence: analysis.confidence || doc.currentVersion.metadata?.confidence || 0.5,
+                reviewStatus: doc.currentVersion.metadata?.reviewStatus || 'proposed',
+                textContent: text
+              });
+
+              // Generate vector embeddings
+              try {
+                const chunks = embeddingService.chunkText(text);
+                const chunkEmbeddings = [];
+                for (let i = 0; i < chunks.length; i++) {
+                  const vec = await embeddingService.generateEmbedding(chunks[i]);
+                  chunkEmbeddings.push({ chunkIndex: i, chunkText: chunks[i], vector: vec });
+                }
+                dbLayer.saveVectorEmbeddings(this._db, doc.currentVersion.id, doc.id, chunkEmbeddings);
+              } catch (e) {}
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
   }
 
   getAiStatus() {

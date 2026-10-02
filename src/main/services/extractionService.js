@@ -34,13 +34,58 @@ const MONTH_NAMES = {
 async function extractTextFromBuffer(buffer, mimeType) {
   if (mimeType === 'application/pdf') {
     try {
-      const data = await pdfParse(buffer);
-      const text = data.text ? data.text.trim() : '';
-      return {
-        text,
-        pageCount: data.numpages || 1,
-        method: 'native-pdf'
-      };
+      const pdfParseModule = require('pdf-parse');
+      if (pdfParseModule.PDFParse) {
+        const parser = new pdfParseModule.PDFParse({ data: buffer });
+        await parser.load();
+        const textResult = await parser.getText();
+        const pageCount = (textResult && textResult.total) || (textResult && textResult.pages && textResult.pages.length) || 1;
+        let text = textResult && typeof textResult.text === 'string'
+          ? textResult.text.trim()
+          : (typeof textResult === 'string' ? textResult.trim() : '');
+
+        // If native PDF text is absent or insufficient (e.g. scanned ticket or photo PDF),
+        // automatically perform OCR on rendered page screenshots
+        const cleanedText = text.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, '').trim();
+        let method = 'native-pdf';
+
+        if (cleanedText.length < 40) {
+          try {
+            const Tesseract = require('tesseract.js');
+            const pagesToOcr = Math.min(pageCount, 3);
+            let combinedOcr = '';
+            for (let p = 1; p <= pagesToOcr; p++) {
+              const shot = await parser.getScreenshot({ page: p });
+              if (shot && shot.pages && shot.pages[0] && shot.pages[0].dataUrl) {
+                const ocrResult = await Tesseract.recognize(shot.pages[0].dataUrl, 'eng');
+                const pageText = ocrResult?.data?.text?.trim() || '';
+                if (pageText) {
+                  combinedOcr += (combinedOcr ? '\n\n' : '') + pageText;
+                }
+              }
+            }
+            if (combinedOcr.length > cleanedText.length) {
+              text = combinedOcr;
+              method = 'pdf-ocr-tesseract';
+            }
+          } catch (ocrErr) {}
+        }
+
+        await parser.destroy();
+        return {
+          text,
+          pageCount,
+          method
+        };
+      } else if (typeof pdfParseModule === 'function') {
+        const data = await pdfParseModule(buffer);
+        const text = data.text ? data.text.trim() : '';
+        return {
+          text,
+          pageCount: data.numpages || 1,
+          method: 'native-pdf'
+        };
+      }
     } catch (err) {
       try {
         const str = buffer.toString('utf8');
