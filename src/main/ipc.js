@@ -130,6 +130,11 @@ function registerIpcHandlers(mainWindow) {
     return vaultService.restoreBackup({ backupFilePath, targetVaultPath });
   });
 
+  ipcMain.handle('vault:get-audit-logs', async (_event, args) => {
+    const limit = (args && typeof args === 'object' ? args.limit : args) || 100;
+    return vaultService.listAuditLogs(limit);
+  });
+
   // Document Operations
   ipcMain.handle('document:import', async (_event, rawArgs) => {
     const validated = ImportDocumentSchema.parse(rawArgs);

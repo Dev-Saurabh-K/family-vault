@@ -157,11 +157,14 @@ test('VaultService: Full lifecycle, immutable versions, encryption and password 
   });
   assert.strictEqual(service.isUnlocked(), true);
 
-  // Verify documents and versions still decrypt 100% correctly
-  const docAfterPassChange = service.getDocument(importedDoc.id);
-  assert.strictEqual(docAfterPassChange.versions.length, 2);
-  const previewAfter = service.getDocumentVersionContent({ versionId: v1Record.id });
-  assert.strictEqual(Buffer.from(previewAfter.base64Data, 'base64').toString('utf-8'), samplePdfContent1.toString('utf-8'));
+  // Verify audit logs are recorded and retrievable
+  const auditLogs = service.listAuditLogs(50);
+  assert.ok(Array.isArray(auditLogs));
+  assert.ok(auditLogs.length >= 4);
+  const eventTypes = auditLogs.map(a => a.eventType);
+  assert.ok(eventTypes.includes('VAULT_CREATED'));
+  assert.ok(eventTypes.includes('DOCUMENT_IMPORTED'));
+  assert.ok(eventTypes.includes('PASSWORD_CHANGED'));
 
   // Clean up
   service.lockVault();

@@ -406,6 +406,34 @@ function recordAuditEvent(db, eventType, details = {}) {
 }
 
 /**
+ * Retrieves audit log events in reverse chronological order.
+ * @param {Database} db 
+ * @param {number} limit 
+ * @returns {Array<{ id: string, eventType: string, details: object, timestamp: string }>}
+ */
+function listAuditEvents(db, limit = 100) {
+  const rows = db.prepare(`
+    SELECT id, event_type, details, timestamp
+    FROM audit_events
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `).all(limit);
+
+  return rows.map(r => {
+    let parsedDetails = {};
+    try {
+      parsedDetails = JSON.parse(r.details || '{}');
+    } catch (e) {}
+    return {
+      id: r.id,
+      eventType: r.event_type,
+      details: parsedDetails,
+      timestamp: r.timestamp
+    };
+  });
+}
+
+/**
  * Helper to parse JSON tags and structure output cleanly.
  */
 function formatDocumentRow(row) {
@@ -535,6 +563,7 @@ module.exports = {
   findVersionByHash,
   saveMetadata,
   recordAuditEvent,
+  listAuditEvents,
   saveVectorEmbeddings,
   searchVectorEmbeddings
 };

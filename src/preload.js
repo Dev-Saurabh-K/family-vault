@@ -22,9 +22,10 @@ contextBridge.exposeInMainWorld('familyVault', {
   selectBackupFile: () => ipcRenderer.invoke('dialog:select-backup-file'),
   saveBackupFileDialog: (args) => ipcRenderer.invoke('dialog:save-backup-file', args),
 
-  // Backup & Restore
+  // Backup & Restore & Security Logs
   createBackup: (destinationFilePath) => ipcRenderer.invoke('vault:create-backup', { destinationFilePath }),
   restoreBackup: (args) => ipcRenderer.invoke('vault:restore-backup', args),
+  getAuditLogs: (limit) => ipcRenderer.invoke('vault:get-audit-logs', { limit }),
 
   // Document management
   importDocument: (args) => ipcRenderer.invoke('document:import', args),

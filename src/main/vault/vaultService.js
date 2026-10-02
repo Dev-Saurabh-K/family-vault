@@ -727,6 +727,16 @@ class VaultService {
     return restoreVaultBackup(backupFilePath, targetVaultPath);
   }
 
+  /**
+   * Returns encrypted audit log history for security and compliance review.
+   * @param {number} limit 
+   * @returns {Array<{ id: string, eventType: string, details: object, timestamp: string }>}
+   */
+  listAuditLogs(limit = 100) {
+    this._assertUnlocked();
+    return dbLayer.listAuditEvents(this._db, limit);
+  }
+
   _guessMimeType(ext) {
     switch (ext) {
       case '.pdf': return 'application/pdf';

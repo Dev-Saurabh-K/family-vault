@@ -351,7 +351,12 @@ async function loadDocuments() {
     if (currentSearch) filters.search = currentSearch;
     if (currentExpiryFilter) filters.expiryFilter = currentExpiryFilter;
 
-    documents = await window.familyVault.listDocuments(filters);
+    let docs = await window.familyVault.listDocuments(filters);
+    const filterPersonSelect = document.getElementById('filter-person-select');
+    if (filterPersonSelect && filterPersonSelect.value) {
+      docs = docs.filter(d => d.person === filterPersonSelect.value);
+    }
+    documents = docs;
     renderDocuments();
     updateCounts();
   } catch (err) {
@@ -363,6 +368,21 @@ async function updateCounts() {
   try {
     const allDocs = await window.familyVault.listDocuments({});
     document.getElementById('count-all').textContent = allDocs.length;
+
+    // Update Family Member dropdown dynamically
+    const filterPersonSelect = document.getElementById('filter-person-select');
+    if (filterPersonSelect) {
+      const currentSelected = filterPersonSelect.value;
+      const persons = [...new Set(allDocs.map(d => d.person).filter(Boolean))].sort();
+      filterPersonSelect.innerHTML = '<option value="">👤 All Family Members</option>';
+      persons.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = `👤 ${p}`;
+        if (p === currentSelected) opt.selected = true;
+        filterPersonSelect.appendChild(opt);
+      });
+    }
 
     const categories = ['identity', 'insurance', 'medical', 'tax', 'property', 'other'];
     categories.forEach(cat => {
@@ -572,6 +592,13 @@ async function openDocumentDrawer(documentId) {
       } else {
         drawerReviewStatus.className = 'badge badge-orange';
         drawerReviewStatus.textContent = 'Proposed (Needs Review)';
+      }
+
+      // Render Extracted OCR & Plaintext Content
+      const extractedTextBody = document.getElementById('drawer-extracted-text-body');
+      if (extractedTextBody) {
+        const text = meta.textContent || '';
+        extractedTextBody.textContent = text.trim() ? text.trim() : 'No text extracted from this document.';
       }
     }
 
@@ -1145,6 +1172,101 @@ if (btnDownloadSetupGemma) {
   });
 }
 
+// Family Member Filter listener
+const filterPersonSelect = document.getElementById('filter-person-select');
+if (filterPersonSelect) {
+  filterPersonSelect.addEventListener('change', () => {
+    loadDocuments();
+  });
+}
+
+// Copy extracted OCR / native text from detail drawer
+const btnCopyExtractedText = document.getElementById('btn-copy-extracted-text');
+if (btnCopyExtractedText) {
+  btnCopyExtractedText.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const textEl = document.getElementById('drawer-extracted-text-body');
+    const text = textEl ? textEl.textContent.trim() : '';
+    if (text && text !== 'No text extracted from this document.') {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Extracted document text copied to clipboard!', 'success');
+      }).catch(() => {
+        showToast('Failed to copy text', 'error');
+      });
+    } else {
+      showToast('No text available to copy', 'warning');
+    }
+  });
+}
+
+// Copy AI Grounded Answer to clipboard
+const btnCopyAiAnswer = document.getElementById('btn-copy-ai-answer');
+if (btnCopyAiAnswer) {
+  btnCopyAiAnswer.addEventListener('click', () => {
+    const text = aiAnswerText.textContent.trim();
+    if (text) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('AI answer copied to clipboard!', 'success');
+      }).catch(() => {
+        showToast('Failed to copy answer', 'error');
+      });
+    }
+  });
+}
+
+// Encrypted Audit Logs Modal
+const modalAuditLogs = document.getElementById('modal-audit-logs');
+const btnOpenAuditLogs = document.getElementById('btn-open-audit-logs');
+const auditLogsTableBody = document.getElementById('audit-logs-table-body');
+
+if (btnOpenAuditLogs) {
+  btnOpenAuditLogs.addEventListener('click', async () => {
+    if (modalAuditLogs) modalAuditLogs.classList.remove('hidden');
+    if (auditLogsTableBody) {
+      auditLogsTableBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading encrypted audit records...</td></tr>';
+    }
+
+    try {
+      const logs = await window.familyVault.getAuditLogs(100);
+      if (!logs || logs.length === 0) {
+        if (auditLogsTableBody) {
+          auditLogsTableBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">No audit events recorded yet.</td></tr>';
+        }
+        return;
+      }
+
+      if (auditLogsTableBody) {
+        auditLogsTableBody.innerHTML = '';
+        logs.forEach(log => {
+          const tr = document.createElement('tr');
+          tr.style.cssText = 'border-bottom: 1px solid rgba(255,255,255,0.05);';
+
+          let badgeClass = 'badge-blue';
+          if (log.eventType.includes('DELETE') || log.eventType.includes('LOCK')) badgeClass = 'badge-gray';
+          if (log.eventType.includes('PASSWORD')) badgeClass = 'badge-orange';
+          if (log.eventType.includes('BACKUP') || log.eventType.includes('CREATE') || log.eventType.includes('REVIEW')) badgeClass = 'badge-green';
+
+          const dateStr = new Date(log.timestamp).toLocaleString();
+          const detailsStr = Object.keys(log.details || {}).length > 0
+            ? Object.entries(log.details).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' | ')
+            : '-';
+
+          tr.innerHTML = `
+            <td style="padding: 8px 12px; color: #94a3b8; font-family: monospace; font-size: 11px;">${escapeHtml(dateStr)}</td>
+            <td style="padding: 8px 12px;"><span class="badge ${badgeClass}">${escapeHtml(log.eventType)}</span></td>
+            <td style="padding: 8px 12px; color: #cbd5e1; word-break: break-all; font-size: 11px;">${escapeHtml(detailsStr)}</td>
+          `;
+          auditLogsTableBody.appendChild(tr);
+        });
+      }
+    } catch (err) {
+      if (auditLogsTableBody) {
+        auditLogsTableBody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px; color: #f87171;">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+  });
+}
+
 // Modal close button handlers
 document.querySelectorAll('.modal-close-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1153,6 +1275,7 @@ document.querySelectorAll('.modal-close-btn').forEach(btn => {
     modalReviewMetadata.classList.add('hidden');
     modalAiQa.classList.add('hidden');
     modalChangePassword.classList.add('hidden');
+    if (modalAuditLogs) modalAuditLogs.classList.add('hidden');
   });
 });
 

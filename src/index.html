@@ -117,6 +117,7 @@
 
           <div class="top-bar-actions">
             <button id="btn-open-ai-qa" class="btn btn-primary" style="background: #4f46e5;">Ask Assistant 🤖</button>
+            <button id="btn-open-audit-logs" class="btn btn-secondary">Audit Log 📜</button>
             <button id="btn-create-backup" class="btn btn-secondary">Backup Vault 💾</button>
             <button id="btn-change-password-modal" class="btn btn-secondary">Change Password</button>
             <button id="btn-lock-vault" class="btn btn-danger">Lock Vault</button>
@@ -178,6 +179,9 @@
                 <span class="icon">🔍</span>
                 <input type="text" id="search-input" class="input-field" placeholder="Search documents by keyword or semantic meaning..." />
               </div>
+              <select id="filter-person-select" class="input-field" style="width: 175px; font-size: 12px; padding: 4px 8px; cursor: pointer;">
+                <option value="">👤 All Family Members</option>
+              </select>
               <div class="search-mode-group" style="display: flex; gap: 4px; background: #1e293b; padding: 3px; border-radius: 6px; border: 1px solid #334155;">
                 <button id="search-mode-keyword" class="btn active-mode" style="padding: 4px 10px; font-size: 12px; background: #3b82f6; color: #fff;">Keyword</button>
                 <button id="search-mode-semantic" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px; background: transparent; border: none;">Semantic ✨</button>
@@ -250,6 +254,17 @@
                 <button id="btn-open-review-metadata" class="btn btn-secondary" style="width: 100%; margin-top: 8px; font-size: 12px; padding: 6px;">
                   ✏️ Review &amp; Correct Metadata
                 </button>
+              </div>
+
+              <!-- Extracted Text & OCR Content Section -->
+              <div id="drawer-extracted-text-section" class="doc-card-meta" style="background: rgba(30, 41, 59, 0.6); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <strong style="font-size: 12px; color: #94a3b8;">📝 Extracted Text &amp; OCR Content</strong>
+                  <button id="btn-copy-extracted-text" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;">📋 Copy Text</button>
+                </div>
+                <div id="drawer-extracted-text-body" style="max-height: 160px; overflow-y: auto; font-family: monospace; font-size: 11px; background: rgba(15, 23, 42, 0.7); padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); color: #cbd5e1; white-space: pre-wrap; word-break: break-word;">
+                  No text extracted.
+                </div>
               </div>
 
               <!-- Action buttons -->
@@ -497,7 +512,10 @@
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--accent);">Grounded Answer:</span>
-                <span id="ai-mode-badge" class="badge badge-blue">Local Extractive</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button id="btn-copy-ai-answer" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;">📋 Copy Answer</button>
+                  <span id="ai-mode-badge" class="badge badge-blue">Local Extractive</span>
+                </div>
               </div>
               <div id="ai-answer-text" style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: var(--text-primary);"></div>
             </div>
@@ -545,6 +563,40 @@
           <div class="modal-footer">
             <button class="btn btn-secondary modal-close-btn">Cancel</button>
             <button id="submit-change-password-btn" class="btn btn-primary">Update Password</button>
+          </div>
+        </div>
+      <!-- 8. MODAL: ENCRYPTED AUDIT LOGS -->
+      <div id="modal-audit-logs" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 780px;">
+          <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 20px;">📜</span>
+              <h3>Encrypted Vault Security Audit Log</h3>
+            </div>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+            Tamper-evident audit events recorded inside your encrypted SQLCipher database.
+          </p>
+
+          <div style="max-height: 380px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.6);">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+              <thead>
+                <tr style="background: rgba(30, 41, 59, 0.8); text-align: left; border-bottom: 1px solid var(--border); color: #94a3b8;">
+                  <th style="padding: 8px 12px; width: 180px;">Timestamp</th>
+                  <th style="padding: 8px 12px; width: 170px;">Action</th>
+                  <th style="padding: 8px 12px;">Details</th>
+                </tr>
+              </thead>
+              <tbody id="audit-logs-table-body">
+                <tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading audit records...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="modal-footer" style="margin-top: 14px;">
+            <button class="btn btn-secondary modal-close-btn">Close</button>
           </div>
         </div>
       </div>

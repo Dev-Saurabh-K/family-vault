@@ -26,16 +26,16 @@ The repository contains a complete, fully tested, functional implementation of F
   - Automated setup & packaging: `scripts/setup-ai.js` (`npm run setup:ai`) and `forge.config.js` `packagerConfig.extraResource` (`bin/` and `models/`) to bundle or place the engine and model alongside `app.asar`.
   - In-app 1-click setup: Direct download and configuration card in the AI modal with real-time progress bar and percentage display, streaming updates via IPC (`ai:download-gemma` and `ai:download-progress`).
 - **Electron Shell & UI**:
-  - `src/main/ipc.js`: Strictly typed and validated IPC handlers including metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma 2 2B download/setup, semantic vector search, and encrypted backup/restore.
+  - `src/main/ipc.js`: Strictly typed and validated IPC handlers including metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma 2 2B download/setup, semantic vector search, encrypted audit log queries, and encrypted backup/restore.
   - `src/preload.js`: Secure context-isolated bridge exposing `window.familyVault`.
   - `src/index.js`: Electron main process with strict Content Security Policy (`connect-src 'none'`), sandbox mode, and lock-on-exit key cleanup.
-  - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive dark-mode desktop UI supporting vault launcher, backup restore tab, document workspace, category filters, upcoming expiries sidebar views, search bar with Keyword vs Semantic search toggle, import modal, detail drawer with in-memory preview, metadata review and confirmation modal, provenance snippets, immutable version history timeline, version upload, password change modal, and interactive Grounded AI Assistant modal with 1-click Gemma 2 2B setup card and clickable citations.
+  - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive dark-mode desktop UI supporting vault launcher, backup restore tab, document workspace, category filters, family member (person) dropdown filter, upcoming expiries sidebar views, search bar with Keyword vs Semantic search toggle, import modal, detail drawer with in-memory preview, extracted OCR & plaintext inspection panel with 1-click clipboard copy, metadata review and confirmation modal, provenance snippets, immutable version history timeline, version upload, password change modal, encrypted audit log history modal, and interactive Grounded AI Assistant modal with 1-click Gemma 2 2B setup card, 1-click answer copy, and clickable citations.
 - **Test Suite**:
   - `tests/crypto.test.js`: Unit tests for Argon2id, VMK wrapping/unwrapping, AES-256-GCM envelope, HKDF, and zeroization.
-  - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, in-memory preview, export, and password rewrapping.
+  - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, in-memory preview, export, password rewrapping, and encrypted audit logging.
   - `tests/extraction.test.js`: Unit and integration tests for date extraction, document classification, deterministic expiry calculation, metadata review confirmation, and upcoming expiries queries.
   - `tests/embedding.test.js`: Unit and integration tests for passage chunking, normalized vector generation, cosine similarity, BLOB serialization, and end-to-end semantic search across encrypted vault documents.
-  - `tests/llmService.test.js`: Unit tests for local grounded document Q&A, citation extraction, missing-knowledge handling, and localhost binding security.
+  - `tests/llmService.test.js`: Unit tests for local grounded document Q&A, citation extraction, missing-knowledge handling, localhost binding security, and OCR travel ticket/schedule retrieval.
   - `tests/backup.test.js`: Integration tests for encrypted portable vault backup creation, tamper detection, and complete restoration.
   - `tests/ipcValidation.test.js`: Security and input validation tests (path traversal protection, schema enforcement).
 
@@ -60,6 +60,7 @@ The repository contains a complete, fully tested, functional implementation of F
 | llama-server process supervision (127.0.0.1 binding) | Implemented (Phase 4) | `src/main/services/llmService.js` |
 | Encrypted Portable Backup and Restore | Implemented (Phase 5) | `tests/backup.test.js` |
 | Modular Semantic Embeddings Layer | Implemented (Phase 6) | `tests/embedding.test.js` |
+| Encrypted Audit Log History & Inspection | Implemented | `tests/vaultService.test.js` |
 | Standalone Windows Desktop Packaging | Verified (`electron-forge package`) | Packaged to `out/family-vault-win32-x64/` |
 | Local-Wi-Fi sync | Explicitly not implemented | Kept out of scope per architectural constraints |
 
@@ -68,7 +69,7 @@ The repository contains a complete, fully tested, functional implementation of F
 ```bash
 npm test
 ```
-All 16 tests pass across:
+All 18 tests pass across:
 - `tests/crypto.test.js`
 - `tests/vaultService.test.js`
 - `tests/extraction.test.js`
