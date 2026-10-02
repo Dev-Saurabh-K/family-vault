@@ -117,6 +117,10 @@
 
           <div class="top-bar-actions">
             <button id="btn-open-ai-qa" class="btn btn-primary" style="background: #4f46e5;">Ask Assistant 🤖</button>
+            <button id="btn-topbar-download-model" class="btn btn-secondary" style="background: rgba(79, 70, 229, 0.2); border: 1px solid #6366f1; color: #c7d2fe; display: inline-flex; align-items: center; gap: 6px;">
+              <span id="btn-topbar-download-icon">⬇️</span>
+              <span id="btn-topbar-download-text">Download AI Model</span>
+            </button>
             <button id="btn-open-audit-logs" class="btn btn-secondary">Audit Log 📜</button>
             <button id="btn-create-backup" class="btn btn-secondary">Backup Vault 💾</button>
             <button id="btn-change-password-modal" class="btn btn-secondary">Change Password</button>
@@ -609,6 +613,78 @@
 
           <div class="modal-footer" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
             <button id="btn-export-audit-logs" class="btn btn-secondary" style="font-size: 11px;">💾 Export Audit Logs (JSON)</button>
+            <button class="btn btn-secondary modal-close-btn">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 9. MODAL: AI MODEL DOWNLOAD & DETAILS -->
+      <div id="modal-download-model" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 620px;">
+          <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 20px;">⚡</span>
+              <h3>Offline AI Model Setup &amp; Details</h3>
+            </div>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;">
+            FamilyVault uses Google's Gemma 2 2B neural model running 100% locally on your computer via <code>llama-server</code>. Download it once, and it will run completely offline forever with zero cloud connection.
+          </p>
+
+          <!-- Specifications Table / Info Box -->
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 14px; font-size: 12px;">
+            <div style="font-weight: 600; color: #a5b4fc; margin-bottom: 8px; font-size: 13px;">📋 Model Specifications &amp; Requirements</div>
+            <div style="display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; line-height: 1.5;">
+              <span style="color: var(--text-muted);">Model Name:</span>
+              <span style="color: var(--text-primary); font-weight: 500;">Google Gemma 2 2B Instruct</span>
+
+              <span style="color: var(--text-muted);">Quantization:</span>
+              <span style="color: var(--text-primary); font-family: monospace;">Q4_K_M GGUF (4-bit Medium)</span>
+
+              <span style="color: var(--text-muted);">Runtime Binary:</span>
+              <span style="color: var(--text-primary); font-family: monospace;">llama-server.exe (Windows x64)</span>
+
+              <span style="color: var(--text-muted);">Download Size:</span>
+              <span style="color: var(--text-primary); font-weight: 500;">~1.65 GB (One-time download)</span>
+
+              <span style="color: var(--text-muted);">RAM Footprint:</span>
+              <span style="color: var(--text-primary);">~1.9 GB while app is active (0 MB when closed)</span>
+
+              <span style="color: var(--text-muted);">Network Binding:</span>
+              <span style="color: #4ade80; font-family: monospace;">127.0.0.1:18432 (Localhost only)</span>
+
+              <span style="color: var(--text-muted);">Privacy Guarantee:</span>
+              <span style="color: #6ee7b7;">Strictly 0 cloud APIs, 0 uploads, 0 telemetry</span>
+            </div>
+          </div>
+
+          <!-- Live Download & Setup Progress Card -->
+          <div id="model-modal-progress-box" style="background: rgba(79, 70, 229, 0.1); border: 1px solid rgba(79, 70, 229, 0.3); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span id="model-modal-status-badge" class="badge badge-blue">Ready to Download</span>
+              <span id="model-modal-bytes-text" style="font-size: 11px; color: var(--text-muted);">0 MB / ~1680 MB</span>
+            </div>
+
+            <div id="model-modal-status-text" style="font-size: 12px; color: #cbd5e1; margin-bottom: 8px;">
+              Click below to download the model weights and runtime engine.
+            </div>
+
+            <div style="width: 100%; height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; margin-bottom: 4px;">
+              <div id="model-modal-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4f46e5, #06b6d4); transition: width 0.25s;"></div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8;">
+              <span id="model-modal-stage-text">Idle</span>
+              <span id="model-modal-percent-text" style="font-weight: 600; color: #a5b4fc;">0%</span>
+            </div>
+          </div>
+
+          <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+            <button id="btn-modal-start-download" class="btn btn-primary" style="background: #4f46e5; padding: 6px 14px;">
+              ⬇️ Start Download &amp; Setup (1.65 GB)
+            </button>
             <button class="btn btn-secondary modal-close-btn">Close</button>
           </div>
         </div>

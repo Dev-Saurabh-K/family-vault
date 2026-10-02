@@ -89,6 +89,19 @@ const aiDownloadStatusText = document.getElementById('ai-download-status-text');
 const aiDownloadPercentText = document.getElementById('ai-download-percent-text');
 const aiDownloadProgressBar = document.getElementById('ai-download-progress-bar');
 
+// Topbar AI Download Button & Modal Elements
+const btnTopbarDownloadModel = document.getElementById('btn-topbar-download-model');
+const btnTopbarDownloadIcon = document.getElementById('btn-topbar-download-icon');
+const btnTopbarDownloadText = document.getElementById('btn-topbar-download-text');
+const modalDownloadModel = document.getElementById('modal-download-model');
+const modelModalStatusBadge = document.getElementById('model-modal-status-badge');
+const modelModalBytesText = document.getElementById('model-modal-bytes-text');
+const modelModalStatusText = document.getElementById('model-modal-status-text');
+const modelModalProgressBar = document.getElementById('model-modal-progress-bar');
+const modelModalStageText = document.getElementById('model-modal-stage-text');
+const modelModalPercentText = document.getElementById('model-modal-percent-text');
+const btnModalStartDownload = document.getElementById('btn-modal-start-download');
+
 // Drawer
 const drawerDetail = document.getElementById('drawer-detail');
 const drawerCloseBtn = document.getElementById('drawer-close-btn');
@@ -192,6 +205,7 @@ function showWorkspace(vaultPath) {
   viewWorkspace.classList.remove('hidden');
   activeVaultName.textContent = vaultPath.split(/[\\/]/).pop() || 'FamilyVault';
   loadDocuments();
+  checkAiModelStatus();
 }
 
 // Tab Switching
@@ -1010,8 +1024,8 @@ btnCreateBackup.addEventListener('click', async () => {
 // Grounded Local AI Document Assistant
 btnOpenAiQa.addEventListener('click', async () => {
   aiQueryInput.value = '';
-  aiResultBox.classList.add('hidden');
-  aiLoading.classList.add('hidden');
+  if (aiResultBox) aiResultBox.classList.add('hidden');
+  if (aiLoading) aiLoading.classList.add('hidden');
   modalAiQa.classList.remove('hidden');
   aiQueryInput.focus();
 
@@ -1291,68 +1305,191 @@ if (btnStopAiServer) {
   });
 }
 
-// 1-Click Gemma 2 2B Download & Setup
-if (btnDownloadSetupGemma) {
-  btnDownloadSetupGemma.addEventListener('click', async () => {
+// Model Status Checker & Dynamic Topbar/Modal Updates
+async function checkAiModelStatus() {
+  try {
+    const status = await window.familyVault.getAiStatus();
+    if (!btnTopbarDownloadModel) return;
+
+    if (status.isModelDownloaded && status.isBinaryAvailable) {
+      if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⚡';
+      if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'AI Model Ready';
+      btnTopbarDownloadModel.style.background = 'rgba(16, 185, 129, 0.15)';
+      btnTopbarDownloadModel.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      btnTopbarDownloadModel.style.color = '#6ee7b7';
+
+      if (modelModalStatusBadge) {
+        modelModalStatusBadge.className = 'badge badge-green';
+        modelModalStatusBadge.textContent = status.isServerRunning ? 'Active & Running' : 'Installed on Disk';
+      }
+      if (modelModalStatusText) {
+        modelModalStatusText.textContent = status.isServerRunning
+          ? 'Local Gemma 2 2B neural engine is running and responding on 127.0.0.1:18432.'
+          : 'Gemma 2 2B model weights (~1.65 GB) are stored locally. Engine is ready to start.';
+      }
+      if (modelModalBytesText) modelModalBytesText.textContent = '~1.65 GB (Installed)';
+      if (modelModalProgressBar) modelModalProgressBar.style.width = '100%';
+      if (modelModalPercentText) modelModalPercentText.textContent = '100%';
+      if (modelModalStageText) modelModalStageText.textContent = 'Complete';
+      if (btnModalStartDownload) {
+        if (status.isServerRunning) {
+          btnModalStartDownload.textContent = '✅ Neural Engine Active';
+          btnModalStartDownload.disabled = true;
+          btnModalStartDownload.style.background = '#059669';
+        } else {
+          btnModalStartDownload.textContent = '🚀 Start Local AI Engine';
+          btnModalStartDownload.disabled = false;
+          btnModalStartDownload.style.background = '#4f46e5';
+        }
+      }
+      if (btnDownloadSetupGemma) {
+        btnDownloadSetupGemma.textContent = status.isServerRunning ? '🚀 Engine Running' : '🚀 Start Gemma 2 2B Engine';
+      }
+    } else {
+      if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⬇️';
+      if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'Download AI Model';
+      btnTopbarDownloadModel.style.background = 'rgba(79, 70, 229, 0.25)';
+      btnTopbarDownloadModel.style.borderColor = '#6366f1';
+      btnTopbarDownloadModel.style.color = '#c7d2fe';
+
+      if (modelModalStatusBadge) {
+        modelModalStatusBadge.className = 'badge badge-blue';
+        modelModalStatusBadge.textContent = 'Not Downloaded';
+      }
+      if (modelModalStatusText) {
+        modelModalStatusText.textContent = 'Click below to download the model weights (~1.65 GB) and runtime engine.';
+      }
+      if (modelModalBytesText) modelModalBytesText.textContent = '0 MB / ~1680 MB';
+      if (modelModalProgressBar) modelModalProgressBar.style.width = '0%';
+      if (modelModalPercentText) modelModalPercentText.textContent = '0%';
+      if (modelModalStageText) modelModalStageText.textContent = 'Idle';
+      if (btnModalStartDownload) {
+        btnModalStartDownload.textContent = '⬇️ Start Download & Setup (1.65 GB)';
+        btnModalStartDownload.disabled = false;
+        btnModalStartDownload.style.background = '#4f46e5';
+      }
+      if (btnDownloadSetupGemma) {
+        btnDownloadSetupGemma.textContent = '⬇️ Download & Enable Gemma 2 2B';
+      }
+    }
+  } catch (e) {}
+}
+
+let isDownloadingModel = false;
+
+async function startGemmaDownload() {
+  if (isDownloadingModel) {
+    if (modalDownloadModel) modalDownloadModel.classList.remove('hidden');
+    return;
+  }
+  isDownloadingModel = true;
+
+  if (btnModalStartDownload) {
+    btnModalStartDownload.disabled = true;
+    btnModalStartDownload.textContent = 'Downloading...';
+  }
+  if (btnDownloadSetupGemma) {
     btnDownloadSetupGemma.disabled = true;
-    btnDownloadSetupGemma.textContent = 'Setting Up...';
+    btnDownloadSetupGemma.textContent = 'Downloading...';
+  }
+  if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'Downloading...';
+  if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⏳';
+  if (modelModalStatusBadge) {
+    modelModalStatusBadge.className = 'badge badge-orange';
+    modelModalStatusBadge.textContent = 'Downloading...';
+  }
+  if (modelModalStatusText) modelModalStatusText.textContent = 'Connecting to download source...';
+  if (aiDownloadProgressContainer) aiDownloadProgressContainer.classList.remove('hidden');
 
-    if (aiDownloadProgressContainer) {
-      aiDownloadProgressContainer.classList.remove('hidden');
-    }
-    if (aiDownloadStatusText) {
-      aiDownloadStatusText.textContent = 'Connecting to download source...';
-    }
-    if (aiDownloadProgressBar) {
-      aiDownloadProgressBar.style.width = '0%';
-    }
-    if (aiDownloadPercentText) {
-      aiDownloadPercentText.textContent = '0%';
+  const unsubscribe = window.familyVault.onAiDownloadProgress((data) => {
+    const statusMsg = data.message || (data.stage === 'llama-server' ? 'Downloading llama-server runtime...' : 'Downloading Gemma 2 2B weights (~1.65 GB)...');
+
+    if (modelModalStatusText) modelModalStatusText.textContent = statusMsg;
+    if (aiDownloadStatusText) aiDownloadStatusText.textContent = statusMsg;
+    if (modelModalStageText) modelModalStageText.textContent = data.stage || 'downloading';
+
+    if (data.downloadedMb && data.totalMb) {
+      if (modelModalBytesText) modelModalBytesText.textContent = `${data.downloadedMb} MB / ${data.totalMb} MB`;
     }
 
-    const unsubscribe = window.familyVault.onAiDownloadProgress((data) => {
-      if (aiDownloadStatusText) {
-        aiDownloadStatusText.textContent = data.message || data.stage || 'Downloading...';
-      }
-      if (typeof data.percent === 'number') {
-        if (aiDownloadPercentText) {
-          aiDownloadPercentText.textContent = `${data.percent}%`;
-        }
-        if (aiDownloadProgressBar) {
-          aiDownloadProgressBar.style.width = `${data.percent}%`;
-        }
-      }
-    });
-
-    try {
-      const res = await window.familyVault.downloadGemmaModel();
-      if (res && res.success) {
-        showToast('Gemma 2 2B model installed & local engine started! (127.0.0.1:18432)', 'success');
-        if (aiQuickSetupBox) {
-          aiQuickSetupBox.classList.add('hidden');
-        }
-        const engineText = document.getElementById('ai-active-engine-text');
-        if (engineText) {
-          engineText.textContent = 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)';
-        }
-        if (btnStartAiServer) btnStartAiServer.classList.add('hidden');
-        if (btnStopAiServer) btnStopAiServer.classList.remove('hidden');
-      } else {
-        showToast('Download finished, but engine did not start. You can start it from Model Settings.', 'warning');
-      }
-    } catch (err) {
-      showToast('Model setup failed: ' + err.message, 'error');
-      if (aiDownloadStatusText) {
-        aiDownloadStatusText.textContent = 'Error: ' + err.message;
-      }
-    } finally {
-      btnDownloadSetupGemma.disabled = false;
-      btnDownloadSetupGemma.textContent = '⬇️ Download & Enable Gemma 2 2B';
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
+    if (typeof data.percent === 'number') {
+      const pStr = `${data.percent}%`;
+      if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = `Downloading (${pStr})`;
+      if (modelModalPercentText) modelModalPercentText.textContent = pStr;
+      if (aiDownloadPercentText) aiDownloadPercentText.textContent = pStr;
+      if (modelModalProgressBar) modelModalProgressBar.style.width = pStr;
+      if (aiDownloadProgressBar) aiDownloadProgressBar.style.width = pStr;
     }
   });
+
+  try {
+    const res = await window.familyVault.downloadGemmaModel();
+    if (res && res.success) {
+      showToast('Gemma 2 2B model installed & local engine started! (127.0.0.1:18432)', 'success');
+      await checkAiModelStatus();
+      const engineText = document.getElementById('ai-active-engine-text');
+      if (engineText) engineText.textContent = 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)';
+      if (btnStartAiServer) btnStartAiServer.classList.add('hidden');
+      if (btnStopAiServer) btnStopAiServer.classList.remove('hidden');
+      if (aiQuickSetupBox) aiQuickSetupBox.classList.add('hidden');
+    } else {
+      showToast('Download finished, but engine did not start. You can start it from Model Settings.', 'warning');
+      await checkAiModelStatus();
+    }
+  } catch (err) {
+    showToast('Model setup failed: ' + err.message, 'error');
+    if (modelModalStatusText) modelModalStatusText.textContent = 'Error: ' + err.message;
+    if (aiDownloadStatusText) aiDownloadStatusText.textContent = 'Error: ' + err.message;
+    await checkAiModelStatus();
+  } finally {
+    isDownloadingModel = false;
+    if (typeof unsubscribe === 'function') unsubscribe();
+  }
+}
+
+// Hook Topbar Download Button
+if (btnTopbarDownloadModel) {
+  btnTopbarDownloadModel.addEventListener('click', () => {
+    if (modalDownloadModel) modalDownloadModel.classList.remove('hidden');
+    checkAiModelStatus();
+  });
+}
+
+// Hook Modal Start Download Button
+if (btnModalStartDownload) {
+  btnModalStartDownload.addEventListener('click', async () => {
+    const status = await window.familyVault.getAiStatus();
+    if (status.isModelDownloaded && status.isBinaryAvailable && !status.isServerRunning) {
+      btnModalStartDownload.disabled = true;
+      btnModalStartDownload.textContent = 'Starting Engine...';
+      try {
+        const ready = await window.familyVault.startAiServer({
+          binaryPath: status.binaryPath,
+          modelPath: status.modelPath
+        });
+        if (ready) {
+          showToast('Local Neural LLM engine started! (127.0.0.1:18432)', 'success');
+          await checkAiModelStatus();
+        } else {
+          showToast('Failed to start engine', 'error');
+        }
+      } catch (e) {
+        showToast('Error starting engine: ' + e.message, 'error');
+      } finally {
+        checkAiModelStatus();
+      }
+      return;
+    }
+
+    if (!status.isModelDownloaded) {
+      startGemmaDownload();
+    }
+  });
+}
+
+// Hook AI Quick Setup Card Download Button
+if (btnDownloadSetupGemma) {
+  btnDownloadSetupGemma.addEventListener('click', startGemmaDownload);
 }
 
 // Family Member Filter listener
@@ -1478,6 +1615,7 @@ document.querySelectorAll('.modal-close-btn').forEach(btn => {
     modalAiQa.classList.add('hidden');
     modalChangePassword.classList.add('hidden');
     if (modalAuditLogs) modalAuditLogs.classList.add('hidden');
+    if (modalDownloadModel) modalDownloadModel.classList.add('hidden');
   });
 });
 
