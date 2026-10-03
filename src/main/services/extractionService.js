@@ -695,6 +695,187 @@ function computeExpiryStatus(expiryDateStr) {
   }
 }
 
+/**
+ * Extracts structured profile facts (parent names, DOB, address, 10th/12th marks, education, gender)
+ * from document text for user profiling and contradiction analysis.
+ */
+function extractProfileFacts(text, personName = null) {
+  const facts = [];
+  if (!text || typeof text !== 'string') return facts;
+
+  // 1. Father's Name
+  const fatherMatch = text.match(/(?:father['’]?s?\s*name|father\s*name)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i) ||
+                      text.match(/\b(?:s\/o|son\s+of|d\/o|daughter\s+of)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i);
+  if (fatherMatch) {
+    const rawVal = fatherMatch[1].split(/[\r\n;,]+/)[0].trim();
+    const cleaned = cleanPersonName(rawVal);
+    if (cleaned) {
+      facts.push({
+        personName,
+        fieldName: 'fathers_name',
+        fieldValue: cleaned,
+        rawSnippet: fatherMatch[0].slice(0, 120),
+        confidence: 0.95
+      });
+    }
+  }
+
+  // 2. Mother's Name
+  const motherMatch = text.match(/(?:mother['’]?s?\s*name|mother\s*name|m\/o|mother)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i);
+  if (motherMatch) {
+    const rawVal = motherMatch[1].split(/[\r\n;,]+/)[0].trim();
+    const cleaned = cleanPersonName(rawVal);
+    if (cleaned) {
+      facts.push({
+        personName,
+        fieldName: 'mothers_name',
+        fieldValue: cleaned,
+        rawSnippet: motherMatch[0].slice(0, 120),
+        confidence: 0.95
+      });
+    }
+  }
+
+  // 3. Date of Birth (DOB)
+  const dobMatch = text.match(/(?:date\s*of\s*birth|birth\s*date|\bd\.?o\.?b\.?)\s*[:.-]?\s*([0-9a-zA-Z\s/,-]+)/i);
+  if (dobMatch) {
+    const dates = findDateCandidates(dobMatch[1]);
+    if (dates.length > 0) {
+      facts.push({
+        personName,
+        fieldName: 'dob',
+        fieldValue: dates[0].date,
+        rawSnippet: dobMatch[0].slice(0, 100),
+        confidence: 0.95
+      });
+    }
+  }
+
+  // 4. Gender
+  const genderMatch = text.match(/\b(?:gender|sex)\s*[:.-]?\s*(male|female|other|m|f)\b/i);
+  if (genderMatch) {
+    const g = genderMatch[1].toLowerCase();
+    const val = g.startsWith('m') ? 'Male' : (g.startsWith('f') ? 'Female' : 'Other');
+    facts.push({
+      personName,
+      fieldName: 'gender',
+      fieldValue: val,
+      rawSnippet: genderMatch[0].slice(0, 50),
+      confidence: 0.95
+    });
+  }
+
+  // 5. 10th Marks / Secondary School Examination
+  const has10thContext = /(?:10th|class\s*x\b|secondary\s*school|matriculation|high\s*school|ssc\b)/i.test(text);
+  if (has10thContext) {
+    let markVal = null;
+    let snippet = '';
+
+    const pctMatch = text.match(/(?:percentage|marks\s*(?:obtained|%|percent)?|aggregate|result)\s*[:.-]?\s*(\d{1,2}(?:\.\d{1,2})?\s*%?)/i) ||
+                     text.match(/\b(\d{1,2}(?:\.\d{1,2})?)\s*%/);
+    const cgpaMatch = text.match(/(?:cgpa|gpa)\s*[:.-]?\s*(\d{1,2}(?:\.\d{1,2})?)/i);
+    const boardMatch = text.match(/\b(CBSE|ICSE|State\s*Board|WBBSE|UP\s*Board|Maharashtra\s*Board|BIE|NIOS)\b/i);
+    const yearMatch = text.match(/\b(20\d\d|19\d\d)\b/);
+
+    if (pctMatch) {
+      let pct = pctMatch[1].trim();
+      if (!pct.endsWith('%')) pct += '%';
+      markVal = pct;
+      snippet = pctMatch[0];
+    } else if (cgpaMatch) {
+      markVal = `CGPA ${cgpaMatch[1]}`;
+      snippet = cgpaMatch[0];
+    }
+
+    if (markVal) {
+      const extra = [];
+      if (boardMatch) extra.push(boardMatch[1].toUpperCase());
+      if (yearMatch) extra.push(yearMatch[1]);
+      const full10th = extra.length > 0 ? `${markVal} (${extra.join(', ')})` : markVal;
+
+      facts.push({
+        personName,
+        fieldName: 'marks_10th',
+        fieldValue: full10th,
+        rawSnippet: snippet.slice(0, 100),
+        confidence: 0.92
+      });
+    }
+  }
+
+  // 6. 12th Marks / Higher Secondary / Intermediate
+  const has12thContext = /(?:12th|class\s*xii\b|senior\s*secondary|intermediate|higher\s*secondary|hsc\b)/i.test(text);
+  if (has12thContext) {
+    let markVal = null;
+    let snippet = '';
+
+    const pctMatch = text.match(/(?:percentage|marks\s*(?:obtained|%|percent)?|aggregate|result)\s*[:.-]?\s*(\d{1,2}(?:\.\d{1,2})?\s*%?)/i) ||
+                     text.match(/\b(\d{1,2}(?:\.\d{1,2})?)\s*%/);
+    const cgpaMatch = text.match(/(?:cgpa|gpa)\s*[:.-]?\s*(\d{1,2}(?:\.\d{1,2})?)/i);
+    const streamMatch = text.match(/\b(Science|Commerce|Arts|Humanities|PCM|PCB)\b/i);
+    const boardMatch = text.match(/\b(CBSE|ICSE|State\s*Board|WBBSE|UP\s*Board|Maharashtra\s*Board|BIE|NIOS)\b/i);
+    const yearMatch = text.match(/\b(20\d\d|19\d\d)\b/);
+
+    if (pctMatch) {
+      let pct = pctMatch[1].trim();
+      if (!pct.endsWith('%')) pct += '%';
+      markVal = pct;
+      snippet = pctMatch[0];
+    } else if (cgpaMatch) {
+      markVal = `CGPA ${cgpaMatch[1]}`;
+      snippet = cgpaMatch[0];
+    }
+
+    if (markVal) {
+      const extra = [];
+      if (streamMatch) extra.push(streamMatch[1]);
+      if (boardMatch) extra.push(boardMatch[1].toUpperCase());
+      if (yearMatch) extra.push(yearMatch[1]);
+      const full12th = extra.length > 0 ? `${markVal} (${extra.join(', ')})` : markVal;
+
+      facts.push({
+        personName,
+        fieldName: 'marks_12th',
+        fieldValue: full12th,
+        rawSnippet: snippet.slice(0, 100),
+        confidence: 0.92
+      });
+    }
+  }
+
+  // 7. Higher Education / Degree
+  const degreeMatch = text.match(/\b(Bachelor\s+of\s+[A-Za-z\s]+|Master\s+of\s+[A-Za-z\s]+|Doctor\s+of\s+[A-Za-z\s]+|B\.?Tech|B\.?E\.?|B\.?Sc|B\.?Com|B\.?A|BBA|BCA|M\.?Tech|M\.?B\.?A|M\.?Sc|M\.?A|MCA|MBBS|BDS|MD|Ph\.?D|Diploma)\b(?:\s+(?:in|of)\s+([A-Za-z\s]+))?/i);
+  if (degreeMatch) {
+    const deg = degreeMatch[0].split(/[\r\n;,]+/)[0].trim();
+    if (deg.length >= 3 && deg.length <= 80) {
+      facts.push({
+        personName,
+        fieldName: 'education',
+        fieldValue: deg,
+        rawSnippet: degreeMatch[0].slice(0, 100),
+        confidence: 0.90
+      });
+    }
+  }
+
+  // 8. Address
+  const addrMatch = text.match(/(?:permanent\s*address|residential\s*address|present\s*address|address)\s*[:.-]?\s*([^\n\r]+(?:\n[^\n\r]+){0,2})/i);
+  if (addrMatch) {
+    const rawAddr = addrMatch[1].replace(/\s+/g, ' ').trim();
+    if (rawAddr.length >= 10 && rawAddr.length <= 160 && !/^(?:none|n\/a|same\s+as|null)$/i.test(rawAddr)) {
+      facts.push({
+        personName,
+        fieldName: 'address',
+        fieldValue: rawAddr,
+        rawSnippet: addrMatch[0].slice(0, 160),
+        confidence: 0.88
+      });
+    }
+  }
+
+  return facts;
+}
+
 module.exports = {
   extractTextFromBuffer,
   extractOcrWordCoordinates,
@@ -704,5 +885,6 @@ module.exports = {
   computeExpiryStatus,
   detectPerson,
   generateAutoTags,
-  suggestDocumentTitle
+  suggestDocumentTitle,
+  extractProfileFacts
 };

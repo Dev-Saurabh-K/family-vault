@@ -55,5 +55,10 @@ contextBridge.exposeInMainWorld('familyVault', {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('ai:download-progress', handler);
     return () => ipcRenderer.removeListener('ai:download-progress', handler);
-  }
+  },
+
+  // User profiles & contradiction detection
+  listUserProfiles: () => ipcRenderer.invoke('profile:list'),
+  getUserProfile: (personName) => ipcRenderer.invoke('profile:get', { personName }),
+  saveUserProfile: (profile) => ipcRenderer.invoke('profile:save', profile)
 });

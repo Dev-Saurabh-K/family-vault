@@ -509,6 +509,15 @@ async function updateCounts() {
         expiryAlertBanner.classList.add('hidden');
       }
     }
+
+    // Update Users & Profiles Count Badge
+    try {
+      const usersList = await window.familyVault.listUserProfiles();
+      const countUsersBadge = document.getElementById('count-users');
+      if (countUsersBadge) {
+        countUsersBadge.textContent = usersList.length;
+      }
+    } catch (e) {}
   } catch (e) {}
 }
 
@@ -2058,6 +2067,282 @@ if (btnExportAuditLogs) {
   });
 }
 
+// --- Users & Family Profiles Controller ---
+const navUserProfilesBtn = document.getElementById('nav-user-profiles-btn');
+const modalUsersProfiles = document.getElementById('modal-users-profiles');
+const modalEditUserProfile = document.getElementById('modal-edit-user-profile');
+const usersSearchInput = document.getElementById('users-search-input');
+const usersProfileList = document.getElementById('users-profile-list');
+const usersProfileEmpty = document.getElementById('users-profile-empty');
+const usersProfileContent = document.getElementById('users-profile-content');
+const userDetailName = document.getElementById('user-detail-name');
+const userDetailAgeBadge = document.getElementById('user-detail-age-badge');
+const userDetailGenderBadge = document.getElementById('user-detail-gender-badge');
+const userDetailDocsBadge = document.getElementById('user-detail-docs-badge');
+const userContradictionBox = document.getElementById('user-contradiction-box');
+const userContradictionItems = document.getElementById('user-contradiction-items');
+
+const userFieldDob = document.getElementById('user-field-dob');
+const userFieldFather = document.getElementById('user-field-father');
+const userFieldMother = document.getElementById('user-field-mother');
+const userFieldAddress = document.getElementById('user-field-address');
+const userField10th = document.getElementById('user-field-10th');
+const userField12th = document.getElementById('user-field-12th');
+const userFieldEducation = document.getElementById('user-field-education');
+const userSourceDocsList = document.getElementById('user-source-docs-list');
+
+const btnEditUserProfile = document.getElementById('btn-edit-user-profile');
+const editUserName = document.getElementById('edit-user-name');
+const editUserDob = document.getElementById('edit-user-dob');
+const editUserGender = document.getElementById('edit-user-gender');
+const editUserFather = document.getElementById('edit-user-father');
+const editUserMother = document.getElementById('edit-user-mother');
+const editUserAddress = document.getElementById('edit-user-address');
+const editUser10th = document.getElementById('edit-user-10th');
+const editUser12th = document.getElementById('edit-user-12th');
+const editUserEducation = document.getElementById('edit-user-education');
+const editUserNotes = document.getElementById('edit-user-notes');
+const btnSaveUserProfileSubmit = document.getElementById('btn-save-user-profile-submit');
+
+let currentLoadedProfiles = [];
+let selectedProfileName = null;
+
+async function refreshUserProfilesUI(targetPersonName = null) {
+  try {
+    currentLoadedProfiles = await window.familyVault.listUserProfiles();
+    const countBadge = document.getElementById('count-users');
+    if (countBadge) countBadge.textContent = currentLoadedProfiles.length;
+
+    renderUsersList(currentLoadedProfiles, targetPersonName);
+  } catch (err) {
+    showToast('Failed to load user profiles: ' + err.message, 'error');
+  }
+}
+
+function renderUsersList(profiles, preferredSelectedName = null) {
+  if (!usersProfileList) return;
+  usersProfileList.innerHTML = '';
+
+  const query = (usersSearchInput?.value || '').toLowerCase().trim();
+  const filtered = query
+    ? profiles.filter(p => p.name.toLowerCase().includes(query))
+    : profiles;
+
+  if (filtered.length === 0) {
+    usersProfileList.innerHTML = '<div style="padding: 16px 8px; text-align: center; color: var(--text-muted); font-size: 11px;">No family members found.</div>';
+    usersProfileEmpty.classList.remove('hidden');
+    usersProfileContent.classList.add('hidden');
+    selectedProfileName = null;
+    return;
+  }
+
+  filtered.forEach(u => {
+    const item = document.createElement('div');
+    item.className = 'user-item-btn';
+    item.style.cssText = 'padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; border: 1px solid transparent;';
+    
+    const isTarget = u.name === (preferredSelectedName || selectedProfileName);
+    if (isTarget) {
+      item.style.background = 'rgba(59, 130, 246, 0.15)';
+      item.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+    }
+
+    const conflictBadge = u.hasContradictions
+      ? `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 9px; padding: 1px 5px;">⚠️ ${u.contradictionCount} Discrepanc${u.contradictionCount > 1 ? 'ies' : 'y'}</span>`
+      : '';
+
+    item.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+        <strong style="font-size: 12px; color: #fff;">${escapeHtml(u.name)}</strong>
+        ${conflictBadge}
+      </div>
+      <div style="display: flex; gap: 6px; font-size: 10px; color: var(--text-muted); margin-top: 2px;">
+        <span>${u.age !== null ? `Age: ${u.age}` : 'Age: -'}</span>
+        <span>&bull;</span>
+        <span>${u.documentsCount} doc${u.documentsCount !== 1 ? 's' : ''}</span>
+      </div>
+    `;
+
+    item.addEventListener('click', () => {
+      document.querySelectorAll('#users-profile-list > div').forEach(el => {
+        el.style.background = 'transparent';
+        el.style.borderColor = 'transparent';
+      });
+      item.style.background = 'rgba(59, 130, 246, 0.15)';
+      item.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+      loadUserProfileDetails(u.name);
+    });
+
+    usersProfileList.appendChild(item);
+  });
+
+  const selectTarget = preferredSelectedName || selectedProfileName || filtered[0].name;
+  loadUserProfileDetails(selectTarget);
+}
+
+async function loadUserProfileDetails(personName) {
+  if (!personName) return;
+  selectedProfileName = personName;
+
+  try {
+    const data = await window.familyVault.getUserProfile(personName);
+    if (!data) return;
+
+    usersProfileEmpty.classList.add('hidden');
+    usersProfileContent.classList.remove('hidden');
+
+    // Header
+    userDetailName.textContent = data.personName;
+    userDetailAgeBadge.textContent = data.profile.age !== null ? `Age: ${data.profile.age}` : 'Age: Unknown';
+    userDetailGenderBadge.textContent = data.profile.gender || 'Gender: Not set';
+    userDetailDocsBadge.textContent = `${data.documentsCount} Document${data.documentsCount !== 1 ? 's' : ''}`;
+
+    // Contradictions Banner
+    if (data.hasContradictions && Object.keys(data.contradictions).length > 0) {
+      userContradictionBox.classList.remove('hidden');
+      userContradictionItems.innerHTML = '';
+
+      for (const [key, item] of Object.entries(data.contradictions)) {
+        const row = document.createElement('div');
+        row.style.cssText = 'background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;';
+
+        const titleHtml = `<div style="font-weight: 600; color: #fca5a5; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+          <span>${escapeHtml(item.fieldLabel)}</span>
+          <span class="badge" style="background: rgba(239, 68, 68, 0.25); color: #f87171; font-size: 9px;">Contradiction</span>
+        </div>`;
+
+        const valuesHtml = item.conflictingValues.map(cv => `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; padding-left: 6px; border-left: 2px solid #ef4444;">
+            <span style="font-weight: 500; color: #fff;">"${escapeHtml(cv.value)}"</span>
+            <span style="color: var(--text-muted); font-size: 10px;">in <em>${escapeHtml(cv.documentTitle || cv.fileName || 'Document')}</em></span>
+          </div>
+        `).join('');
+
+        row.innerHTML = titleHtml + valuesHtml;
+        userContradictionItems.appendChild(row);
+      }
+    } else {
+      userContradictionBox.classList.add('hidden');
+    }
+
+    // Populate Fields with inline contradiction indicator if conflicting
+    renderFieldWithConflict(userFieldDob, data.profile.dob, data.contradictions.dob);
+    renderFieldWithConflict(userFieldFather, data.profile.fathersName, data.contradictions.fathers_name);
+    renderFieldWithConflict(userFieldMother, data.profile.mothersName, data.contradictions.mothers_name);
+    renderFieldWithConflict(userFieldAddress, data.profile.address, data.contradictions.address);
+    renderFieldWithConflict(userField10th, data.profile.marks10th, data.contradictions.marks_10th);
+    renderFieldWithConflict(userField12th, data.profile.marks12th, data.contradictions.marks_12th);
+    renderFieldWithConflict(userFieldEducation, data.profile.education, data.contradictions.education);
+
+    // Populate Contributing Documents
+    userSourceDocsList.innerHTML = '';
+    if (data.sourceDocuments && data.sourceDocuments.length > 0) {
+      data.sourceDocuments.forEach(doc => {
+        const item = document.createElement('div');
+        item.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.4); padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); font-size: 11px;';
+        item.innerHTML = `
+          <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px;">
+            <strong style="color: var(--text-primary);">${escapeHtml(doc.title)}</strong>
+            <span style="color: var(--text-muted); margin-left: 6px; font-size: 10px;">(${escapeHtml(doc.category)})</span>
+          </div>
+          <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 7px;">View</button>
+        `;
+        item.querySelector('button').addEventListener('click', () => {
+          modalUsersProfiles.classList.add('hidden');
+          openDocumentDrawer(doc.id);
+        });
+        userSourceDocsList.appendChild(item);
+      });
+    } else {
+      userSourceDocsList.innerHTML = '<div style="color: var(--text-muted); font-size: 11px;">No contributing documents found.</div>';
+    }
+  } catch (err) {
+    showToast('Failed to load profile details: ' + err.message, 'error');
+  }
+}
+
+function renderFieldWithConflict(element, value, contradictionObj) {
+  if (!element) return;
+  const valStr = value && String(value).trim() ? String(value).trim() : '-';
+  if (contradictionObj && contradictionObj.isContradicting) {
+    element.innerHTML = `${escapeHtml(valStr)} <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); font-size: 9px; margin-left: 6px;">⚠️ Contradicting</span>`;
+  } else {
+    element.textContent = valStr;
+  }
+}
+
+if (navUserProfilesBtn) {
+  navUserProfilesBtn.addEventListener('click', async () => {
+    modalUsersProfiles.classList.remove('hidden');
+    await refreshUserProfilesUI();
+  });
+}
+
+if (usersSearchInput) {
+  usersSearchInput.addEventListener('input', () => {
+    renderUsersList(currentLoadedProfiles, selectedProfileName);
+  });
+}
+
+if (btnEditUserProfile) {
+  btnEditUserProfile.addEventListener('click', async () => {
+    if (!selectedProfileName) return;
+    try {
+      const data = await window.familyVault.getUserProfile(selectedProfileName);
+      if (!data) return;
+
+      editUserName.value = data.personName;
+      editUserDob.value = data.profile.dob || '';
+      editUserGender.value = data.profile.gender || '';
+      editUserFather.value = data.profile.fathersName || '';
+      editUserMother.value = data.profile.mothersName || '';
+      editUserAddress.value = data.profile.address || '';
+      editUser10th.value = data.profile.marks10th || '';
+      editUser12th.value = data.profile.marks12th || '';
+      editUserEducation.value = data.profile.education || '';
+      editUserNotes.value = data.profile.notes || '';
+
+      modalEditUserProfile.classList.remove('hidden');
+    } catch (e) {
+      showToast('Error opening edit form: ' + e.message, 'error');
+    }
+  });
+}
+
+if (btnSaveUserProfileSubmit) {
+  btnSaveUserProfileSubmit.addEventListener('click', async () => {
+    const name = editUserName.value.trim();
+    if (!name) return;
+
+    btnSaveUserProfileSubmit.disabled = true;
+    btnSaveUserProfileSubmit.textContent = 'Saving...';
+
+    try {
+      await window.familyVault.saveUserProfile({
+        name,
+        dob: editUserDob.value.trim() || null,
+        gender: editUserGender.value || null,
+        fathersName: editUserFather.value.trim() || null,
+        mothersName: editUserMother.value.trim() || null,
+        address: editUserAddress.value.trim() || null,
+        marks10th: editUser10th.value.trim() || null,
+        marks12th: editUser12th.value.trim() || null,
+        education: editUserEducation.value.trim() || null,
+        notes: editUserNotes.value.trim() || null
+      });
+
+      modalEditUserProfile.classList.add('hidden');
+      showToast('Profile saved successfully', 'success');
+      await refreshUserProfilesUI(name);
+    } catch (err) {
+      showToast('Failed to save profile: ' + err.message, 'error');
+    } finally {
+      btnSaveUserProfileSubmit.disabled = false;
+      btnSaveUserProfileSubmit.textContent = 'Save Profile';
+    }
+  });
+}
+
 // Modal close button handlers
 document.querySelectorAll('.modal-close-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2069,6 +2354,8 @@ document.querySelectorAll('.modal-close-btn').forEach(btn => {
     if (modalAuditLogs) modalAuditLogs.classList.add('hidden');
     if (modalDownloadModel) modalDownloadModel.classList.add('hidden');
     if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
+    if (modalUsersProfiles) modalUsersProfiles.classList.add('hidden');
+    if (modalEditUserProfile) modalEditUserProfile.classList.add('hidden');
     documentIdPendingDelete = null;
   });
 });

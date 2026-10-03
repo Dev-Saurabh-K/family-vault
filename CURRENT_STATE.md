@@ -85,14 +85,28 @@ The repository contains a complete, fully tested, functional implementation of F
 | Standalone Windows Desktop Packaging | Verified (`electron-forge package`) | Packaged to `out/family-vault-win32-x64/` |
 | Local-Wi-Fi sync | Explicitly not implemented | Kept out of scope per architectural constraints |
 
+- **User Database & Cross-Document Contradiction Detection**:
+  - `src/main/vault/database.js`:
+    - `user_profiles` table: Encrypted at rest in SQLCipher storing canonical biographical, parental, address, academic (10th/12th marks), and educational profiles.
+    - `profile_facts` table: Encrypted atomic facts extracted from documents (`dob`, `fathers_name`, `mothers_name`, `address`, `marks_10th`, `marks_12th`, `education`, `gender`) with provenance linking to source documents and versions (`ON DELETE CASCADE`).
+    - Cross-document contradiction engine (`getUserProfileWithContradictions`): Groups facts by normalized field values across documents; flags discrepancies when different documents make conflicting claims (e.g. conflicting birthdates, differing father's name spellings, conflicting marks, differing addresses); prepares side-by-side discrepancy reports citing source document titles and text snippets.
+  - `src/main/services/extractionService.js`: `extractProfileFacts(text, personName)` parses OCR and plain text to extract parental names, dates of birth, full address strings, 10th marks (percentages, CGPA, boards, years), 12th marks (stream, boards, percentages), and higher education degrees.
+  - `src/main/vault/vaultService.js`: Automatically triggers profile fact extraction and canonical profile upserting during document import; exposes `listUserProfiles`, `getUserProfile`, and `saveUserProfile`.
+  - `src/index.html` & `src/renderer.js`:
+    - "Users & Profiles" sidebar item with real-time profile count badge.
+    - Responsive two-pane modal (`#modal-users-profiles`): left pane lists family members with contradiction alert tags (`⚠️ X Discrepancies`); right pane displays structured identity, parental, address, and academic cards alongside source document references.
+    - Prominent **Contradiction Alert Box** highlighting conflicting values side-by-side with source document citations.
+    - In-app profile editing modal (`#modal-edit-user-profile`) allowing users to override or confirm canonical details.
+
 ## Verification Commands Used
 
 ```bash
 npm test
 ```
-All 30 automated tests pass across:
+All 32 automated tests pass across:
 - `tests/crypto.test.js`
 - `tests/vaultService.test.js`
+- `tests/userProfile.test.js`
 - `tests/autoCategorizeAndPersonDetection.test.js`
 - `tests/documentDeletion.test.js`
 - `tests/extraction.test.js`

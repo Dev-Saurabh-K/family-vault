@@ -118,6 +118,40 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_versions_sha256 ON document_versions(sha256);
     CREATE INDEX IF NOT EXISTS idx_vector_doc_id ON vector_embeddings(document_id);
     CREATE INDEX IF NOT EXISTS idx_vector_version_id ON vector_embeddings(version_id);
+
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      dob TEXT,
+      gender TEXT,
+      fathers_name TEXT,
+      mothers_name TEXT,
+      address TEXT,
+      education TEXT,
+      marks_10th TEXT,
+      marks_12th TEXT,
+      extra_details TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_facts (
+      id TEXT PRIMARY KEY,
+      person_name TEXT NOT NULL,
+      field_name TEXT NOT NULL,
+      field_value TEXT NOT NULL,
+      source_document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      source_version_id TEXT NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE,
+      confidence REAL DEFAULT 1.0,
+      raw_snippet TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_profiles_name ON user_profiles(name);
+    CREATE INDEX IF NOT EXISTS idx_profile_facts_person ON profile_facts(person_name);
+    CREATE INDEX IF NOT EXISTS idx_profile_facts_doc ON profile_facts(source_document_id);
+    CREATE INDEX IF NOT EXISTS idx_profile_facts_field ON profile_facts(field_name);
   `);
 
   // Migrate columns if upgrading from earlier table definitions
@@ -472,10 +506,11 @@ function deleteDocument(db, documentId, auditDetails) {
       throw new Error(`Unable to delete active document: ${documentId}`);
     }
 
-    // These indexes are derived data. A failure must roll back the soft-delete
+    // These indexes and derived facts are derived data. A failure must roll back the soft-delete
     // rather than leaving a document visible in an inconsistent search state.
     db.prepare('DELETE FROM document_fts WHERE document_id = ?').run(documentId);
     db.prepare('DELETE FROM vector_embeddings WHERE document_id = ?').run(documentId);
+    db.prepare('DELETE FROM profile_facts WHERE source_document_id = ?').run(documentId);
 
     if (auditDetails) {
       recordAuditEvent(db, 'DOCUMENT_DELETED', auditDetails);
@@ -673,6 +708,342 @@ function listDistinctPersons(db) {
   return rows.map(r => r.person.trim()).filter(Boolean);
 }
 
+/**
+ * Calculates integer age in years from an ISO date of birth (YYYY-MM-DD).
+ */
+function calculateAge(dobStr) {
+  if (!dobStr || typeof dobStr !== 'string') return null;
+  const match = dobStr.match(/\b(19\d\d|20\d\d)[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b/);
+  if (!match) return null;
+  const y = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10) - 1;
+  const d = parseInt(match[3], 10);
+  const birth = new Date(y, m, d);
+  if (isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age >= 0 && age <= 130 ? age : null;
+}
+
+const PROFILE_FIELD_LABELS = {
+  dob: 'Date of Birth',
+  fathers_name: "Father's Name",
+  mothers_name: "Mother's Name",
+  address: 'Residential Address',
+  marks_10th: '10th Secondary Marks',
+  marks_12th: '12th Higher Secondary Marks',
+  education: 'Higher Education / Degree',
+  gender: 'Gender'
+};
+
+function normalizeProfileFieldValue(fieldName, val) {
+  if (!val) return '';
+  let str = String(val).trim().toLowerCase();
+  if (fieldName === 'dob') {
+    return str.replace(/[/-]/g, '-');
+  }
+  if (fieldName === 'fathers_name' || fieldName === 'mothers_name') {
+    str = str.replace(/^(?:mr\.?|mrs\.?|shri\.?|smt\.?|dr\.?)\s+/i, '');
+    return str.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  if (fieldName === 'marks_10th' || fieldName === 'marks_12th') {
+    const pct = str.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%/);
+    if (pct) return pct[1] + '%';
+    const cgpa = str.match(/(?:cgpa|gpa)\s*[:.-]?\s*(\d{1,2}(?:\.\d{1,2})?)/);
+    if (cgpa) return 'cgpa ' + cgpa[1];
+    return str.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  if (fieldName === 'gender') {
+    if (str.startsWith('m')) return 'male';
+    if (str.startsWith('f')) return 'female';
+    return str;
+  }
+  return str.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Creates or updates a canonical user profile in user_profiles.
+ */
+function upsertUserProfile(db, profile) {
+  if (!profile || !profile.name || !profile.name.trim()) {
+    throw new Error('User profile name is required');
+  }
+  const name = profile.name.trim();
+  const existing = db.prepare('SELECT id, created_at FROM user_profiles WHERE name = ? COLLATE NOCASE').get(name);
+  const now = new Date().toISOString();
+  const id = existing ? existing.id : (profile.id || uuidv4());
+  const createdAt = existing ? existing.created_at : now;
+
+  let extraDetails = null;
+  if (profile.extraDetails) {
+    extraDetails = typeof profile.extraDetails === 'string'
+      ? profile.extraDetails
+      : JSON.stringify(profile.extraDetails);
+  }
+
+  db.prepare(`
+    INSERT INTO user_profiles (
+      id, name, dob, gender, fathers_name, mothers_name, address,
+      education, marks_10th, marks_12th, extra_details, notes, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      dob = COALESCE(excluded.dob, user_profiles.dob),
+      gender = COALESCE(excluded.gender, user_profiles.gender),
+      fathers_name = COALESCE(excluded.fathers_name, user_profiles.fathers_name),
+      mothers_name = COALESCE(excluded.mothers_name, user_profiles.mothers_name),
+      address = COALESCE(excluded.address, user_profiles.address),
+      education = COALESCE(excluded.education, user_profiles.education),
+      marks_10th = COALESCE(excluded.marks_10th, user_profiles.marks_10th),
+      marks_12th = COALESCE(excluded.marks_12th, user_profiles.marks_12th),
+      extra_details = COALESCE(excluded.extra_details, user_profiles.extra_details),
+      notes = COALESCE(excluded.notes, user_profiles.notes),
+      updated_at = excluded.updated_at
+  `).run(
+    id,
+    name,
+    profile.dob || null,
+    profile.gender || null,
+    profile.fathersName || profile.fathers_name || null,
+    profile.mothersName || profile.mothers_name || null,
+    profile.address || null,
+    profile.education || null,
+    profile.marks10th || profile.marks_10th || null,
+    profile.marks12th || profile.marks_12th || null,
+    extraDetails,
+    profile.notes || null,
+    createdAt,
+    now
+  );
+
+  return getUserProfile(db, name);
+}
+
+/**
+ * Retrieves a canonical user profile by person name.
+ */
+function getUserProfile(db, name) {
+  if (!name) return null;
+  const row = db.prepare('SELECT * FROM user_profiles WHERE name = ? COLLATE NOCASE').get(name.trim());
+  if (!row) return null;
+  let extraDetails = {};
+  try {
+    if (row.extra_details) extraDetails = JSON.parse(row.extra_details);
+  } catch (e) {}
+
+  return {
+    id: row.id,
+    name: row.name,
+    dob: row.dob,
+    age: calculateAge(row.dob),
+    gender: row.gender,
+    fathersName: row.fathers_name,
+    mothersName: row.mothers_name,
+    address: row.address,
+    education: row.education,
+    marks10th: row.marks_10th,
+    marks12th: row.marks_12th,
+    extraDetails,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+/**
+ * Batch saves atomic extracted profile facts linked to their source documents.
+ */
+function saveProfileFactsBatch(db, facts = []) {
+  if (!Array.isArray(facts) || facts.length === 0) return;
+  const insert = db.prepare(`
+    INSERT INTO profile_facts (
+      id, person_name, field_name, field_value, source_document_id, source_version_id, confidence, raw_snippet, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const now = new Date().toISOString();
+  const tx = db.transaction((items) => {
+    for (const f of items) {
+      if (f.personName && f.fieldName && f.fieldValue && f.sourceDocumentId && f.sourceVersionId) {
+        insert.run(
+          uuidv4(),
+          f.personName.trim(),
+          f.fieldName.trim(),
+          String(f.fieldValue).trim(),
+          f.sourceDocumentId,
+          f.sourceVersionId,
+          f.confidence ?? 1.0,
+          f.rawSnippet || null,
+          now
+        );
+      }
+    }
+  });
+  tx(facts);
+}
+
+/**
+ * Analyzes all extracted facts across documents for a person and detects contradictions.
+ */
+function getUserProfileWithContradictions(db, personName) {
+  ensureIsDeletedColumn(db);
+  const name = (personName || '').trim();
+  const canonical = getUserProfile(db, name) || {
+    id: null,
+    name,
+    dob: null,
+    age: null,
+    gender: null,
+    fathersName: null,
+    mothersName: null,
+    address: null,
+    education: null,
+    marks10th: null,
+    marks12th: null,
+    extraDetails: {},
+    notes: null
+  };
+
+  // Fetch all atomic facts from non-deleted documents
+  const facts = db.prepare(`
+    SELECT pf.*, d.title as document_title, dv.file_name
+    FROM profile_facts pf
+    JOIN documents d ON pf.source_document_id = d.id
+    JOIN document_versions dv ON pf.source_version_id = dv.id
+    WHERE pf.person_name = ? COLLATE NOCASE AND (d.is_deleted IS NULL OR d.is_deleted = 0)
+    ORDER BY pf.created_at ASC
+  `).all(name);
+
+  // Group facts by field_name
+  const grouped = {};
+  for (const f of facts) {
+    const k = f.field_name.toLowerCase().trim();
+    if (!grouped[k]) grouped[k] = [];
+    grouped[k].push(f);
+  }
+
+  const contradictions = {};
+  const aggregatedValues = {};
+
+  for (const [fieldKey, factList] of Object.entries(grouped)) {
+    const uniqueNormMap = new Map();
+    for (const fact of factList) {
+      const norm = normalizeProfileFieldValue(fieldKey, fact.field_value);
+      if (!norm) continue;
+      if (!uniqueNormMap.has(norm)) {
+        uniqueNormMap.set(norm, []);
+      }
+      uniqueNormMap.get(norm).push({
+        value: fact.field_value,
+        documentId: fact.source_document_id,
+        documentTitle: fact.document_title,
+        fileName: fact.file_name,
+        snippet: fact.raw_snippet,
+        createdAt: fact.created_at
+      });
+    }
+
+    // Set aggregated value to the latest fact's value
+    if (factList.length > 0) {
+      aggregatedValues[fieldKey] = factList[factList.length - 1].field_value;
+    }
+
+    // If multiple documents report conflicting normalized values:
+    if (uniqueNormMap.size > 1) {
+      const conflictingValues = [];
+      for (const [_, examples] of uniqueNormMap.entries()) {
+        conflictingValues.push(examples[0]);
+      }
+      contradictions[fieldKey] = {
+        fieldName: fieldKey,
+        fieldLabel: PROFILE_FIELD_LABELS[fieldKey] || fieldKey,
+        isContradicting: true,
+        conflictingValues
+      };
+    }
+  }
+
+  // Count active documents associated with this person
+  const docCountRow = db.prepare(`
+    SELECT COUNT(DISTINCT d.id) as count
+    FROM documents d
+    WHERE (d.is_deleted IS NULL OR d.is_deleted = 0) AND d.person = ? COLLATE NOCASE
+  `).get(name);
+
+  // Contributing documents with titles and file names
+  const sourceDocs = db.prepare(`
+    SELECT DISTINCT d.id, d.title, d.category, dv.file_name, d.created_at
+    FROM documents d
+    LEFT JOIN document_versions dv ON d.current_version_id = dv.id
+    WHERE (d.is_deleted IS NULL OR d.is_deleted = 0) AND d.person = ? COLLATE NOCASE
+    ORDER BY d.created_at DESC
+  `).all(name);
+
+  const effectiveDob = canonical.dob || aggregatedValues.dob || null;
+  const profile = {
+    ...canonical,
+    dob: effectiveDob,
+    age: calculateAge(effectiveDob),
+    gender: canonical.gender || aggregatedValues.gender || null,
+    fathersName: canonical.fathersName || aggregatedValues.fathers_name || null,
+    mothersName: canonical.mothersName || aggregatedValues.mothers_name || null,
+    address: canonical.address || aggregatedValues.address || null,
+    education: canonical.education || aggregatedValues.education || null,
+    marks10th: canonical.marks10th || aggregatedValues.marks_10th || null,
+    marks12th: canonical.marks12th || aggregatedValues.marks_12th || null
+  };
+
+  return {
+    personName: name,
+    profile,
+    contradictions,
+    hasContradictions: Object.keys(contradictions).length > 0,
+    contradictionCount: Object.keys(contradictions).length,
+    documentsCount: docCountRow ? docCountRow.count : 0,
+    sourceDocuments: sourceDocs,
+    facts
+  };
+}
+
+/**
+ * Returns summaries of all users / family members with contradiction flags.
+ */
+function listUserProfilesWithSummaries(db) {
+  ensureIsDeletedColumn(db);
+  const personRows = db.prepare(`
+    SELECT DISTINCT person as name FROM documents
+    WHERE (is_deleted IS NULL OR is_deleted = 0) AND person IS NOT NULL AND TRIM(person) != ''
+    UNION
+    SELECT DISTINCT name FROM user_profiles WHERE name IS NOT NULL AND TRIM(name) != ''
+    ORDER BY name ASC
+  `).all();
+
+  const summaries = [];
+  for (const row of personRows) {
+    const full = getUserProfileWithContradictions(db, row.name);
+    summaries.push({
+      name: full.personName,
+      dob: full.profile.dob,
+      age: full.profile.age,
+      gender: full.profile.gender,
+      fathersName: full.profile.fathersName,
+      mothersName: full.profile.mothersName,
+      education: full.profile.education,
+      marks10th: full.profile.marks10th,
+      marks12th: full.profile.marks12th,
+      address: full.profile.address,
+      documentsCount: full.documentsCount,
+      hasContradictions: full.hasContradictions,
+      contradictionCount: full.contradictionCount,
+      contradictions: full.contradictions
+    });
+  }
+  return summaries;
+}
+
 module.exports = {
   DB_FILE_NAME,
   openVaultDatabase,
@@ -692,5 +1063,13 @@ module.exports = {
   recordAuditEvent,
   listAuditEvents,
   saveVectorEmbeddings,
-  searchVectorEmbeddings
+  searchVectorEmbeddings,
+  upsertUserProfile,
+  getUserProfile,
+  saveProfileFactsBatch,
+  getUserProfileWithContradictions,
+  listUserProfilesWithSummaries,
+  calculateAge,
+  normalizeProfileFieldValue,
+  PROFILE_FIELD_LABELS
 };

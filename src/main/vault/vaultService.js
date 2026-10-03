@@ -419,8 +419,26 @@ class VaultService {
         }
 
         // If user left person blank and a person was detected, auto-assign
+        const effectivePerson = person || analysis.person || null;
         if (!person && analysis.person) {
           this._db.prepare('UPDATE documents SET person = ? WHERE id = ?').run(analysis.person, doc.id);
+        }
+
+        // Record structured profile facts and upsert user profile
+        if (effectivePerson) {
+          try {
+            const extractedFacts = extractionService.extractProfileFacts(text, effectivePerson).map(f => ({
+              ...f,
+              sourceDocumentId: doc.id,
+              sourceVersionId: version.id
+            }));
+            if (extractedFacts.length > 0) {
+              dbLayer.saveProfileFactsBatch(this._db, extractedFacts);
+            }
+            dbLayer.upsertUserProfile(this._db, { name: effectivePerson });
+          } catch (profileErr) {
+            // Profile extraction failure should never abort import
+          }
         }
 
         // Generate and store vector embeddings for semantic search
@@ -681,8 +699,11 @@ class VaultService {
       analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
     }
 
+    const profileFacts = extractionService.extractProfileFacts(text, analysis.person || null);
+
     return {
       ...analysis,
+      profileFacts,
       textContent: text,
       ocrWords
     };
@@ -866,6 +887,30 @@ class VaultService {
         }
       }
     } catch (e) {}
+  }
+
+  /**
+   * Retrieves all user/family member profile summaries with contradiction counts.
+   */
+  listUserProfiles() {
+    this._assertUnlocked();
+    return dbLayer.listUserProfilesWithSummaries(this._db);
+  }
+
+  /**
+   * Retrieves a full user profile with atomic extracted facts and contradiction analysis.
+   */
+  getUserProfile(personName) {
+    this._assertUnlocked();
+    return dbLayer.getUserProfileWithContradictions(this._db, personName);
+  }
+
+  /**
+   * Creates or updates a canonical user profile record.
+   */
+  saveUserProfile(profile) {
+    this._assertUnlocked();
+    return dbLayer.upsertUserProfile(this._db, profile);
   }
 
   getAiStatus() {

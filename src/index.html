@@ -160,6 +160,22 @@
               </li>
             </ul>
 
+            <div class="sidebar-heading" style="margin-top: 14px;">Family Profiles</div>
+            <ul class="sidebar-nav">
+              <li class="sidebar-item" id="nav-user-profiles-btn" style="cursor: pointer;">
+                <span style="display: flex; align-items: center; gap: 6px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                  </svg>
+                  Users &amp; Profiles
+                </span>
+                <span id="count-users" class="badge badge-blue">0</span>
+              </li>
+            </ul>
+
             <div class="sidebar-heading" style="margin-top: 14px;">Expiry Awareness</div>
             <ul class="sidebar-nav">
               <li class="sidebar-item" data-expiry="upcoming">
@@ -779,6 +795,204 @@
           <div class="modal-footer" style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
             <button class="btn btn-secondary modal-close-btn">Cancel</button>
             <button type="button" id="btn-confirm-delete-action" class="btn" style="background: #dc2626; color: white;">Yes, Delete Document</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 10. MODAL: USERS & FAMILY PROFILES (WITH CONTRADICTION DETECTION) -->
+      <div id="modal-users-profiles" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 960px; width: 94%; max-height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden;">
+          <div class="modal-header" style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6);">
+            <div>
+              <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px;">
+                <span>👥</span> Family Members &amp; Structured Profiles
+              </h3>
+              <p style="margin: 2px 0 0; font-size: 11px; color: var(--text-muted);">
+                Consolidated biographical, familial, educational, and address data with automated cross-document contradiction detection.
+              </p>
+            </div>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <div style="display: flex; flex: 1; min-height: 480px; overflow: hidden;">
+            <!-- Left: Users List -->
+            <div style="width: 270px; border-right: 1px solid var(--border); background: rgba(15, 23, 42, 0.35); display: flex; flex-direction: column;">
+              <div style="padding: 10px 12px; border-bottom: 1px solid var(--border);">
+                <input type="text" id="users-search-input" class="input-field" placeholder="Search user..." style="font-size: 11px; padding: 5px 8px; width: 100%;" />
+              </div>
+              <div id="users-profile-list" style="flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+
+            <!-- Right: Profile Details & Contradiction Alert -->
+            <div id="users-profile-detail-pane" style="flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; background: rgba(15, 23, 42, 0.2);">
+              <div id="users-profile-empty" style="text-align: center; color: var(--text-muted); margin: auto; padding: 40px 20px;">
+                <div style="font-size: 36px; margin-bottom: 8px;">👤</div>
+                <div style="font-weight: 500; font-size: 14px; color: var(--text-secondary);">Select a Family Member</div>
+                <div style="font-size: 11px; margin-top: 4px;">Select an individual from the left to view their extracted profile data and discrepancy analysis.</div>
+              </div>
+
+              <div id="users-profile-content" class="hidden">
+                <!-- User Header -->
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                  <div>
+                    <h2 id="user-detail-name" style="margin: 0; font-size: 18px; color: var(--text-primary);">-</h2>
+                    <div style="display: flex; gap: 6px; margin-top: 4px; align-items: center;">
+                      <span id="user-detail-age-badge" class="badge badge-blue">Age: -</span>
+                      <span id="user-detail-gender-badge" class="badge badge-gray">-</span>
+                      <span id="user-detail-docs-badge" class="badge badge-gray">0 Documents</span>
+                    </div>
+                  </div>
+                  <button id="btn-edit-user-profile" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;">Edit Profile</button>
+                </div>
+
+                <!-- Contradiction Alert Box (Dynamic) -->
+                <div id="user-contradiction-box" class="hidden" style="margin-bottom: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: var(--radius-sm); padding: 12px 14px;">
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <span style="font-size: 16px;">⚠️</span>
+                    <strong style="color: #f87171; font-size: 12px;">Contradictory Data Detected Across Documents</strong>
+                  </div>
+                  <div style="font-size: 11px; color: #cbd5e1; margin-bottom: 8px;">
+                    Different documents in the vault report conflicting facts for this person. Inspect the contradictory values and source references below:
+                  </div>
+                  <div id="user-contradiction-items" style="display: flex; flex-direction: column; gap: 8px; font-size: 11px;">
+                    <!-- Injected dynamically -->
+                  </div>
+                </div>
+
+                <!-- Structured Cards Grid -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <!-- Card 1: Personal & Family -->
+                  <div class="user-card-panel" style="background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #93c5fd; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                      <span>👨‍👩‍👦</span> Family &amp; Identity
+                    </div>
+                    <div class="user-detail-field" style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
+                      <span style="color: var(--text-muted);">Date of Birth:</span>
+                      <span id="user-field-dob" style="font-weight: 500; color: var(--text-primary);">-</span>
+                    </div>
+                    <div class="user-detail-field" style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
+                      <span style="color: var(--text-muted);">Father's Name:</span>
+                      <span id="user-field-father" style="font-weight: 500; color: var(--text-primary);">-</span>
+                    </div>
+                    <div class="user-detail-field" style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
+                      <span style="color: var(--text-muted);">Mother's Name:</span>
+                      <span id="user-field-mother" style="font-weight: 500; color: var(--text-primary);">-</span>
+                    </div>
+                  </div>
+
+                  <!-- Card 2: Address -->
+                  <div class="user-card-panel" style="background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #93c5fd; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                      <span>📍</span> Residence &amp; Address
+                    </div>
+                    <div class="user-detail-field" style="display: flex; flex-direction: column; align-items: flex-start;">
+                      <span style="color: var(--text-muted); margin-bottom: 4px; font-size: 11px;">Extracted Address:</span>
+                      <span id="user-field-address" style="font-size: 11px; line-height: 1.4; color: #e2e8f0; font-weight: 500;">-</span>
+                    </div>
+                  </div>
+
+                  <!-- Card 3: Academics & Marks -->
+                  <div class="user-card-panel" style="grid-column: span 2; background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #93c5fd; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                      <span>🎓</span> Educational Records &amp; Marks
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                      <div class="user-detail-field" style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <span style="color: var(--text-muted); font-size: 11px;">10th Class Marks:</span>
+                        <strong id="user-field-10th" style="color: #6ee7b7; margin-top: 2px; font-size: 12px;">-</strong>
+                      </div>
+                      <div class="user-detail-field" style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <span style="color: var(--text-muted); font-size: 11px;">12th Class Marks:</span>
+                        <strong id="user-field-12th" style="color: #6ee7b7; margin-top: 2px; font-size: 12px;">-</strong>
+                      </div>
+                      <div class="user-detail-field" style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <span style="color: var(--text-muted); font-size: 11px;">Higher Education / Degree:</span>
+                        <strong id="user-field-education" style="color: #cbd5e1; margin-top: 2px; font-size: 12px;">-</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Card 4: Source Documents -->
+                  <div class="user-card-panel" style="grid-column: span 2; background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #93c5fd; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span>📄</span> Contributing Source Documents in Vault
+                    </div>
+                    <div id="user-source-docs-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto;">
+                      <!-- Populated dynamically -->
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 11. MODAL: EDIT USER PROFILE -->
+      <div id="modal-edit-user-profile" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 520px;">
+          <div class="modal-header">
+            <h3>Edit Canonical Profile</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="edit-user-name" class="input-field" readonly style="opacity: 0.8;" />
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group">
+                <label>Date of Birth (YYYY-MM-DD)</label>
+                <input type="text" id="edit-user-dob" class="input-field" placeholder="YYYY-MM-DD" />
+              </div>
+              <div class="form-group">
+                <label>Gender</label>
+                <select id="edit-user-gender" class="input-field">
+                  <option value="">Unspecified</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group">
+                <label>Father's Name</label>
+                <input type="text" id="edit-user-father" class="input-field" placeholder="Father's Name" />
+              </div>
+              <div class="form-group">
+                <label>Mother's Name</label>
+                <input type="text" id="edit-user-mother" class="input-field" placeholder="Mother's Name" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Residential Address</label>
+              <textarea id="edit-user-address" class="input-field" rows="2" placeholder="Full address"></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group">
+                <label>10th Marks / Board</label>
+                <input type="text" id="edit-user-10th" class="input-field" placeholder="e.g. 91.4% (CBSE)" />
+              </div>
+              <div class="form-group">
+                <label>12th Marks / Stream</label>
+                <input type="text" id="edit-user-12th" class="input-field" placeholder="e.g. 94.6% (Science)" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Higher Education / Degree</label>
+              <input type="text" id="edit-user-education" class="input-field" placeholder="e.g. B.Tech Computer Science" />
+            </div>
+            <div class="form-group">
+              <label>Notes / Resolution Comments</label>
+              <textarea id="edit-user-notes" class="input-field" rows="2" placeholder="Notes regarding resolved discrepancies..."></textarea>
+            </div>
+          </div>
+          <div class="modal-footer" style="margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button type="button" id="btn-save-user-profile-submit" class="btn btn-primary">Save Profile</button>
           </div>
         </div>
       </div>

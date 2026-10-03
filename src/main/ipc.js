@@ -213,6 +213,21 @@ function registerIpcHandlers(mainWindow) {
     return await vaultService.searchSemantic({ query, limit, minScore });
   });
 
+  // User Profiles & Cross-Document Contradiction Analysis
+  ipcMain.handle('profile:list', async () => {
+    return vaultService.listUserProfiles();
+  });
+
+  ipcMain.handle('profile:get', async (_event, { personName }) => {
+    if (!personName) throw new Error('Missing personName');
+    return vaultService.getUserProfile(personName);
+  });
+
+  ipcMain.handle('profile:save', async (_event, profile) => {
+    if (!profile || !profile.name) throw new Error('Missing profile or profile name');
+    return vaultService.saveUserProfile(profile);
+  });
+
   // Local AI Grounded Q&A
   ipcMain.handle('ai:ask', async (_event, { query }) => {
     if (!query) throw new Error('Query is required');
