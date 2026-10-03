@@ -572,17 +572,13 @@ class VaultService {
     const doc = dbLayer.getDocumentById(this._db, documentId);
     if (!doc) throw new Error(`Document not found: ${documentId}`);
 
-    const res = dbLayer.deleteDocument(this._db, documentId);
-
-    dbLayer.recordAuditEvent(this._db, 'DOCUMENT_DELETED', {
+    return dbLayer.deleteDocument(this._db, documentId, {
       documentId,
       title: doc.title,
       category: doc.category,
       person: doc.person,
       deletedAt: new Date().toISOString()
     });
-
-    return res;
   }
 
   /**

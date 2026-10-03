@@ -234,7 +234,7 @@
             <div class="drawer-header" style="display: flex; justify-content: space-between; align-items: center;">
               <h2 id="drawer-title" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px;">Document Details</h2>
               <div style="display: flex; gap: 6px; align-items: center;">
-                <button id="btn-delete-document-header" class="btn btn-secondary" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3); padding: 4px 8px; font-size: 11px;" title="Delete this document">🗑️ Delete</button>
+                <button type="button" id="btn-delete-document-header" class="btn btn-secondary" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3); padding: 4px 8px; font-size: 11px;" title="Delete this document">🗑️ Delete</button>
                 <button id="drawer-close-btn" class="btn btn-secondary" style="padding: 4px 8px;">✕</button>
               </div>
             </div>
@@ -353,7 +353,7 @@
                 <button id="btn-export-current" class="btn btn-secondary" style="flex: 1;">Export Copy</button>
                 <button id="btn-open-add-version" class="btn btn-primary" style="flex: 1;">+ Upload New Version</button>
               </div>
-              <button id="btn-delete-document" class="btn btn-secondary" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3); width: 100%; margin-top: 6px; font-size: 12px; padding: 6px;">🗑️ Delete Document</button>
+              <button type="button" id="btn-delete-document" class="btn btn-secondary" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3); width: 100%; margin-top: 6px; font-size: 12px; padding: 6px;">🗑️ Delete Document</button>
 
               <!-- Immutable Version History -->
               <div>
@@ -635,6 +635,8 @@
             <button id="submit-change-password-btn" class="btn btn-primary">Update Password</button>
           </div>
         </div>
+      </div>
+
       <!-- 8. MODAL: ENCRYPTED AUDIT LOGS -->
       <div id="modal-audit-logs" class="modal-overlay hidden">
         <div class="modal-content" style="max-width: 780px;">
@@ -760,7 +762,7 @@
           </div>
           <div class="modal-footer" style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
             <button class="btn btn-secondary modal-close-btn">Cancel</button>
-            <button id="btn-confirm-delete-action" class="btn" style="background: #dc2626; color: white;">Yes, Delete Document</button>
+            <button type="button" id="btn-confirm-delete-action" class="btn" style="background: #dc2626; color: white;">Yes, Delete Document</button>
           </div>
         </div>
       </div>

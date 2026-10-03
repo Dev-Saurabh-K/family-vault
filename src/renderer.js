@@ -546,7 +546,7 @@ function renderDocuments() {
           ${semanticBadgeHtml}
           ${expiryBadgeHtml}
           <span class="badge badge-green">${vNum}</span>
-          <button class="btn-card-delete" data-doc-id="${escapeHtml(doc.id)}" data-doc-title="${escapeHtml(doc.title)}" title="Delete document">🗑️</button>
+          <button type="button" class="btn-card-delete" data-doc-id="${escapeHtml(doc.id)}" data-doc-title="${escapeHtml(doc.title)}" title="Delete document">🗑️</button>
         </div>
       </div>
       <div class="doc-card-meta">
@@ -1121,7 +1121,10 @@ if (btnConfirmDeleteAction) {
     btnConfirmDeleteAction.textContent = 'Deleting...';
 
     try {
-      await window.familyVault.deleteDocument(docId);
+      const result = await window.familyVault.deleteDocument(docId);
+      if (!result || result.success !== true) {
+        throw new Error('The vault did not confirm deletion.');
+      }
       if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
       if (selectedDocumentId === docId) {
         drawerDetail.classList.add('hidden');

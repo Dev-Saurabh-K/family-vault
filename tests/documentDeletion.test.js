@@ -84,6 +84,15 @@ test('Document Deletion: Soft-deletes documents, cleans FTS/embeddings, and pres
   assert.strictEqual(deleteLog.details.category, 'insurance');
   assert.strictEqual(deleteLog.details.person, 'Alice Doe');
 
+  // A repeat request must not look like another successful deletion or add an audit event.
+  assert.throws(() => {
+    service.deleteDocument(docA.id);
+  }, /Document not found or already deleted/);
+  assert.strictEqual(
+    service.listAuditLogs(10).filter(l => l.eventType === 'DOCUMENT_DELETED').length,
+    1
+  );
+
   // Attempting to delete non-existent document throws error
   assert.throws(() => {
     service.deleteDocument('non-existent-id-999');

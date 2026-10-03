@@ -452,29 +452,39 @@ function updateDocumentFields(db, documentId, fields) {
  * @param {string} documentId
  * @returns {{ success: boolean, documentId: string }}
  */
-function deleteDocument(db, documentId) {
+function deleteDocument(db, documentId, auditDetails) {
   ensureIsDeletedColumn(db);
-  const doc = db.prepare('SELECT id, title FROM documents WHERE id = ?').get(documentId);
-  if (!doc) {
-    throw new Error(`Document not found: ${documentId}`);
-  }
+  const deleteTransaction = db.transaction(() => {
+    const doc = db.prepare(`
+      SELECT id, title FROM documents
+      WHERE id = ? AND (is_deleted IS NULL OR is_deleted = 0)
+    `).get(documentId);
+    if (!doc) {
+      throw new Error(`Document not found or already deleted: ${documentId}`);
+    }
 
-  const now = new Date().toISOString();
-  db.prepare(`
-    UPDATE documents SET is_deleted = 1, updated_at = ? WHERE id = ?
-  `).run(now, documentId);
+    const now = new Date().toISOString();
+    const update = db.prepare(`
+      UPDATE documents SET is_deleted = 1, updated_at = ?
+      WHERE id = ? AND (is_deleted IS NULL OR is_deleted = 0)
+    `).run(now, documentId);
+    if (update.changes !== 1) {
+      throw new Error(`Unable to delete active document: ${documentId}`);
+    }
 
-  // Remove from FTS5 index
-  try {
+    // These indexes are derived data. A failure must roll back the soft-delete
+    // rather than leaving a document visible in an inconsistent search state.
     db.prepare('DELETE FROM document_fts WHERE document_id = ?').run(documentId);
-  } catch (e) {}
-
-  // Remove from vector embeddings
-  try {
     db.prepare('DELETE FROM vector_embeddings WHERE document_id = ?').run(documentId);
-  } catch (e) {}
 
-  return { success: true, documentId, title: doc.title };
+    if (auditDetails) {
+      recordAuditEvent(db, 'DOCUMENT_DELETED', auditDetails);
+    }
+
+    return { success: true, documentId, title: doc.title };
+  });
+
+  return deleteTransaction();
 }
 
 /**
