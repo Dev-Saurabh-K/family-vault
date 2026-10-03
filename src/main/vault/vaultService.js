@@ -25,7 +25,7 @@ const { embeddingService } = require('../services/embeddingService');
 const SUPPORTED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.tiff', '.bmp'];
 
 class VaultService {
-  constructor() {
+  constructor(customLlmService = null) {
     this._activeVaultPath = null;
     this._activeManifest = null;
     this._vmk = null;
@@ -33,6 +33,7 @@ class VaultService {
     this._dbKey = null;
     this._objectKey = null;
     this._db = null;
+    this._llmService = customLlmService || llmService;
   }
 
   isUnlocked() {
@@ -384,7 +385,16 @@ class VaultService {
 
       if (text) {
         const knownPersons = dbLayer.listDistinctPersons(this._db);
-        const analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+        let analysis;
+        if (this._llmService && typeof this._llmService.extractDocumentMetadata === 'function') {
+          analysis = await this._llmService.extractDocumentMetadata({
+            text,
+            fileName,
+            knownPersons
+          });
+        } else {
+          analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+        }
 
         dbLayer.saveMetadata(this._db, {
           versionId: version.id,
@@ -399,7 +409,7 @@ class VaultService {
           textContent: text,
           rawPayload: {
             ocrWords,
-            method: 'ocr-tesseract'
+            method: analysis.method || 'ocr-tesseract'
           }
         });
 
@@ -659,8 +669,17 @@ class VaultService {
     // 2. Query known family members already recorded in the vault for high-confidence matching
     const knownPersons = dbLayer.listDistinctPersons(this._db);
 
-    // 3. Run deterministic classification, person detection, and auto-tag generation
-    const analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+    // 3. Run AI-powered or deterministic classification, person detection, and auto-tag generation
+    let analysis;
+    if (this._llmService && typeof this._llmService.extractDocumentMetadata === 'function') {
+      analysis = await this._llmService.extractDocumentMetadata({
+        text,
+        fileName,
+        knownPersons
+      });
+    } else {
+      analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+    }
 
     return {
       ...analysis,

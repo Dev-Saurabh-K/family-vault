@@ -292,6 +292,11 @@ function findDateCandidates(text) {
         const monthNum = MONTH_NAMES[m[1].toLowerCase()];
         return monthNum ? toIsoDate(m[3], monthNum, m[2]) : null;
       }
+    },
+    // 4. Day/Month/Year: 14/04/2031 or 14-04-2031
+    {
+      regex: /\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](19\d\d|20\d\d)\b/g,
+      handler: (m) => toIsoDate(m[3], m[2], m[1])
     }
   ];
 

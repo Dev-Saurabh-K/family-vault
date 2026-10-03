@@ -158,3 +158,87 @@ test('VaultService: preAnalyzeDocument and listFamilyMembers end-to-end integrat
   service.lockVault();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('VaultService: Local AI-powered strict auto-categorization, family member detection, and grounded expiry date integration', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-ai-vault-'));
+  const vaultPath = path.join(tmpDir, 'MyAiVault.fvault');
+
+  // Create a mock LLM service representing active local llama-server with strict Gemma 2 extractor
+  const mockLlmService = {
+    isReady: () => true,
+    extractDocumentMetadata: async ({ text, fileName, knownPersons }) => {
+      // Simulate strict AI extraction
+      return {
+        category: 'insurance',
+        docType: 'insurance_policy',
+        person: knownPersons.includes('Priya Sharma') ? 'Priya Sharma' : 'Unknown',
+        expiryDate: '2029-10-31',
+        expirySnippet: 'Coverage valid until 2029-10-31',
+        issueDate: '2024-10-31',
+        issueSnippet: 'Policy issued on 2024-10-31',
+        issuer: 'Prudential Life',
+        tags: ['insurance', 'life', 'policy', '2029'],
+        suggestedTitle: 'Insurance Policy - Priya Sharma',
+        notesSummary: 'Expiry Date: 2029-10-31. Issue Date: 2024-10-31. Issuer: Prudential Life.',
+        confidence: 0.96,
+        reviewStatus: 'proposed',
+        method: 'local-ai-gemma2'
+      };
+    }
+  };
+
+  const service = new VaultService(mockLlmService);
+  await service.createVault({
+    vaultPath,
+    password: 'StrictAiPassword123!',
+    kdfParams: { memoryCost: 4096, timeCost: 1, parallelism: 1 }
+  });
+
+  // Seed existing document to register family member 'Priya Sharma' in the vault
+  const dummyDoc = path.join(tmpDir, 'seed.pdf');
+  fs.writeFileSync(dummyDoc, 'Seed document content for Priya Sharma');
+  await service.importDocument({
+    filePath: dummyDoc,
+    title: 'Seed ID',
+    category: 'identity',
+    person: 'Priya Sharma'
+  });
+
+  const known = service.listFamilyMembers();
+  assert.ok(known.includes('Priya Sharma'));
+
+  // Test document to be analyzed with local AI
+  const policyFile = path.join(tmpDir, 'life_policy.pdf');
+  fs.writeFileSync(policyFile, `
+    PRUDENTIAL LIFE INSURANCE
+    Policyholder: Priya Sharma
+    Policy Issue: 2024-10-31
+    Coverage valid until 2029-10-31
+    Sum Assured: $250,000
+  `);
+
+  // 1. Pre-analysis triggers local AI
+  const preAnalysis = await service.preAnalyzeDocument(policyFile);
+  assert.strictEqual(preAnalysis.method, 'local-ai-gemma2');
+  assert.strictEqual(preAnalysis.category, 'insurance');
+  assert.strictEqual(preAnalysis.person, 'Priya Sharma');
+  assert.strictEqual(preAnalysis.expiryDate, '2029-10-31');
+  assert.strictEqual(preAnalysis.suggestedTitle, 'Insurance Policy - Priya Sharma');
+  assert.ok(preAnalysis.tags.includes('insurance'));
+
+  // 2. Importing without explicit category auto-assigns the strict AI category and person
+  const importedDoc = await service.importDocument({
+    filePath: policyFile,
+    category: 'other',
+    person: null
+  });
+
+  assert.strictEqual(importedDoc.category, 'insurance');
+  assert.strictEqual(importedDoc.person, 'Priya Sharma');
+  assert.strictEqual(importedDoc.currentVersion.metadata.expiryDate, '2029-10-31');
+  assert.strictEqual(importedDoc.currentVersion.metadata.rawPayload.method, 'local-ai-gemma2');
+
+  service.lockVault();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+

@@ -1248,10 +1248,16 @@ importBrowseBtn.addEventListener('click', async () => {
       if (analysis.person) {
         summaryParts.push(`Family Member: <strong>${escapeHtml(analysis.person)}</strong>`);
       }
+      if (analysis.expiryDate) {
+        summaryParts.push(`Expiry: <strong>${escapeHtml(analysis.expiryDate)}</strong>`);
+      }
       if (analysis.tags && analysis.tags.length > 0) {
         summaryParts.push(`Tags: <em>${escapeHtml(analysis.tags.join(', '))}</em>`);
       }
-      importAnalysisBannerDetails.innerHTML = summaryParts.join(' &bull; ') + '. You can edit any details below.';
+      const engineBadge = analysis.method === 'local-ai-gemma2'
+        ? '<span class="badge badge-blue" style="font-size: 10px; margin-right: 6px;">✨ Local AI</span>'
+        : '<span class="badge badge-gray" style="font-size: 10px; margin-right: 6px;">OCR Heuristic</span>';
+      importAnalysisBannerDetails.innerHTML = engineBadge + summaryParts.join(' &bull; ') + '. You can edit any details below.';
       importAnalysisBanner.classList.remove('hidden');
     }
   } catch (err) {

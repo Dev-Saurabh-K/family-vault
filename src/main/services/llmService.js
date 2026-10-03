@@ -15,6 +15,175 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const os = require('node:os');
+const extractionService = require('./extractionService');
+
+const VALID_CATEGORIES = new Set([
+  'identity',
+  'insurance',
+  'medical',
+  'tax',
+  'property',
+  'other'
+]);
+
+const VALID_DOC_TYPES = new Set([
+  'passport',
+  'driving_license',
+  'identity_card',
+  'insurance_policy',
+  'tax_document',
+  'medical_record',
+  'property_document',
+  'other'
+]);
+
+function isValidIsoDate(str) {
+  if (!str || typeof str !== 'string') return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+  const [y, m, day] = str.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1, day));
+  return d.getUTCFullYear() === y && (d.getUTCMonth() + 1) === m && d.getUTCDate() === day;
+}
+
+function extractJsonFromText(rawText) {
+  if (!rawText || typeof rawText !== 'string') return null;
+  let text = rawText.trim();
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {}
+
+  const startIdx = text.indexOf('{');
+  const endIdx = text.lastIndexOf('}');
+  if (startIdx !== -1 && endIdx > startIdx) {
+    const candidate = text.substring(startIdx, endIdx + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {}
+  }
+  return null;
+}
+
+function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = []) {
+  if (!rawContent || typeof rawContent !== 'string') {
+    return null;
+  }
+
+  const parsed = extractJsonFromText(rawContent);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+
+  // 1. Strict Category Validation
+  let category = null;
+  if (typeof parsed.category === 'string') {
+    const rawCat = parsed.category.toLowerCase().trim();
+    if (VALID_CATEGORIES.has(rawCat)) {
+      category = rawCat;
+    }
+  }
+
+  // 2. Strict DocType Validation
+  let docType = null;
+  if (typeof parsed.docType === 'string') {
+    const rawType = parsed.docType.toLowerCase().trim().replace(/[-\s]+/g, '_');
+    if (VALID_DOC_TYPES.has(rawType)) {
+      docType = rawType;
+    }
+  }
+
+  // 3. Person detection: match known family members or validated individual name
+  let person = null;
+  if (typeof parsed.person === 'string' && parsed.person.trim()) {
+    const rawPerson = parsed.person.trim().replace(/^(?:Name|Patient|Cardholder|Policyholder|Insured|Citizen|MR|MRS|MS|DR)\s*[:.-]?\s*/i, '').trim();
+    if (rawPerson.length >= 2 && rawPerson.length <= 80) {
+      if (Array.isArray(knownPersons) && knownPersons.length > 0) {
+        const matched = knownPersons.find(kp => 
+          kp.toLowerCase() === rawPerson.toLowerCase() ||
+          rawPerson.toLowerCase().includes(kp.toLowerCase()) ||
+          kp.toLowerCase().includes(rawPerson.toLowerCase())
+        );
+        if (matched) {
+          person = matched;
+        }
+      }
+      if (!person) {
+        const blacklist = /\b(?:government|republic|passport|department|authority|insurance|hospital|clinic|bank|ministry|embassy|official|unknown|none|n\/a|null|undefined|sample|test|validity)\b/i;
+        if (!blacklist.test(rawPerson)) {
+          person = rawPerson;
+        }
+      }
+    }
+  }
+
+  // 4. Grounded Expiry Date: strictly YYYY-MM-DD and grounded in text
+  let expiryDate = null;
+  let expirySnippet = null;
+  if (typeof parsed.expiryDate === 'string' && isValidIsoDate(parsed.expiryDate.trim())) {
+    const candidateDate = parsed.expiryDate.trim();
+    const [year, month, day] = candidateDate.split('-');
+    const lowerDoc = (text || '').toLowerCase();
+    const hasYear = lowerDoc.includes(year);
+    const hasDay = lowerDoc.includes(day) || lowerDoc.includes(String(parseInt(day, 10)));
+
+    if (hasYear && (hasDay || typeof parsed.expirySnippet === 'string')) {
+      expiryDate = candidateDate;
+      if (typeof parsed.expirySnippet === 'string' && parsed.expirySnippet.trim()) {
+        expirySnippet = parsed.expirySnippet.trim().slice(0, 150);
+      }
+    }
+  }
+
+  // 5. Issue Date
+  let issueDate = null;
+  let issueSnippet = null;
+  if (typeof parsed.issueDate === 'string' && isValidIsoDate(parsed.issueDate.trim())) {
+    const candidateDate = parsed.issueDate.trim();
+    const [year] = candidateDate.split('-');
+    if ((text || '').includes(year)) {
+      issueDate = candidateDate;
+      if (typeof parsed.issueSnippet === 'string' && parsed.issueSnippet.trim()) {
+        issueSnippet = parsed.issueSnippet.trim().slice(0, 150);
+      }
+    }
+  }
+
+  // 6. Issuer
+  let issuer = null;
+  if (typeof parsed.issuer === 'string' && parsed.issuer.trim()) {
+    issuer = parsed.issuer.trim().slice(0, 80);
+  }
+
+  // 7. Tags
+  let tags = [];
+  if (Array.isArray(parsed.tags)) {
+    tags = parsed.tags
+      .filter(t => typeof t === 'string' && t.trim().length >= 2 && t.trim().length <= 30)
+      .map(t => t.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''))
+      .filter(Boolean)
+      .slice(0, 6);
+  }
+
+  // 8. Confidence
+  let confidence = (typeof parsed.confidence === 'number' && !isNaN(parsed.confidence))
+    ? Math.max(0, Math.min(1, parsed.confidence))
+    : 0.92;
+
+  return {
+    category,
+    docType,
+    person,
+    expiryDate,
+    expirySnippet,
+    issueDate,
+    issueSnippet,
+    issuer,
+    tags,
+    confidence
+  };
+}
 
 const GEMMA_MODEL_URL = 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf';
 const GEMMA_MODEL_FILENAME = 'gemma-2-2b-it-Q4_K_M.gguf';
@@ -368,6 +537,102 @@ class LlmService {
     this._isReady = false;
   }
 
+  isReady() {
+    return Boolean(this._isReady);
+  }
+
+  /**
+   * Strictly extracts metadata (category, person, expiryDate, tags, docType)
+   * using local Gemma 2 model when available, falling back to deterministic extraction.
+   * Adheres to AGENTS.md:
+   * "AI work additionally requires a structured output contract, rejection of invalid output,
+   * explicit handling of unknown values, and source references when it presents document-derived claims."
+   * Category is strictly enforced to: identity, insurance, medical, tax, property, other.
+   * Expiry date is strictly validated and grounded in document text.
+   * Person is matched against known family members or validated individual name.
+   */
+  async extractDocumentMetadata({ text, fileName = '', knownPersons = [] }) {
+    // 1. Run deterministic baseline extraction
+    const deterministic = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+
+    // 2. If local AI server is not ready or text is empty, return deterministic analysis
+    if (!this._isReady || !text || !text.trim()) {
+      return {
+        ...deterministic,
+        method: 'deterministic'
+      };
+    }
+
+    // 3. Local neural extraction via llama-server
+    try {
+      const prompt = this._buildExtractionPrompt(text, fileName, knownPersons);
+      const rawAiResponse = await this._queryLlamaServer(prompt);
+      const validatedAi = parseAndValidateAiMetadata(rawAiResponse, text, fileName, knownPersons);
+
+      if (!validatedAi) {
+        return {
+          ...deterministic,
+          method: 'deterministic'
+        };
+      }
+
+      // Merge AI extraction with deterministic validation
+      // STRICT RULE: If AI produced an invalid or unsupported category, fallback to deterministic category
+      const category = validatedAi.category || deterministic.category;
+      const docType = validatedAi.docType || deterministic.docType;
+      const person = validatedAi.person || deterministic.person;
+      const expiryDate = validatedAi.expiryDate || deterministic.expiryDate;
+      const expirySnippet = validatedAi.expirySnippet || deterministic.expirySnippet;
+      const issueDate = validatedAi.issueDate || deterministic.issueDate;
+      const issueSnippet = validatedAi.issueSnippet || deterministic.issueSnippet;
+      const issuer = validatedAi.issuer || deterministic.issuer;
+
+      // Merge and deduplicate tags
+      const combinedTags = [...new Set([...(validatedAi.tags || []), ...(deterministic.tags || [])])].slice(0, 8);
+
+      // Generate suggested human-readable title
+      const suggestedTitle = extractionService.suggestDocumentTitle(
+        fileName,
+        category,
+        docType,
+        person,
+        issuer,
+        issueDate,
+        expiryDate
+      );
+
+      // Build provenance summary
+      const noteParts = [];
+      if (expiryDate) noteParts.push(`Expiry Date: ${expiryDate}`);
+      if (issueDate) noteParts.push(`Issue Date: ${issueDate}`);
+      if (issuer) noteParts.push(`Issuer: ${issuer}`);
+      const notesSummary = noteParts.length > 0 ? noteParts.join('. ') + '.' : '';
+
+      return {
+        docType,
+        category,
+        person,
+        tags: combinedTags,
+        suggestedTitle,
+        notesSummary,
+        issuer,
+        issueDate,
+        issueSnippet,
+        expiryDate,
+        expirySnippet,
+        confidence: Math.max(validatedAi.confidence, deterministic.confidence),
+        reviewStatus: 'proposed',
+        method: 'local-ai-gemma2'
+      };
+    } catch (err) {
+      console.warn('[llmService] AI metadata extraction failed, falling back to deterministic:', err.message || err);
+      return {
+        ...deterministic,
+        method: 'deterministic'
+      };
+    }
+  }
+
   /**
    * Answers a user question grounded strictly in retrieved documents.
    * Cites source documents and page/text snippets.
@@ -639,6 +904,35 @@ Question: ${query}<end_of_turn>
 `;
   }
 
+  _buildExtractionPrompt(text, fileName, knownPersons = []) {
+    const truncatedText = (text || '').slice(0, 3500).trim();
+    const knownPersonsHint = (Array.isArray(knownPersons) && knownPersons.length > 0)
+      ? `Existing family members in vault: ${knownPersons.map(p => `"${p}"`).join(', ')}. If the document belongs to one of these family members, strictly match and output their exact name.\n`
+      : '';
+
+    return `<start_of_turn>user
+You are a strict document analysis AI for FamilyVault. Extract metadata from the document text and filename.
+
+STRICT REQUIREMENTS:
+1. You MUST respond with ONLY a single valid JSON object. Do not include markdown code block fences (\`\`\`), preamble, or explanations.
+2. The "category" field MUST be EXACTLY one of: "identity", "insurance", "medical", "tax", "property", "other".
+3. The "docType" field MUST be EXACTLY one of: "passport", "driving_license", "identity_card", "insurance_policy", "tax_document", "medical_record", "property_document", "other".
+4. "person": The primary person, family member, policyholder, patient, or cardholder named on this document.
+${knownPersonsHint}If no individual person's name is identified, set "person" to null.
+5. "expiryDate": The official expiration date, validity end date, or renewal deadline formatted strictly as "YYYY-MM-DD". If there is no expiration date in the document, set to null.
+6. "expirySnippet": The exact short text snippet from the document where the expiration date was found, or null.
+7. "issueDate": The issuance, effective, or start date formatted as "YYYY-MM-DD", or null.
+8. "issuer": The organization, agency, hospital, or company that issued the document, or null.
+9. "tags": An array of 1 to 5 short keyword strings describing the document (e.g. ["health", "policy", "dental"]).
+10. "confidence": A float between 0.0 and 1.0 indicating confidence.
+
+Filename: ${fileName}
+Document Text:
+${truncatedText}<end_of_turn>
+<start_of_turn>model
+`;
+  }
+
   async _queryLlamaServer(prompt) {
     return new Promise((resolve, reject) => {
       const data = JSON.stringify({
@@ -720,5 +1014,8 @@ const llmService = new LlmService();
 
 module.exports = {
   LlmService,
-  llmService
+  llmService,
+  parseAndValidateAiMetadata,
+  VALID_CATEGORIES,
+  VALID_DOC_TYPES
 };

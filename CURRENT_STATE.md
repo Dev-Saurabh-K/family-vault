@@ -22,7 +22,11 @@ The repository contains a complete, fully tested, functional implementation of F
 - **Semantic Vector Embeddings & Similarity Retrieval**:
   - `src/main/services/embeddingService.js`: Modular, 100% offline embedding service supporting normalized vector generation, text passage chunking, cosine similarity scoring, BLOB serialization/deserialization for SQLCipher storage, and deterministic feature-hashing vectorization (with optional local `llama-server` embedding endpoint support).
 - **Local AI & Grounded Document Q&A**:
-  - `src/main/services/llmService.js`: Grounded local document question answering engine with citations. Manages local `llama-server.exe` child process targeting Google Gemma 2 2B GGUF (`gemma-2-2b-it-Q4_K_M.gguf`, enforcing strict `--host 127.0.0.1:18432` binding, no LAN, no web UI, Gemma 2 turn formatting) with a built-in deterministic extractive QA fallback that scores passages by distinct query term coverage, formats citations, and guarantees no cloud leakage.
+  - `src/main/services/llmService.js`:
+    - Strict AI document metadata extraction (`extractDocumentMetadata`): Prompts local Gemma 2 model to extract strictly structured JSON metadata. Enforces categorization strictly to `identity`, `insurance`, `medical`, `tax`, `property`, `other`. Invalid categories are rejected and fallback to deterministic analysis.
+    - AI-powered family member detection: Matches candidate names against existing family members (`knownPersons`) with canonical naming, or extracts individual cardholders/patients/policyholders while strictly filtering false positive entities (authorities, governments, hospitals).
+    - Grounded expiry date detection: Validates ISO `YYYY-MM-DD` formatting and verifies date numbers against document text to prevent AI hallucinations.
+    - Grounded document Q&A engine with citations (`answerQuestion`). Manages local `llama-server.exe` child process targeting Google Gemma 2 2B GGUF (`gemma-2-2b-it-Q4_K_M.gguf`, enforcing strict `--host 127.0.0.1:18432` binding, no LAN, no web UI, Gemma 2 turn formatting) with a built-in deterministic extractive QA fallback that scores passages by distinct query term coverage, formats citations, and guarantees no cloud leakage.
   - Automated setup & packaging: `scripts/setup-ai.js` (`npm run setup:ai`) and `forge.config.js` `packagerConfig.extraResource` (`bin/` and `models/`) to bundle or place the engine and model alongside `app.asar`.
   - In-app 1-click setup: Direct download and configuration card in the AI modal with real-time progress bar and percentage display, streaming updates via IPC (`ai:download-gemma` and `ai:download-progress`).
 - **Electron Shell & UI**:
@@ -86,9 +90,11 @@ The repository contains a complete, fully tested, functional implementation of F
 ```bash
 npm test
 ```
-All 18 tests pass across:
+All 30 automated tests pass across:
 - `tests/crypto.test.js`
 - `tests/vaultService.test.js`
+- `tests/autoCategorizeAndPersonDetection.test.js`
+- `tests/documentDeletion.test.js`
 - `tests/extraction.test.js`
 - `tests/embedding.test.js`
 - `tests/llmService.test.js`

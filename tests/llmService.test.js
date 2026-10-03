@@ -2,7 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { LlmService } = require('../src/main/services/llmService');
+const {
+  LlmService,
+  parseAndValidateAiMetadata,
+  VALID_CATEGORIES,
+  VALID_DOC_TYPES
+} = require('../src/main/services/llmService');
 
 test('LlmService: Grounded extractive QA returns citations and source references', async () => {
   const service = new LlmService();
@@ -157,3 +162,160 @@ Passenger Details
   assert.strictEqual(res2.sources[0].documentTitle, 'shubham ticket');
   assert.ok(res2.sources[0].snippet.includes('13042') || res2.sources[0].snippet.includes('HIMGIRI'));
 });
+
+test('LlmService: parseAndValidateAiMetadata enforces strict allowed category choices', () => {
+  const text = 'PASSPORT REPUBLIC OF INDIA Name: Priya Sharma Date of Expiry: 14/08/2030';
+
+  // 1. Valid categories are accepted
+  for (const cat of ['identity', 'insurance', 'medical', 'tax', 'property', 'other']) {
+    const json = JSON.stringify({
+      category: cat,
+      docType: 'passport',
+      person: 'Priya Sharma',
+      expiryDate: '2030-08-14'
+    });
+    const parsed = parseAndValidateAiMetadata(json, text, 'passport.pdf');
+    assert.strictEqual(parsed.category, cat);
+  }
+
+  // 2. Disallowed / invented categories are strictly rejected
+  const invalidCats = ['automobile', 'finances', 'random', 'receipt', 'government_docs', ''];
+  for (const badCat of invalidCats) {
+    const json = JSON.stringify({
+      category: badCat,
+      docType: 'passport',
+      person: 'Priya Sharma',
+      expiryDate: '2030-08-14'
+    });
+    const parsed = parseAndValidateAiMetadata(json, text, 'passport.pdf');
+    assert.strictEqual(parsed.category, null, `Should reject invalid category: "${badCat}"`);
+  }
+});
+
+test('LlmService: parseAndValidateAiMetadata verifies expiry date grounding and rejects hallucinations', () => {
+  const groundedText = 'Health Insurance Policy for John Doe. Policy active until 2028-12-31. Ref: POL-8821.';
+
+  // 1. Grounded date present in text is accepted
+  const groundedJson = JSON.stringify({
+    category: 'insurance',
+    docType: 'insurance_policy',
+    person: 'John Doe',
+    expiryDate: '2028-12-31',
+    expirySnippet: 'active until 2028-12-31'
+  });
+  const groundedResult = parseAndValidateAiMetadata(groundedJson, groundedText, 'policy.pdf');
+  assert.strictEqual(groundedResult.expiryDate, '2028-12-31');
+  assert.strictEqual(groundedResult.expirySnippet, 'active until 2028-12-31');
+
+  // 2. Hallucinated date with year not in document text is strictly rejected
+  const hallucinatedJson = JSON.stringify({
+    category: 'insurance',
+    docType: 'insurance_policy',
+    person: 'John Doe',
+    expiryDate: '2035-05-15',
+    expirySnippet: 'Expires on 2035-05-15'
+  });
+  const hallucinatedResult = parseAndValidateAiMetadata(hallucinatedJson, groundedText, 'policy.pdf');
+  assert.strictEqual(hallucinatedResult.expiryDate, null, 'Hallucinated date must be null');
+
+  // 3. Invalid date format or impossible calendar day (e.g. Feb 31) is rejected
+  const impossibleDateJson = JSON.stringify({
+    category: 'insurance',
+    docType: 'insurance_policy',
+    expiryDate: '2028-02-31'
+  });
+  const impossibleResult = parseAndValidateAiMetadata(impossibleDateJson, groundedText, 'policy.pdf');
+  assert.strictEqual(impossibleResult.expiryDate, null);
+});
+
+test('LlmService: parseAndValidateAiMetadata matches family members and rejects false positives', () => {
+  const text = 'REPUBLIC OF INDIA PASSPORT SURNAME: SHARMA GIVEN NAMES: PRIYA DATE OF BIRTH: 1995-04-12';
+  const knownPersons = ['Priya Sharma', 'Vikram Sharma'];
+
+  // 1. Matches known family member with canonical casing
+  const aiJson = JSON.stringify({
+    category: 'identity',
+    docType: 'passport',
+    person: 'priya sharma'
+  });
+  const res = parseAndValidateAiMetadata(aiJson, text, 'passport.pdf', knownPersons);
+  assert.strictEqual(res.person, 'Priya Sharma');
+
+  // 2. Rejects blacklist non-person strings
+  const blacklistJson = JSON.stringify({
+    category: 'identity',
+    docType: 'passport',
+    person: 'Government of India'
+  });
+  const res2 = parseAndValidateAiMetadata(blacklistJson, text, 'passport.pdf', knownPersons);
+  assert.strictEqual(res2.person, null);
+});
+
+test('LlmService: extractDocumentMetadata seamless offline fallback and neural execution', async () => {
+  const service = new LlmService();
+  const passportText = `PASSPORT
+REPUBLIC OF INDIA
+SURNAME: SHARMA
+GIVEN NAMES: RAHUL
+DATE OF ISSUE: 15/04/2021
+DATE OF EXPIRY: 14/04/2031`;
+
+  // 1. When offline (isReady == false), returns deterministic analysis
+  assert.strictEqual(service.isReady(), false);
+  const fallbackRes = await service.extractDocumentMetadata({
+    text: passportText,
+    fileName: 'rahul_passport.pdf',
+    knownPersons: ['Rahul Sharma']
+  });
+  assert.strictEqual(fallbackRes.method, 'deterministic');
+  assert.strictEqual(fallbackRes.category, 'identity');
+  assert.strictEqual(fallbackRes.person, 'Rahul Sharma');
+  assert.strictEqual(fallbackRes.expiryDate, '2031-04-14');
+
+  // 2. When neural model is online, invokes local AI and enforces strict schema
+  service._isReady = true;
+  service._queryLlamaServer = async () => {
+    return JSON.stringify({
+      category: 'identity',
+      docType: 'passport',
+      person: 'Rahul Sharma',
+      expiryDate: '2031-04-14',
+      expirySnippet: 'DATE OF EXPIRY: 14/04/2031',
+      issuer: 'Government of India',
+      tags: ['passport', 'travel', 'official'],
+      confidence: 0.95
+    });
+  };
+
+  const aiRes = await service.extractDocumentMetadata({
+    text: passportText,
+    fileName: 'rahul_passport.pdf',
+    knownPersons: ['Rahul Sharma']
+  });
+
+  assert.strictEqual(aiRes.method, 'local-ai-gemma2');
+  assert.strictEqual(aiRes.category, 'identity');
+  assert.strictEqual(aiRes.person, 'Rahul Sharma');
+  assert.strictEqual(aiRes.expiryDate, '2031-04-14');
+  assert.strictEqual(aiRes.expirySnippet, 'DATE OF EXPIRY: 14/04/2031');
+  assert.ok(aiRes.tags.includes('passport'));
+
+  // 3. When AI returns an invalid / invented category, system falls back to deterministic category
+  service._queryLlamaServer = async () => {
+    return JSON.stringify({
+      category: 'invalid_category_hallucination',
+      docType: 'passport',
+      person: 'Rahul Sharma',
+      expiryDate: '2031-04-14'
+    });
+  };
+
+  const guardedRes = await service.extractDocumentMetadata({
+    text: passportText,
+    fileName: 'rahul_passport.pdf',
+    knownPersons: ['Rahul Sharma']
+  });
+
+  assert.strictEqual(guardedRes.category, 'identity', 'Must fall back to valid deterministic category');
+});
+
