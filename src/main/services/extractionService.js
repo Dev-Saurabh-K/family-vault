@@ -26,12 +26,130 @@ const MONTH_NAMES = {
 };
 
 /**
- * Extracts plain text from document buffers.
+ * Normalizes word bounding boxes and coordinates from Tesseract data.
+ * Extracts detailed spatial information: { text, x, y, width, height, confidence }
+ * @param {object} resData
+ * @returns {Array<{ text: string, x: number, y: number, width: number, height: number, confidence: number }>}
+ */
+function extractOcrWordCoordinates(resData) {
+  if (!resData) return [];
+
+  // Tesseract.js provides resData.words as an array of word objects
+  let rawWords = Array.isArray(resData.words) ? resData.words : [];
+  if (rawWords.length === 0 && Array.isArray(resData.lines)) {
+    for (const line of resData.lines) {
+      if (Array.isArray(line.words)) {
+        rawWords.push(...line.words);
+      }
+    }
+  }
+
+  return rawWords
+    .filter(w => w && typeof w.text === 'string' && w.text.trim())
+    .map(w => {
+      const text = w.text.trim();
+      const bbox = w.bbox || {};
+      const x0 = bbox.x0 !== undefined ? bbox.x0 : (bbox.left !== undefined ? bbox.left : (w.x ?? 0));
+      const y0 = bbox.y0 !== undefined ? bbox.y0 : (bbox.top !== undefined ? bbox.top : (w.y ?? 0));
+      const x1 = bbox.x1 !== undefined ? bbox.x1 : (bbox.right !== undefined ? bbox.right : (x0 + (bbox.width || w.width || 0)));
+      const y1 = bbox.y1 !== undefined ? bbox.y1 : (bbox.bottom !== undefined ? bbox.bottom : (y0 + (bbox.height || w.height || 0)));
+
+      const width = Math.max(0, x1 - x0);
+      const height = Math.max(0, y1 - y0);
+      const confidence = Math.round(w.confidence !== undefined ? w.confidence : 0);
+
+      return {
+        text,
+        x: Math.max(0, Math.round(x0)),
+        y: Math.max(0, Math.round(y0)),
+        width: Math.round(width),
+        height: Math.round(height),
+        confidence
+      };
+    });
+}
+
+/**
+ * Reconstructs lines and tabular layouts from OCR word coordinates.
+ * Words on approximately the same vertical line (y within line threshold)
+ * are grouped, then sorted horizontally by x.
+ * Horizontal column gaps are formatted to preserve structured/tabular readability.
+ * @param {Array<{ text: string, x: number, y: number, width: number, height: number, confidence: number }>} ocrWords
+ * @param {number} [lineThreshold=12]
+ * @param {number} [columnGapThreshold=24]
+ * @returns {{ structuredText: string, lines: Array<Array<object>> }}
+ */
+function reconstructStructuredTableLayout(ocrWords, lineThreshold = 12, columnGapThreshold = 24) {
+  if (!Array.isArray(ocrWords) || ocrWords.length === 0) {
+    return { structuredText: '', lines: [] };
+  }
+
+  // Sort words vertically first (y), then horizontally (x)
+  const sorted = [...ocrWords].sort((a, b) => {
+    if (Math.abs(a.y - b.y) <= lineThreshold) {
+      return a.x - b.x;
+    }
+    return a.y - b.y;
+  });
+
+  const lines = [];
+  let currentLine = [];
+  let currentLineY = null;
+
+  for (const word of sorted) {
+    if (currentLineY === null) {
+      currentLine.push(word);
+      currentLineY = word.y;
+    } else if (Math.abs(word.y - currentLineY) <= lineThreshold) {
+      currentLine.push(word);
+    } else {
+      currentLine.sort((a, b) => a.x - b.x);
+      lines.push(currentLine);
+      currentLine = [word];
+      currentLineY = word.y;
+    }
+  }
+
+  if (currentLine.length > 0) {
+    currentLine.sort((a, b) => a.x - b.x);
+    lines.push(currentLine);
+  }
+
+  // Format into tabular text with column-gap alignment
+  const textLines = lines.map(line => {
+    let lineStr = '';
+    let lastRight = null;
+    for (const w of line) {
+      if (lastRight === null) {
+        lineStr += w.text;
+      } else {
+        const gap = w.x - lastRight;
+        if (gap >= columnGapThreshold) {
+          lineStr += '   \t' + w.text;
+        } else {
+          lineStr += ' ' + w.text;
+        }
+      }
+      lastRight = w.x + w.width;
+    }
+    return lineStr;
+  });
+
+  return {
+    structuredText: textLines.join('\n'),
+    lines
+  };
+}
+
+/**
+ * Extracts plain text and detailed OCR coordinates from document buffers.
  * @param {Buffer} buffer 
  * @param {string} mimeType 
- * @returns {Promise<{ text: string, pageCount: number, method: string }>}
+ * @returns {Promise<{ text: string, pageCount: number, method: string, ocrWords: Array<object> }>}
  */
 async function extractTextFromBuffer(buffer, mimeType) {
+  let ocrWords = [];
+
   if (mimeType === 'application/pdf') {
     try {
       const pdfParseModule = require('pdf-parse');
@@ -54,10 +172,15 @@ async function extractTextFromBuffer(buffer, mimeType) {
             const Tesseract = require('tesseract.js');
             const pagesToOcr = Math.min(pageCount, 3);
             let combinedOcr = '';
+            const allWords = [];
             for (let p = 1; p <= pagesToOcr; p++) {
               const shot = await parser.getScreenshot({ page: p });
               if (shot && shot.pages && shot.pages[0] && shot.pages[0].dataUrl) {
                 const ocrResult = await Tesseract.recognize(shot.pages[0].dataUrl, 'eng');
+                const pageWords = extractOcrWordCoordinates(ocrResult?.data);
+                if (pageWords.length > 0) {
+                  allWords.push(...pageWords);
+                }
                 const pageText = ocrResult?.data?.text?.trim() || '';
                 if (pageText) {
                   combinedOcr += (combinedOcr ? '\n\n' : '') + pageText;
@@ -65,7 +188,11 @@ async function extractTextFromBuffer(buffer, mimeType) {
               }
             }
             if (combinedOcr.length > cleanedText.length) {
-              text = combinedOcr;
+              ocrWords = allWords;
+              const structured = reconstructStructuredTableLayout(ocrWords);
+              text = structured.structuredText && structured.structuredText.length >= combinedOcr.length
+                ? structured.structuredText
+                : combinedOcr;
               method = 'pdf-ocr-tesseract';
             }
           } catch (ocrErr) {}
@@ -75,7 +202,8 @@ async function extractTextFromBuffer(buffer, mimeType) {
         return {
           text,
           pageCount,
-          method
+          method,
+          ocrWords
         };
       } else if (typeof pdfParseModule === 'function') {
         const data = await pdfParseModule(buffer);
@@ -83,37 +211,45 @@ async function extractTextFromBuffer(buffer, mimeType) {
         return {
           text,
           pageCount: data.numpages || 1,
-          method: 'native-pdf'
+          method: 'native-pdf',
+          ocrWords: []
         };
       }
     } catch (err) {
       try {
         const str = buffer.toString('utf8');
         if (str && /^[\x20-\x7E\s\r\n\t]+$/.test(str.substring(0, 100))) {
-          return { text: str.trim(), pageCount: 1, method: 'plaintext-fallback' };
+          return { text: str.trim(), pageCount: 1, method: 'plaintext-fallback', ocrWords: [] };
         }
       } catch (e) {}
-      return { text: '', pageCount: 1, method: 'pdf-parse-error' };
+      return { text: '', pageCount: 1, method: 'pdf-parse-error', ocrWords: [] };
     }
   }
 
-  // For image formats, attempt OCR if engine is available
+  // For image formats, perform OCR with Tesseract.js and extract detailed coordinates
   if (mimeType.startsWith('image/')) {
     try {
       const Tesseract = require('tesseract.js');
       const res = await Tesseract.recognize(buffer, 'eng');
-      const text = res && res.data && res.data.text ? res.data.text.trim() : '';
+      const rawText = res && res.data && res.data.text ? res.data.text.trim() : '';
+      ocrWords = extractOcrWordCoordinates(res && res.data);
+      const structured = reconstructStructuredTableLayout(ocrWords);
+      const text = structured.structuredText && structured.structuredText.length >= rawText.length
+        ? structured.structuredText
+        : rawText;
+
       return {
         text,
         pageCount: 1,
-        method: 'ocr-tesseract'
+        method: 'ocr-tesseract',
+        ocrWords
       };
     } catch (e) {
-      return { text: '', pageCount: 1, method: 'ocr-unavailable' };
+      return { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
     }
   }
 
-  return { text: '', pageCount: 1, method: 'unsupported' };
+  return { text: '', pageCount: 1, method: 'unsupported', ocrWords: [] };
 }
 
 /**
@@ -316,6 +452,8 @@ function computeExpiryStatus(expiryDateStr) {
 
 module.exports = {
   extractTextFromBuffer,
+  extractOcrWordCoordinates,
+  reconstructStructuredTableLayout,
   findDateCandidates,
   analyzeDocumentText,
   computeExpiryStatus

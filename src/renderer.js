@@ -14,6 +14,7 @@ let bannerDismissedThisSession = false;
 let documents = [];
 let selectedDocumentId = null;
 let activeDocumentRecord = null;
+let documentIdPendingDelete = null;
 
 // DOM Elements - Views
 const viewLauncher = document.getElementById('view-launcher');
@@ -120,6 +121,36 @@ const drawerVersionsList = document.getElementById('drawer-versions-list');
 const btnExportCurrent = document.getElementById('btn-export-current');
 const btnOpenAddVersion = document.getElementById('btn-open-add-version');
 const btnOpenReviewMetadata = document.getElementById('btn-open-review-metadata');
+
+// Inline Document Metadata Editing
+const drawerDocTitleDisplay = document.getElementById('drawer-doc-title-display');
+const drawerDocTitleInput = document.getElementById('drawer-doc-title-input');
+const btnEditTitle = document.getElementById('btn-edit-title');
+
+const drawerCategorySelect = document.getElementById('drawer-category-select');
+const btnEditCategory = document.getElementById('btn-edit-category');
+
+const drawerPersonInput = document.getElementById('drawer-person-input');
+const btnEditPerson = document.getElementById('btn-edit-person');
+
+const drawerTagsDisplay = document.getElementById('drawer-tags-display');
+const drawerTagsInput = document.getElementById('drawer-tags-input');
+const btnEditTags = document.getElementById('btn-edit-tags');
+
+const drawerNotesDisplay = document.getElementById('drawer-notes-display');
+const drawerNotesInput = document.getElementById('drawer-notes-input');
+const btnEditNotes = document.getElementById('btn-edit-notes');
+
+const drawerEditActions = document.getElementById('drawer-edit-actions');
+const btnSaveDocMetadata = document.getElementById('btn-save-doc-metadata');
+const btnCancelDocMetadata = document.getElementById('btn-cancel-doc-metadata');
+
+// Document Deletion
+const btnDeleteDocument = document.getElementById('btn-delete-document');
+const btnDeleteDocumentHeader = document.getElementById('btn-delete-document-header');
+const modalConfirmDelete = document.getElementById('modal-confirm-delete');
+const deleteDocNameConfirm = document.getElementById('delete-doc-name-confirm');
+const btnConfirmDeleteAction = document.getElementById('btn-confirm-delete-action');
 
 // Modals
 const modalImport = document.getElementById('modal-import');
@@ -511,10 +542,11 @@ function renderDocuments() {
     card.innerHTML = `
       <div class="doc-card-header">
         <div class="doc-card-title">${escapeHtml(doc.title)}</div>
-        <div style="display: flex; gap: 4px;">
+        <div style="display: flex; gap: 4px; align-items: center;">
           ${semanticBadgeHtml}
           ${expiryBadgeHtml}
           <span class="badge badge-green">${vNum}</span>
+          <button class="btn-card-delete" data-doc-id="${escapeHtml(doc.id)}" data-doc-title="${escapeHtml(doc.title)}" title="Delete document">🗑️</button>
         </div>
       </div>
       <div class="doc-card-meta">
@@ -540,6 +572,16 @@ function renderDocuments() {
         <span>${formatDate(doc.updatedAt)}</span>
       </div>
     `;
+
+    // Hook clickable card delete button
+    card.querySelectorAll('.btn-card-delete').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const docId = btn.getAttribute('data-doc-id');
+        const docTitle = btn.getAttribute('data-doc-title');
+        promptDeleteDocument(docId, docTitle);
+      });
+    });
 
     // Hook clickable tag badges
     card.querySelectorAll('.doc-tag-badge').forEach(badge => {
@@ -642,6 +684,7 @@ searchInput.addEventListener('input', (e) => {
 async function openDocumentDrawer(documentId) {
   selectedDocumentId = documentId;
   drawerDetail.classList.remove('hidden');
+  resetDrawerEditMode();
 
   try {
     const doc = await window.familyVault.getDocument(documentId);
@@ -649,8 +692,15 @@ async function openDocumentDrawer(documentId) {
     activeDocumentRecord = doc;
 
     drawerTitle.textContent = doc.title;
+    if (drawerDocTitleDisplay) drawerDocTitleDisplay.textContent = doc.title;
     drawerCategory.textContent = doc.category;
     drawerPerson.textContent = doc.person || 'Not assigned';
+    if (drawerTagsDisplay) {
+      drawerTagsDisplay.textContent = (doc.tags && doc.tags.length > 0) ? doc.tags.join(', ') : 'None';
+    }
+    if (drawerNotesDisplay) {
+      drawerNotesDisplay.textContent = doc.notes || 'None';
+    }
 
     const currentV = doc.currentVersion;
     const versionId = (currentV && currentV.id) || doc.currentVersionId;
@@ -705,9 +755,44 @@ async function openDocumentDrawer(documentId) {
 
       // Render Extracted OCR & Plaintext Content
       const extractedTextBody = document.getElementById('drawer-extracted-text-body');
+      const ocrBadge = document.getElementById('drawer-ocr-coords-badge');
+      const btnToggleOcr = document.getElementById('btn-toggle-ocr-coords');
+      const text = meta.textContent || '';
+      const ocrWords = Array.isArray(meta.ocrWords) ? meta.ocrWords : [];
+
       if (extractedTextBody) {
-        const text = meta.textContent || '';
         extractedTextBody.textContent = text.trim() ? text.trim() : 'No text extracted from this document.';
+      }
+
+      if (ocrBadge) {
+        if (ocrWords.length > 0) {
+          ocrBadge.textContent = `📐 ${ocrWords.length} words`;
+          ocrBadge.classList.remove('hidden');
+        } else {
+          ocrBadge.classList.add('hidden');
+        }
+      }
+
+      if (btnToggleOcr) {
+        if (ocrWords.length > 0) {
+          btnToggleOcr.classList.remove('hidden');
+          btnToggleOcr.textContent = '📐 View Coords';
+          btnToggleOcr.setAttribute('data-showing-coords', 'false');
+          btnToggleOcr.onclick = () => {
+            const isShowingCoords = btnToggleOcr.getAttribute('data-showing-coords') === 'true';
+            if (isShowingCoords) {
+              extractedTextBody.textContent = text.trim() ? text.trim() : 'No text extracted from this document.';
+              btnToggleOcr.textContent = '📐 View Coords';
+              btnToggleOcr.setAttribute('data-showing-coords', 'false');
+            } else {
+              extractedTextBody.textContent = JSON.stringify(ocrWords, null, 2);
+              btnToggleOcr.textContent = '📝 View Text';
+              btnToggleOcr.setAttribute('data-showing-coords', 'true');
+            }
+          };
+        } else {
+          btnToggleOcr.classList.add('hidden');
+        }
       }
     }
 
@@ -781,9 +866,197 @@ function renderVersionHistory(versions) {
 // Drawer close
 drawerCloseBtn.addEventListener('click', () => {
   drawerDetail.classList.add('hidden');
+  resetDrawerEditMode();
   selectedDocumentId = null;
   activeDocumentRecord = null;
 });
+
+// Inline Metadata Editing Helpers & Event Listeners
+function resetDrawerEditMode() {
+  if (drawerDocTitleDisplay) drawerDocTitleDisplay.classList.remove('hidden');
+  if (drawerDocTitleInput) drawerDocTitleInput.classList.add('hidden');
+
+  if (drawerCategory) drawerCategory.classList.remove('hidden');
+  if (drawerCategorySelect) drawerCategorySelect.classList.add('hidden');
+
+  if (drawerPerson) drawerPerson.classList.remove('hidden');
+  if (drawerPersonInput) drawerPersonInput.classList.add('hidden');
+
+  if (drawerTagsDisplay) drawerTagsDisplay.classList.remove('hidden');
+  if (drawerTagsInput) drawerTagsInput.classList.add('hidden');
+
+  if (drawerNotesDisplay) drawerNotesDisplay.classList.remove('hidden');
+  if (drawerNotesInput) drawerNotesInput.classList.add('hidden');
+
+  if (drawerEditActions) drawerEditActions.classList.add('hidden');
+}
+
+function updateDrawerEditActionsVisibility() {
+  const isEditing = (
+    (drawerDocTitleInput && !drawerDocTitleInput.classList.contains('hidden')) ||
+    (drawerCategorySelect && !drawerCategorySelect.classList.contains('hidden')) ||
+    (drawerPersonInput && !drawerPersonInput.classList.contains('hidden')) ||
+    (drawerTagsInput && !drawerTagsInput.classList.contains('hidden')) ||
+    (drawerNotesInput && !drawerNotesInput.classList.contains('hidden'))
+  );
+
+  if (drawerEditActions) {
+    if (isEditing) {
+      drawerEditActions.classList.remove('hidden');
+    } else {
+      drawerEditActions.classList.add('hidden');
+    }
+  }
+}
+
+if (btnEditTitle) {
+  btnEditTitle.addEventListener('click', () => {
+    if (!activeDocumentRecord) return;
+    const isEditing = !drawerDocTitleInput.classList.contains('hidden');
+    if (isEditing) {
+      drawerDocTitleInput.classList.add('hidden');
+      drawerDocTitleDisplay.classList.remove('hidden');
+    } else {
+      drawerDocTitleInput.value = activeDocumentRecord.title || '';
+      drawerDocTitleInput.classList.remove('hidden');
+      drawerDocTitleDisplay.classList.add('hidden');
+      drawerDocTitleInput.focus();
+    }
+    updateDrawerEditActionsVisibility();
+  });
+}
+
+if (btnEditCategory) {
+  btnEditCategory.addEventListener('click', () => {
+    if (!activeDocumentRecord) return;
+    const isEditing = !drawerCategorySelect.classList.contains('hidden');
+    if (isEditing) {
+      drawerCategorySelect.classList.add('hidden');
+      drawerCategory.classList.remove('hidden');
+    } else {
+      drawerCategorySelect.value = activeDocumentRecord.category || 'other';
+      drawerCategorySelect.classList.remove('hidden');
+      drawerCategory.classList.add('hidden');
+      drawerCategorySelect.focus();
+    }
+    updateDrawerEditActionsVisibility();
+  });
+}
+
+if (btnEditPerson) {
+  btnEditPerson.addEventListener('click', () => {
+    if (!activeDocumentRecord) return;
+    const isEditing = !drawerPersonInput.classList.contains('hidden');
+    if (isEditing) {
+      drawerPersonInput.classList.add('hidden');
+      drawerPerson.classList.remove('hidden');
+    } else {
+      drawerPersonInput.value = activeDocumentRecord.person || '';
+      drawerPersonInput.classList.remove('hidden');
+      drawerPerson.classList.add('hidden');
+      drawerPersonInput.focus();
+    }
+    updateDrawerEditActionsVisibility();
+  });
+}
+
+if (btnEditTags) {
+  btnEditTags.addEventListener('click', () => {
+    if (!activeDocumentRecord) return;
+    const isEditing = !drawerTagsInput.classList.contains('hidden');
+    if (isEditing) {
+      drawerTagsInput.classList.add('hidden');
+      drawerTagsDisplay.classList.remove('hidden');
+    } else {
+      drawerTagsInput.value = (activeDocumentRecord.tags && Array.isArray(activeDocumentRecord.tags))
+        ? activeDocumentRecord.tags.join(', ')
+        : '';
+      drawerTagsInput.classList.remove('hidden');
+      drawerTagsDisplay.classList.add('hidden');
+      drawerTagsInput.focus();
+    }
+    updateDrawerEditActionsVisibility();
+  });
+}
+
+if (btnEditNotes) {
+  btnEditNotes.addEventListener('click', () => {
+    if (!activeDocumentRecord) return;
+    const isEditing = !drawerNotesInput.classList.contains('hidden');
+    if (isEditing) {
+      drawerNotesInput.classList.add('hidden');
+      drawerNotesDisplay.classList.remove('hidden');
+    } else {
+      drawerNotesInput.value = activeDocumentRecord.notes || '';
+      drawerNotesInput.classList.remove('hidden');
+      drawerNotesDisplay.classList.add('hidden');
+      drawerNotesInput.focus();
+    }
+    updateDrawerEditActionsVisibility();
+  });
+}
+
+if (btnCancelDocMetadata) {
+  btnCancelDocMetadata.addEventListener('click', () => {
+    resetDrawerEditMode();
+  });
+}
+
+if (btnSaveDocMetadata) {
+  btnSaveDocMetadata.addEventListener('click', async () => {
+    if (!selectedDocumentId || !activeDocumentRecord) return;
+
+    const newTitle = (drawerDocTitleInput && !drawerDocTitleInput.classList.contains('hidden'))
+      ? drawerDocTitleInput.value.trim()
+      : activeDocumentRecord.title;
+
+    if (!newTitle) {
+      showToast('Title cannot be empty', 'error');
+      return;
+    }
+
+    const newCategory = (drawerCategorySelect && !drawerCategorySelect.classList.contains('hidden'))
+      ? drawerCategorySelect.value
+      : activeDocumentRecord.category;
+
+    const newPerson = (drawerPersonInput && !drawerPersonInput.classList.contains('hidden'))
+      ? (drawerPersonInput.value.trim() || null)
+      : activeDocumentRecord.person;
+
+    const newTags = (drawerTagsInput && !drawerTagsInput.classList.contains('hidden'))
+      ? drawerTagsInput.value.split(',').map(t => t.trim()).filter(Boolean)
+      : activeDocumentRecord.tags;
+
+    const newNotes = (drawerNotesInput && !drawerNotesInput.classList.contains('hidden'))
+      ? drawerNotesInput.value.trim()
+      : activeDocumentRecord.notes;
+
+    btnSaveDocMetadata.disabled = true;
+    btnSaveDocMetadata.textContent = 'Saving...';
+
+    try {
+      await window.familyVault.updateDocumentMetadata({
+        documentId: selectedDocumentId,
+        title: newTitle,
+        category: newCategory,
+        person: newPerson,
+        tags: newTags,
+        notes: newNotes
+      });
+
+      showToast('Document metadata updated', 'success');
+      resetDrawerEditMode();
+      await loadDocuments();
+      await openDocumentDrawer(selectedDocumentId);
+    } catch (err) {
+      showToast('Update failed: ' + err.message, 'error');
+    } finally {
+      btnSaveDocMetadata.disabled = false;
+      btnSaveDocMetadata.textContent = '💾 Save Changes';
+    }
+  });
+}
+
 
 // Export document version
 async function exportVersion(versionId, defaultName) {
@@ -805,6 +1078,68 @@ btnExportCurrent.addEventListener('click', async () => {
     await exportVersion(doc.currentVersion.id, doc.currentVersion.fileName);
   }
 });
+
+// Document Deletion Handlers
+function promptDeleteDocument(docId, docTitle) {
+  if (!docId) return;
+  documentIdPendingDelete = docId;
+  if (deleteDocNameConfirm) {
+    deleteDocNameConfirm.textContent = docTitle || 'this document';
+  }
+  if (modalConfirmDelete) {
+    modalConfirmDelete.classList.remove('hidden');
+  }
+}
+
+if (btnDeleteDocument) {
+  btnDeleteDocument.addEventListener('click', () => {
+    const docId = selectedDocumentId;
+    if (!docId) return;
+    const title = activeDocumentRecord ? activeDocumentRecord.title : (drawerTitle ? drawerTitle.textContent : 'this document');
+    promptDeleteDocument(docId, title);
+  });
+}
+
+if (btnDeleteDocumentHeader) {
+  btnDeleteDocumentHeader.addEventListener('click', () => {
+    const docId = selectedDocumentId;
+    if (!docId) return;
+    const title = activeDocumentRecord ? activeDocumentRecord.title : (drawerTitle ? drawerTitle.textContent : 'this document');
+    promptDeleteDocument(docId, title);
+  });
+}
+
+if (btnConfirmDeleteAction) {
+  btnConfirmDeleteAction.addEventListener('click', async () => {
+    const docId = documentIdPendingDelete || selectedDocumentId;
+    if (!docId) {
+      if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
+      return;
+    }
+
+    btnConfirmDeleteAction.disabled = true;
+    btnConfirmDeleteAction.textContent = 'Deleting...';
+
+    try {
+      await window.familyVault.deleteDocument(docId);
+      if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
+      if (selectedDocumentId === docId) {
+        drawerDetail.classList.add('hidden');
+        resetDrawerEditMode();
+        selectedDocumentId = null;
+        activeDocumentRecord = null;
+      }
+      documentIdPendingDelete = null;
+      showToast('Document deleted from vault', 'success');
+      await loadDocuments();
+    } catch (err) {
+      showToast('Failed to delete document: ' + err.message, 'error');
+    } finally {
+      btnConfirmDeleteAction.disabled = false;
+      btnConfirmDeleteAction.textContent = 'Yes, Delete Document';
+    }
+  });
+}
 
 // Import Document Modal
 btnOpenImport.addEventListener('click', () => {
@@ -1616,6 +1951,8 @@ document.querySelectorAll('.modal-close-btn').forEach(btn => {
     modalChangePassword.classList.add('hidden');
     if (modalAuditLogs) modalAuditLogs.classList.add('hidden');
     if (modalDownloadModel) modalDownloadModel.classList.add('hidden');
+    if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
+    documentIdPendingDelete = null;
   });
 });
 

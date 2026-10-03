@@ -18,7 +18,7 @@ The repository contains a complete, fully tested, functional implementation of F
   - `src/main/vault/vaultService.js`: Vault lifecycle management (create, unlock, lock, zeroize keys, password rewrapping, document import with automatic offline text extraction & analysis, immutable version appending, export, metadata review/confirmation, upcoming expiries, grounded local AI Q&A, semantic similarity search, and portable encrypted backup/restore).
   - `src/main/vault/backupService.js`: Portable encrypted vault backup generation (`.fvbackup`) and cryptographic restoration with SHA-256 tamper verification.
 - **Text Extraction & Deterministic Analysis**:
-  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), image OCR pipeline (`tesseract.js`), deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, insurance policies, tax documents, medical records, property/deeds), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`).
+  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), image and scanned PDF OCR pipeline (`tesseract.js`) with detailed word-level coordinate extraction (`{ text, x, y, width, height, confidence }`) and tabular column layout reconstruction, deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, insurance policies, tax documents, medical records, property/deeds), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`).
 - **Semantic Vector Embeddings & Similarity Retrieval**:
   - `src/main/services/embeddingService.js`: Modular, 100% offline embedding service supporting normalized vector generation, text passage chunking, cosine similarity scoring, BLOB serialization/deserialization for SQLCipher storage, and deterministic feature-hashing vectorization (with optional local `llama-server` embedding endpoint support).
 - **Local AI & Grounded Document Q&A**:
@@ -36,7 +36,10 @@ The repository contains a complete, fully tested, functional implementation of F
     - Clickable tag filtering with active tag bar and 1-click clear.
     - Search bar with Keyword vs Semantic search toggle.
     - Document import modal and detail drawer with in-memory preview.
-    - Extracted OCR & plaintext inspection panel with 1-click clipboard copy.
+    - Extracted OCR & plaintext inspection panel with structured word-coordinate viewer, count badge, and 1-click clipboard copy.
+    - Inline document metadata editing in the detail drawer (title, category, person, tags, notes) with toggle controls, input validation, and real-time FTS re-indexing.
+    - End-to-end document deletion with 1-click delete buttons on every document card (`.btn-card-delete`), the drawer header (`#btn-delete-document-header`), and the drawer footer (`#btn-delete-document`), confirmation dialog (`#modal-confirm-delete`), and immediate reactive UI feedback. Soft-deletes records in SQLCipher (`is_deleted = 1`), purges FTS5 full-text indexes and vector embeddings, logs immutable `DOCUMENT_DELETED` audit events, and strictly preserves encrypted disk objects in `objects/`.
+    - Automatic defensive SQLite migration (`ensureIsDeletedColumn`) that gracefully ensures the `is_deleted` column exists on newly created or legacy opened vaults without query errors.
     - Metadata review and confirmation modal with provenance snippets.
     - Immutable version history timeline and new version upload.
     - Master password change modal.
@@ -44,7 +47,8 @@ The repository contains a complete, fully tested, functional implementation of F
     - Conversational multi-turn Grounded AI Assistant modal with chat bubbles, 1-click Gemma 2 2B setup card, answer copy, clickable citations, and clear chat button.
 - **Test Suite**:
   - `tests/crypto.test.js`: Unit tests for Argon2id, VMK wrapping/unwrapping, AES-256-GCM envelope, HKDF, and zeroization.
-  - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, in-memory preview, export, password rewrapping, and encrypted audit logging.
+  - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, inline metadata updating & FTS re-indexing, document soft-deletion with audit trail and semantic search filtering, in-memory preview, export, password rewrapping, and encrypted audit logging.
+  - `tests/documentDeletion.test.js`: Comprehensive integration tests for multi-document deletion, FTS search removal, semantic vector search cleanup, immutable disk object preservation, and audit logging.
   - `tests/extraction.test.js`: Unit and integration tests for date extraction, document classification, deterministic expiry calculation, metadata review confirmation, and upcoming expiries queries.
   - `tests/embedding.test.js`: Unit and integration tests for passage chunking, normalized vector generation, cosine similarity, BLOB serialization, and end-to-end semantic search across encrypted vault documents.
   - `tests/llmService.test.js`: Unit tests for local grounded document Q&A, citation extraction, missing-knowledge handling, localhost binding security, and OCR travel ticket/schedule retrieval.

@@ -231,9 +231,12 @@
 
           <!-- Detail & Version History Drawer -->
           <aside id="drawer-detail" class="detail-drawer hidden">
-            <div class="drawer-header">
-              <h2 id="drawer-title">Document Details</h2>
-              <button id="drawer-close-btn" class="btn btn-secondary" style="padding: 4px 8px;">✕</button>
+            <div class="drawer-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h2 id="drawer-title" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px;">Document Details</h2>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <button id="btn-delete-document-header" class="btn btn-secondary" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3); padding: 4px 8px; font-size: 11px;" title="Delete this document">🗑️ Delete</button>
+                <button id="drawer-close-btn" class="btn btn-secondary" style="padding: 4px 8px;">✕</button>
+              </div>
             </div>
 
             <div class="drawer-content">
@@ -249,13 +252,57 @@
               <!-- Metadata & Expiry Analysis -->
               <div class="doc-card-meta" style="background: rgba(30, 41, 59, 0.6); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
                 <div class="meta-row">
+                  <span>Title:</span>
+                  <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;">
+                    <strong id="drawer-doc-title-display" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</strong>
+                    <input type="text" id="drawer-doc-title-input" class="input-field hidden" style="font-size: 12px; padding: 3px 6px; flex: 1;" />
+                    <button id="btn-edit-title" class="btn-inline-edit" title="Edit title">✏️</button>
+                  </div>
+                </div>
+                <div class="meta-row">
                   <span>Category:</span>
-                  <span id="drawer-category" class="badge badge-blue">Identity</span>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span id="drawer-category" class="badge badge-blue">Identity</span>
+                    <select id="drawer-category-select" class="input-field hidden" style="font-size: 12px; padding: 3px 6px;">
+                      <option value="identity">Identity & Passports</option>
+                      <option value="insurance">Insurance</option>
+                      <option value="medical">Medical Records</option>
+                      <option value="tax">Tax & Finance</option>
+                      <option value="property">Property & Legal</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <button id="btn-edit-category" class="btn-inline-edit" title="Edit category">✏️</button>
+                  </div>
                 </div>
                 <div class="meta-row">
                   <span>Family Member:</span>
-                  <strong id="drawer-person">-</strong>
+                  <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;">
+                    <strong id="drawer-person" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</strong>
+                    <input type="text" id="drawer-person-input" class="input-field hidden" style="font-size: 12px; padding: 3px 6px; flex: 1;" placeholder="e.g. John Doe" />
+                    <button id="btn-edit-person" class="btn-inline-edit" title="Edit person">✏️</button>
+                  </div>
                 </div>
+                <div class="meta-row">
+                  <span>Tags:</span>
+                  <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;">
+                    <span id="drawer-tags-display" style="font-size: 12px; color: var(--text-secondary);">-</span>
+                    <input type="text" id="drawer-tags-input" class="input-field hidden" style="font-size: 12px; padding: 3px 6px; flex: 1;" placeholder="tag1, tag2, tag3" />
+                    <button id="btn-edit-tags" class="btn-inline-edit" title="Edit tags">✏️</button>
+                  </div>
+                </div>
+                <div class="meta-row">
+                  <span>Notes:</span>
+                  <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;">
+                    <span id="drawer-notes-display" style="font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</span>
+                    <input type="text" id="drawer-notes-input" class="input-field hidden" style="font-size: 12px; padding: 3px 6px; flex: 1;" placeholder="Add notes..." />
+                    <button id="btn-edit-notes" class="btn-inline-edit" title="Edit notes">✏️</button>
+                  </div>
+                </div>
+                <div id="drawer-edit-actions" class="hidden" style="display: flex; gap: 6px; margin-top: 8px;">
+                  <button id="btn-save-doc-metadata" class="btn btn-primary" style="flex: 1; font-size: 12px; padding: 6px;">💾 Save Changes</button>
+                  <button id="btn-cancel-doc-metadata" class="btn btn-secondary" style="flex: 1; font-size: 12px; padding: 6px;">Cancel</button>
+                </div>
+                <hr style="border: none; border-top: 1px solid var(--border); margin: 10px 0 8px;" />
                 <div class="meta-row">
                   <span>Current Version:</span>
                   <span id="drawer-version-badge" class="badge badge-green">v1</span>
@@ -287,8 +334,14 @@
               <!-- Extracted Text & OCR Content Section -->
               <div id="drawer-extracted-text-section" class="doc-card-meta" style="background: rgba(30, 41, 59, 0.6); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-top: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                  <strong style="font-size: 12px; color: #94a3b8;">📝 Extracted Text &amp; OCR Content</strong>
-                  <button id="btn-copy-extracted-text" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;">📋 Copy Text</button>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <strong style="font-size: 12px; color: #94a3b8;">📝 Extracted Text &amp; OCR Content</strong>
+                    <span id="drawer-ocr-coords-badge" class="badge badge-blue hidden">📐 0 words</span>
+                  </div>
+                  <div style="display: flex; gap: 4px;">
+                    <button id="btn-toggle-ocr-coords" class="btn btn-secondary hidden" style="padding: 2px 8px; font-size: 11px;">📐 View Coords</button>
+                    <button id="btn-copy-extracted-text" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;">📋 Copy</button>
+                  </div>
                 </div>
                 <div id="drawer-extracted-text-body" style="max-height: 160px; overflow-y: auto; font-family: monospace; font-size: 11px; background: rgba(15, 23, 42, 0.7); padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); color: #cbd5e1; white-space: pre-wrap; word-break: break-word;">
                   No text extracted.
@@ -300,6 +353,7 @@
                 <button id="btn-export-current" class="btn btn-secondary" style="flex: 1;">Export Copy</button>
                 <button id="btn-open-add-version" class="btn btn-primary" style="flex: 1;">+ Upload New Version</button>
               </div>
+              <button id="btn-delete-document" class="btn btn-secondary" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3); width: 100%; margin-top: 6px; font-size: 12px; padding: 6px;">🗑️ Delete Document</button>
 
               <!-- Immutable Version History -->
               <div>
@@ -686,6 +740,27 @@
               ⬇️ Start Download &amp; Setup (1.65 GB)
             </button>
             <button class="btn btn-secondary modal-close-btn">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 9. MODAL: CONFIRM DELETE DOCUMENT -->
+      <div id="modal-confirm-delete" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 420px;">
+          <div class="modal-header">
+            <h3 style="color: #f87171;">⚠️ Delete Document</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+          <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+            Are you sure you want to remove <strong id="delete-doc-name-confirm" style="color: var(--text-primary);">-</strong> from your vault?
+          </p>
+          <div class="security-notice" style="border-left: 3px solid #ef4444; background: rgba(239, 68, 68, 0.1); padding: 8px 12px; font-size: 12px; color: #fca5a5; border-radius: 4px;">
+            <span>🛡️</span>
+            <span>The document will be removed from your active search and category views. Original encrypted storage blocks and cryptographic audit logs are preserved per vault security policy.</span>
+          </div>
+          <div class="modal-footer" style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button id="btn-confirm-delete-action" class="btn" style="background: #dc2626; color: white;">Yes, Delete Document</button>
           </div>
         </div>
       </div>

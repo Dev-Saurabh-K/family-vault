@@ -6,17 +6,78 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const { findDateCandidates, analyzeDocumentText, computeExpiryStatus, extractTextFromBuffer } = require('../src/main/services/extractionService');
+const { 
+  findDateCandidates, 
+  analyzeDocumentText, 
+  computeExpiryStatus, 
+  extractTextFromBuffer,
+  extractOcrWordCoordinates,
+  reconstructStructuredTableLayout
+} = require('../src/main/services/extractionService');
 const { VaultService } = require('../src/main/vault/vaultService');
 
 test('ExtractionService: extractTextFromBuffer handles plaintext and invalid buffers gracefully', async () => {
   const plainBuf = Buffer.from('Hello world plain text content', 'utf8');
   const resPlain = await extractTextFromBuffer(plainBuf, 'application/pdf');
   assert.strictEqual(typeof resPlain.text, 'string');
+  assert.ok(Array.isArray(resPlain.ocrWords));
 
   const emptyBuf = Buffer.from('', 'utf8');
   const resEmpty = await extractTextFromBuffer(emptyBuf, 'application/pdf');
   assert.strictEqual(resEmpty.text, '');
+  assert.ok(Array.isArray(resEmpty.ocrWords));
+});
+
+test('ExtractionService: extractOcrWordCoordinates normalizes Tesseract word bounding boxes and coordinates', () => {
+  const sampleTesseractData = {
+    words: [
+      { text: '®', bbox: { x0: 0, y0: 2, x1: 12, y1: 20 }, confidence: 0 },
+      { text: 'DirectX', bbox: { x0: 20, y0: 6, x1: 67, y1: 17 }, confidence: 96.2 },
+      { text: 'Diagnostic', bbox: { x0: 73, y0: 6, x1: 140, y1: 20 }, confidence: 95.8 }
+    ]
+  };
+
+  const words = extractOcrWordCoordinates(sampleTesseractData);
+  assert.strictEqual(words.length, 3);
+  assert.deepStrictEqual(words[0], {
+    text: '®',
+    x: 0,
+    y: 2,
+    width: 12,
+    height: 18,
+    confidence: 0
+  });
+  assert.deepStrictEqual(words[1], {
+    text: 'DirectX',
+    x: 20,
+    y: 6,
+    width: 47,
+    height: 11,
+    confidence: 96
+  });
+  assert.deepStrictEqual(words[2], {
+    text: 'Diagnostic',
+    x: 73,
+    y: 6,
+    width: 67,
+    height: 14,
+    confidence: 96
+  });
+});
+
+test('ExtractionService: reconstructStructuredTableLayout groups lines and preserves tabular column structure', () => {
+  const tableWords = [
+    { text: 'DirectX', x: 20, y: 6, width: 47, height: 11, confidence: 96 },
+    { text: 'Diagnostic', x: 73, y: 6, width: 67, height: 14, confidence: 96 },
+    { text: 'Tool', x: 145, y: 7, width: 30, height: 13, confidence: 97 },
+    { text: 'Version', x: 20, y: 30, width: 50, height: 12, confidence: 95 },
+    { text: '12.0', x: 145, y: 30, width: 30, height: 12, confidence: 98 }
+  ];
+
+  const result = reconstructStructuredTableLayout(tableWords);
+  assert.strictEqual(result.lines.length, 2);
+  assert.ok(result.structuredText.includes('DirectX Diagnostic Tool'));
+  assert.ok(result.structuredText.includes('Version   \t12.0'));
 });
 
 test('ExtractionService: Deterministic date detection and candidate matching', () => {

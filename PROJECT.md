@@ -19,7 +19,7 @@ The installed application is replaceable. A user's vault is their data and must 
 
 - Create, unlock, lock, and open portable vaults.
 - Import and retain encrypted document originals and immutable versions.
-- Local text extraction and PaddleOCR-based OCR.
+- Local text extraction and Tesseract.js-based OCR with detailed word-level coordinate extraction ({ text, x, y, width, height, confidence }) for structured data and table understanding.
 - Structured metadata and full-text search/filtering.
 - Optional, separately enabled semantic-search layer later.
 - Bundled local AI inference using `llama-server.exe` and an initial Gemma 2 2B GGUF model.

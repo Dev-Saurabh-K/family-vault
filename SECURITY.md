@@ -40,7 +40,7 @@ Vault manifests may contain non-secret format and KDF metadata plus wrapped-key 
 
 ## OCR and AI boundary
 
-PaddleOCR and llama.cpp are local child processes managed by main. Their inputs/outputs are untrusted data: limit inputs, validate structured output, enforce time/resource limits where feasible, and do not expose secrets beyond what each job requires. `llama-server.exe` must bind only to `127.0.0.1` on an application-selected port. Do not enable LAN access, plugins, tools, or file-operation capabilities.
+Local OCR (Tesseract.js) and llama.cpp run locally within the application boundary. Their inputs/outputs are untrusted data: limit inputs, validate structured output, enforce time/resource limits where feasible, and do not expose secrets beyond what each job requires. `llama-server.exe` must bind only to `127.0.0.1` on an application-selected port. Do not enable LAN access, plugins, tools, or file-operation capabilities.
 
 ## Threat and change review
 

@@ -181,6 +181,18 @@ function registerIpcHandlers(mainWindow) {
     return vaultService.listUpcomingExpiries();
   });
 
+  ipcMain.handle('document:update-doc-metadata', async (_event, rawArgs) => {
+    if (!rawArgs || !rawArgs.documentId) throw new Error('Missing documentId');
+    const { documentId, title, person, category, tags, notes } = rawArgs;
+    return vaultService.updateDocumentMetadata({ documentId, title, person, category, tags, notes });
+  });
+
+  ipcMain.handle('document:delete', async (_event, rawArgs) => {
+    const documentId = typeof rawArgs === 'string' ? rawArgs : (rawArgs && rawArgs.documentId);
+    if (!documentId) throw new Error('Missing documentId');
+    return vaultService.deleteDocument(documentId);
+  });
+
   ipcMain.handle('search:semantic', async (_event, args) => {
     const query = args && typeof args === 'object' ? args.query : args;
     if (!query || typeof query !== 'string') throw new Error('Query is required');

@@ -100,6 +100,26 @@ test('VaultService: Full lifecycle, immutable versions, encryption and password 
   assert.strictEqual(Buffer.from(previewHistV1.base64Data, 'base64').toString('utf-8'), samplePdfContent1.toString('utf-8'));
   assert.strictEqual(Buffer.from(previewHistV2.base64Data, 'base64').toString('utf-8'), samplePdfContent2.toString('utf-8'));
 
+  // 4b. Test Inline Metadata Updating & FTS Re-indexing
+  const updatedMetadataDoc = service.updateDocumentMetadata({
+    documentId: importedDoc.id,
+    title: 'Passport - Johnathan Doe (Official)',
+    person: 'Johnathan Doe',
+    category: 'identity',
+    tags: ['passport', 'travel', 'official'],
+    notes: 'Updated notes after review'
+  });
+
+  assert.strictEqual(updatedMetadataDoc.title, 'Passport - Johnathan Doe (Official)');
+  assert.strictEqual(updatedMetadataDoc.person, 'Johnathan Doe');
+  assert.deepStrictEqual(updatedMetadataDoc.tags, ['passport', 'travel', 'official']);
+  assert.strictEqual(updatedMetadataDoc.notes, 'Updated notes after review');
+
+  // Verify FTS search reflects updated metadata
+  const searchResults = service.listDocuments({ search: 'Johnathan' });
+  assert.strictEqual(searchResults.length, 1);
+  assert.strictEqual(searchResults[0].id, importedDoc.id);
+
   // 5. Export Version
   const exportPath = path.join(tmpDir, 'exported_v1.pdf');
   service.exportDocumentVersion({ versionId: v1Record.id, destinationPath: exportPath });
@@ -132,7 +152,7 @@ test('VaultService: Full lifecycle, immutable versions, encryption and password 
 
   const docsAfterUnlock = service.listDocuments();
   assert.strictEqual(docsAfterUnlock.length, 1);
-  assert.strictEqual(docsAfterUnlock[0].title, 'Passport - John Doe');
+  assert.strictEqual(docsAfterUnlock[0].title, 'Passport - Johnathan Doe (Official)');
 
   // 9. Test Password Change
   await service.changePassword({
@@ -160,11 +180,41 @@ test('VaultService: Full lifecycle, immutable versions, encryption and password 
   // Verify audit logs are recorded and retrievable
   const auditLogs = service.listAuditLogs(50);
   assert.ok(Array.isArray(auditLogs));
-  assert.ok(auditLogs.length >= 4);
+  assert.ok(auditLogs.length >= 5);
   const eventTypes = auditLogs.map(a => a.eventType);
   assert.ok(eventTypes.includes('VAULT_CREATED'));
   assert.ok(eventTypes.includes('DOCUMENT_IMPORTED'));
+  assert.ok(eventTypes.includes('DOCUMENT_METADATA_UPDATED'));
   assert.ok(eventTypes.includes('PASSWORD_CHANGED'));
+
+  // 10. Test Document Deletion (Soft-delete with audit logging and object preservation)
+  const delRes = service.deleteDocument(importedDoc.id);
+  assert.strictEqual(delRes.success, true);
+  assert.strictEqual(delRes.documentId, importedDoc.id);
+  assert.strictEqual(delRes.title, 'Passport - Johnathan Doe (Official)');
+
+  // Document should no longer appear in active document listings
+  const docsAfterDelete = service.listDocuments();
+  assert.strictEqual(docsAfterDelete.length, 0);
+
+  // Search should not return deleted document
+  const searchAfterDelete = service.listDocuments({ search: 'Johnathan' });
+  assert.strictEqual(searchAfterDelete.length, 0);
+
+  // Semantic search should also filter out deleted documents
+  const semanticAfterDelete = await service.searchSemantic({ query: 'official passport identity' });
+  assert.strictEqual(semanticAfterDelete.length, 0);
+
+  // Encrypted objects on disk are preserved per immutable retention policy
+  assert.ok(fs.existsSync(objectFile));
+  assert.ok(fs.existsSync(path.join(vaultPath, 'objects', `${v2Record.object_id}.enc`)));
+
+  // Verify DOCUMENT_DELETED event recorded in audit logs
+  const auditLogsAfterDelete = service.listAuditLogs(50);
+  const deleteEvent = auditLogsAfterDelete.find(a => a.eventType === 'DOCUMENT_DELETED');
+  assert.ok(deleteEvent);
+  assert.strictEqual(deleteEvent.details.documentId, importedDoc.id);
+  assert.strictEqual(deleteEvent.details.title, 'Passport - Johnathan Doe (Official)');
 
   // Clean up
   service.lockVault();

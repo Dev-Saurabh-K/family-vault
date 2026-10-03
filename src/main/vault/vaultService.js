@@ -363,7 +363,7 @@ class VaultService {
 
     // 4. Extract text and analyze metadata locally
     try {
-      const { text } = await extractionService.extractTextFromBuffer(plaintextBuffer, mimeType);
+      const { text, ocrWords = [] } = await extractionService.extractTextFromBuffer(plaintextBuffer, mimeType);
       if (text) {
         const analysis = extractionService.analyzeDocumentText(text, fileName);
         dbLayer.saveMetadata(this._db, {
@@ -376,7 +376,11 @@ class VaultService {
           issueSnippet: analysis.issueSnippet,
           confidence: analysis.confidence,
           reviewStatus: analysis.reviewStatus,
-          textContent: text
+          textContent: text,
+          rawPayload: {
+            ocrWords,
+            method: 'ocr-tesseract'
+          }
         });
 
         // If category was 'other' and analysis found a specific category, auto-categorize
@@ -464,7 +468,7 @@ class VaultService {
 
     // 3. Extract text and analyze metadata
     try {
-      const { text } = await extractionService.extractTextFromBuffer(plaintextBuffer, mimeType);
+      const { text, ocrWords = [] } = await extractionService.extractTextFromBuffer(plaintextBuffer, mimeType);
       if (text) {
         const analysis = extractionService.analyzeDocumentText(text, fileName);
         dbLayer.saveMetadata(this._db, {
@@ -477,7 +481,11 @@ class VaultService {
           issueSnippet: analysis.issueSnippet,
           confidence: analysis.confidence,
           reviewStatus: analysis.reviewStatus,
-          textContent: text
+          textContent: text,
+          rawPayload: {
+            ocrWords,
+            method: 'ocr-tesseract'
+          }
         });
 
         // Generate and store vector embeddings for semantic search
@@ -517,6 +525,64 @@ class VaultService {
       ...doc,
       versions
     };
+  }
+
+  /**
+   * Updates document-level metadata fields (title, person, category, tags, notes).
+   * Adheres to PRODUCT_REQUIREMENTS.md §3: "The user can review and correct extracted metadata."
+   */
+  updateDocumentMetadata({ documentId, title, person, category, tags, notes }) {
+    this._assertUnlocked();
+
+    if (!documentId) {
+      throw new Error('documentId is required');
+    }
+
+    const doc = dbLayer.getDocumentById(this._db, documentId);
+    if (!doc) {
+      throw new Error(`Document not found: ${documentId}`);
+    }
+
+    const updatedDoc = dbLayer.updateDocumentFields(this._db, documentId, {
+      title, person, category, tags, notes
+    });
+
+    dbLayer.recordAuditEvent(this._db, 'DOCUMENT_METADATA_UPDATED', {
+      documentId,
+      changedFields: {
+        ...(title !== undefined && { title }),
+        ...(person !== undefined && { person }),
+        ...(category !== undefined && { category }),
+        ...(tags !== undefined && { tags }),
+        ...(notes !== undefined && { notes })
+      }
+    });
+
+    return updatedDoc;
+  }
+
+  /**
+   * Soft-deletes a document and records an immutable audit log event.
+   * Preserves immutable versions and encrypted objects on disk.
+   */
+  deleteDocument(documentId) {
+    this._assertUnlocked();
+    if (!documentId) throw new Error('documentId is required');
+
+    const doc = dbLayer.getDocumentById(this._db, documentId);
+    if (!doc) throw new Error(`Document not found: ${documentId}`);
+
+    const res = dbLayer.deleteDocument(this._db, documentId);
+
+    dbLayer.recordAuditEvent(this._db, 'DOCUMENT_DELETED', {
+      documentId,
+      title: doc.title,
+      category: doc.category,
+      person: doc.person,
+      deletedAt: new Date().toISOString()
+    });
+
+    return res;
   }
 
   /**
@@ -562,6 +628,13 @@ class VaultService {
       throw new Error(`Version not found: ${versionId}`);
     }
 
+    let rawPayload = null;
+    if (version.raw_payload) {
+      try {
+        rawPayload = JSON.parse(version.raw_payload);
+      } catch (e) {}
+    }
+
     dbLayer.saveMetadata(this._db, {
       versionId,
       docType,
@@ -572,7 +645,8 @@ class VaultService {
       issueSnippet: version.issue_snippet,
       confidence: 1.0,
       reviewStatus,
-      textContent: version.text_content
+      textContent: version.text_content,
+      rawPayload
     });
 
     dbLayer.recordAuditEvent(this._db, 'METADATA_REVIEWED', {
@@ -670,7 +744,7 @@ class VaultService {
         if (doc.currentVersion && (!existingText || cleanedExisting.length < 40)) {
           try {
             const decryptedBuffer = readObject(this._activeVaultPath, this._objectKey, doc.currentVersion.objectId);
-            const { text } = await extractionService.extractTextFromBuffer(decryptedBuffer, doc.currentVersion.mimeType);
+            const { text, ocrWords = [] } = await extractionService.extractTextFromBuffer(decryptedBuffer, doc.currentVersion.mimeType);
             if (text && text.trim()) {
               const analysis = extractionService.analyzeDocumentText(text, doc.currentVersion.fileName);
               dbLayer.saveMetadata(this._db, {
@@ -683,7 +757,11 @@ class VaultService {
                 issueSnippet: analysis.issueSnippet || doc.currentVersion.metadata?.issueSnippet || null,
                 confidence: analysis.confidence || doc.currentVersion.metadata?.confidence || 0.5,
                 reviewStatus: doc.currentVersion.metadata?.reviewStatus || 'proposed',
-                textContent: text
+                textContent: text,
+                rawPayload: {
+                  ocrWords,
+                  method: 'ocr-tesseract'
+                }
               });
 
               // Generate vector embeddings

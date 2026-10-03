@@ -10,7 +10,7 @@ Electron main process
     ├── Vault core (keys, lifecycle, paths, object storage)
     ├── SQLCipher database and search
     ├── import / processing job system
-    ├── OCRService → PaddleOCR runtime (primary)
+    ├── OCRService → Tesseract.js runtime (with word coordinates & tabular layout)
     ├── LLMService → bundled llama-server.exe → Gemma 2 2B GGUF
     └── optional EmbeddingService + VectorStore
 ```
@@ -59,7 +59,7 @@ version → native PDF text extraction when available
 → metadata + FTS indexing → optional embeddings/indexing
 ```
 
-`OCRService` is an abstraction. PaddleOCR is the initial primary implementation because it is a dedicated document OCR pipeline. A future Windows OCR implementation may conform to the same interface, but must not alter product behavior or become a platform prerequisite without the required change review.
+`OCRService` uses Tesseract.js running 100% locally in the main process with zero external Python or heavy system runtime requirements. In addition to raw text extraction, it extracts and persists detailed word-level bounding boxes and spatial coordinates (`text`, `x`, `y`, `width`, `height`, `confidence`) for structured table and form understanding without cloud dependencies.
 
 ### Search and answers
 

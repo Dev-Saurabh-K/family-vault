@@ -58,6 +58,7 @@ function initSchema(db) {
       tags TEXT,
       notes TEXT,
       current_version_id TEXT,
+      is_deleted INTEGER DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -120,6 +121,7 @@ function initSchema(db) {
   `);
 
   // Migrate columns if upgrading from earlier table definitions
+  try { db.exec('ALTER TABLE documents ADD COLUMN is_deleted INTEGER DEFAULT 0;'); } catch (e) {}
   try { db.exec('ALTER TABLE extracted_metadata ADD COLUMN expiry_snippet TEXT;'); } catch (e) {}
   try { db.exec('ALTER TABLE extracted_metadata ADD COLUMN issue_snippet TEXT;'); } catch (e) {}
   try { db.exec('ALTER TABLE extracted_metadata ADD COLUMN text_content TEXT;'); } catch (e) {}
@@ -141,6 +143,15 @@ function initSchema(db) {
 }
 
 /**
+ * Defensive migration helper to ensure is_deleted column exists on legacy or active open databases.
+ */
+function ensureIsDeletedColumn(db) {
+  try {
+    db.exec('ALTER TABLE documents ADD COLUMN is_deleted INTEGER DEFAULT 0;');
+  } catch (e) {}
+}
+
+/**
  * Inserts a new document record.
  */
 function createDocument(db, { id = uuidv4(), title, category = 'other', person = null, tags = [], notes = '' }) {
@@ -148,8 +159,8 @@ function createDocument(db, { id = uuidv4(), title, category = 'other', person =
   const tagsStr = Array.isArray(tags) ? JSON.stringify(tags) : tags;
   
   const stmt = db.prepare(`
-    INSERT INTO documents (id, title, category, person, tags, notes, current_version_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    INSERT INTO documents (id, title, category, person, tags, notes, current_version_id, is_deleted, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)
   `);
   stmt.run(id, title, category, person, tagsStr, notes, now, now);
 
@@ -216,7 +227,7 @@ function getDocumentById(db, documentId) {
   const row = db.prepare(`
     SELECT d.*, 
            v.version_number, v.file_name, v.file_size, v.mime_type, v.sha256, v.object_id,
-           m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.confidence, m.review_status, m.text_content
+           m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.confidence, m.review_status, m.text_content, m.raw_payload
     FROM documents d
     LEFT JOIN document_versions v ON d.current_version_id = v.id
     LEFT JOIN extracted_metadata m ON v.id = m.version_id
@@ -231,14 +242,15 @@ function getDocumentById(db, documentId) {
  * Lists documents with filtering and search support.
  */
 function listDocuments(db, { category, person, tag, search, expiryFilter } = {}) {
+  ensureIsDeletedColumn(db);
   let query = `
     SELECT d.*, 
            v.version_number, v.file_name, v.file_size, v.mime_type, v.sha256, v.object_id,
-           m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.confidence, m.review_status, m.text_content
+           m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.confidence, m.review_status, m.text_content, m.raw_payload
     FROM documents d
     LEFT JOIN document_versions v ON d.current_version_id = v.id
     LEFT JOIN extracted_metadata m ON v.id = m.version_id
-    WHERE 1=1
+    WHERE (d.is_deleted IS NULL OR d.is_deleted = 0)
   `;
   const params = [];
 
@@ -284,14 +296,15 @@ function listDocuments(db, { category, person, tag, search, expiryFilter } = {})
  * Lists all documents that have an expiry date, ordered by expiry date ascending.
  */
 function listUpcomingExpiries(db) {
+  ensureIsDeletedColumn(db);
   const query = `
     SELECT d.*, 
            v.version_number, v.file_name, v.file_size, v.mime_type, v.sha256, v.object_id,
-           m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.confidence, m.review_status, m.text_content
+           m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.confidence, m.review_status, m.text_content, m.raw_payload
     FROM documents d
     JOIN document_versions v ON d.current_version_id = v.id
     JOIN extracted_metadata m ON v.id = m.version_id
-    WHERE m.expiry_date IS NOT NULL AND m.expiry_date != ''
+    WHERE (d.is_deleted IS NULL OR d.is_deleted = 0) AND m.expiry_date IS NOT NULL AND m.expiry_date != ''
     ORDER BY m.expiry_date ASC
   `;
   const rows = db.prepare(query).all();
@@ -303,7 +316,7 @@ function listUpcomingExpiries(db) {
  */
 function getDocumentVersions(db, documentId) {
   const rows = db.prepare(`
-    SELECT v.*, m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.review_status, m.text_content
+    SELECT v.*, m.doc_type, m.issuer, m.issue_date, m.expiry_date, m.expiry_snippet, m.issue_snippet, m.review_status, m.text_content, m.raw_payload
     FROM document_versions v
     LEFT JOIN extracted_metadata m ON v.id = m.version_id
     WHERE v.document_id = ?
@@ -394,6 +407,77 @@ function saveMetadata(db, {
 }
 
 /**
+ * Updates editable document-level fields (title, person, category, tags, notes).
+ * Re-syncs the FTS index after the update.
+ * @param {Database} db
+ * @param {string} documentId
+ * @param {object} fields - { title?, person?, category?, tags?, notes? }
+ * @returns {object} updated document
+ */
+function updateDocumentFields(db, documentId, fields) {
+  const doc = getDocumentById(db, documentId);
+  if (!doc) {
+    throw new Error(`Document not found: ${documentId}`);
+  }
+
+  const title = (fields.title !== undefined && fields.title !== null) ? fields.title : doc.title;
+  const person = fields.person !== undefined ? (fields.person || null) : doc.person;
+  const category = (fields.category !== undefined && fields.category !== null) ? fields.category : doc.category;
+  const tags = fields.tags !== undefined ? (Array.isArray(fields.tags) ? JSON.stringify(fields.tags) : fields.tags) : JSON.stringify(doc.tags);
+  const notes = fields.notes !== undefined ? (fields.notes || '') : (doc.notes || '');
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE documents SET title = ?, person = ?, category = ?, tags = ?, notes = ?, updated_at = ?
+    WHERE id = ?
+  `).run(title, person, category, tags, notes, now, documentId);
+
+  // Re-sync FTS index
+  try {
+    db.prepare('DELETE FROM document_fts WHERE document_id = ?').run(documentId);
+    const textContent = doc.currentVersion?.metadata?.textContent || '';
+    db.prepare(`
+      INSERT INTO document_fts (document_id, title, category, person, tags, notes, text_content)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(documentId, title, category, person || '', tags, notes, textContent);
+  } catch (e) {}
+
+  return getDocumentById(db, documentId);
+}
+
+/**
+ * Soft-deletes a document and removes it from FTS index.
+ * Preserves immutable document versions and encrypted objects on disk.
+ * @param {Database} db
+ * @param {string} documentId
+ * @returns {{ success: boolean, documentId: string }}
+ */
+function deleteDocument(db, documentId) {
+  ensureIsDeletedColumn(db);
+  const doc = db.prepare('SELECT id, title FROM documents WHERE id = ?').get(documentId);
+  if (!doc) {
+    throw new Error(`Document not found: ${documentId}`);
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE documents SET is_deleted = 1, updated_at = ? WHERE id = ?
+  `).run(now, documentId);
+
+  // Remove from FTS5 index
+  try {
+    db.prepare('DELETE FROM document_fts WHERE document_id = ?').run(documentId);
+  } catch (e) {}
+
+  // Remove from vector embeddings
+  try {
+    db.prepare('DELETE FROM vector_embeddings WHERE document_id = ?').run(documentId);
+  } catch (e) {}
+
+  return { success: true, documentId, title: doc.title };
+}
+
+/**
  * Inserts an immutable local audit log event.
  */
 function recordAuditEvent(db, eventType, details = {}) {
@@ -446,6 +530,17 @@ function formatDocumentRow(row) {
 
   const expiryInfo = computeExpiryStatus(row.expiry_date);
 
+  let ocrWords = [];
+  let rawPayload = null;
+  if (row.raw_payload) {
+    try {
+      rawPayload = JSON.parse(row.raw_payload);
+      if (rawPayload && Array.isArray(rawPayload.ocrWords)) {
+        ocrWords = rawPayload.ocrWords;
+      }
+    } catch (e) {}
+  }
+
   return {
     id: row.id,
     title: row.title,
@@ -475,7 +570,9 @@ function formatDocumentRow(row) {
         reviewStatus: row.review_status,
         expiryStatus: expiryInfo.status,
         daysRemaining: expiryInfo.daysRemaining,
-        textContent: row.text_content
+        textContent: row.text_content,
+        ocrWords,
+        rawPayload
       }
     } : null
   };
@@ -517,12 +614,14 @@ function saveVectorEmbeddings(db, versionId, documentId, chunkEmbeddings) {
  * @returns {Array<object>}
  */
 function searchVectorEmbeddings(db, queryVector, { limit = 5, minScore = 0.05 } = {}) {
+  ensureIsDeletedColumn(db);
   const rows = db.prepare(`
     SELECT v.id, v.document_id, v.version_id, v.chunk_index, v.chunk_text, v.vector_blob,
            d.title as document_title, d.category, d.person, ver.file_name
     FROM vector_embeddings v
     JOIN documents d ON v.document_id = d.id
     JOIN document_versions ver ON v.version_id = ver.id
+    WHERE (d.is_deleted IS NULL OR d.is_deleted = 0)
   `).all();
 
   const scored = [];
@@ -562,6 +661,8 @@ module.exports = {
   getVersionById,
   findVersionByHash,
   saveMetadata,
+  updateDocumentFields,
+  deleteDocument,
   recordAuditEvent,
   listAuditEvents,
   saveVectorEmbeddings,

@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('familyVault', {
   getVersionPreview: (versionId) => ipcRenderer.invoke('document:get-version-preview', { versionId }),
   exportVersion: (args) => ipcRenderer.invoke('document:export-version', args),
   updateMetadata: (args) => ipcRenderer.invoke('document:update-metadata', args),
+  updateDocumentMetadata: (args) => ipcRenderer.invoke('document:update-doc-metadata', args),
+  deleteDocument: (documentId) => ipcRenderer.invoke('document:delete', { documentId }),
   getUpcomingExpiries: () => ipcRenderer.invoke('document:upcoming-expiries'),
   searchSemantic: (args) => ipcRenderer.invoke('search:semantic', args),
 
