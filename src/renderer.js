@@ -488,13 +488,13 @@ async function updateCounts() {
       if (!bannerDismissedThisSession && (upcomingCount > 0 || expiredCount > 0)) {
         expiryAlertBanner.classList.remove('hidden');
         if (expiredCount > 0 && upcomingCount > 0) {
-          if (expiryAlertTitle) expiryAlertTitle.textContent = `⚠️ Action Needed: ${expiredCount} expired & ${upcomingCount} upcoming expiries`;
+          if (expiryAlertTitle) expiryAlertTitle.textContent = `${expiredCount} expired and ${upcomingCount} upcoming expiries`;
           if (expiryAlertSubtitle) expiryAlertSubtitle.textContent = 'Some critical family documents have expired or are nearing their renewal deadline.';
         } else if (expiredCount > 0) {
-          if (expiryAlertTitle) expiryAlertTitle.textContent = `⚠️ Action Needed: ${expiredCount} document(s) have expired`;
+          if (expiryAlertTitle) expiryAlertTitle.textContent = `${expiredCount} document(s) have expired`;
           if (expiryAlertSubtitle) expiryAlertSubtitle.textContent = 'Please review expired documents to update renewal records or upload current versions.';
         } else {
-          if (expiryAlertTitle) expiryAlertTitle.textContent = `⏳ Attention: ${upcomingCount} document(s) expiring within 30 days`;
+          if (expiryAlertTitle) expiryAlertTitle.textContent = `${upcomingCount} document(s) expire within 30 days`;
           if (expiryAlertSubtitle) expiryAlertSubtitle.textContent = 'Check your documents soon to prevent lapses in policies or certifications.';
         }
       } else {
@@ -533,7 +533,7 @@ function renderDocuments() {
     }
 
     const semanticBadgeHtml = doc._semanticScore != null 
-      ? `<span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4);">✨ ${doc._semanticScore}%</span>`
+      ? `<span class="badge" style="background: rgba(16, 163, 127, 0.12); color: #8dd8c3; border: 1px solid rgba(16, 163, 127, 0.25);">${doc._semanticScore}% match</span>`
       : '';
     const semanticSnippetHtml = doc._semanticSnippet
       ? `<div style="font-size: 11px; color: #cbd5e1; font-style: italic; margin-top: 6px; border-left: 2px solid #6366f1; padding-left: 6px; background: rgba(99, 102, 241, 0.08); padding-top: 2px; padding-bottom: 2px; border-radius: 2px;">"${escapeHtml(doc._semanticSnippet.length > 110 ? doc._semanticSnippet.substring(0, 110) + '...' : doc._semanticSnippet)}"</div>`
@@ -546,7 +546,7 @@ function renderDocuments() {
           ${semanticBadgeHtml}
           ${expiryBadgeHtml}
           <span class="badge badge-green">${vNum}</span>
-          <button type="button" class="btn-card-delete" data-doc-id="${escapeHtml(doc.id)}" data-doc-title="${escapeHtml(doc.title)}" title="Delete document">🗑️</button>
+          <button type="button" class="btn-card-delete" data-doc-id="${escapeHtml(doc.id)}" data-doc-title="${escapeHtml(doc.title)}" aria-label="Delete document"></button>
         </div>
       </div>
       <div class="doc-card-meta">
@@ -766,7 +766,7 @@ async function openDocumentDrawer(documentId) {
 
       if (ocrBadge) {
         if (ocrWords.length > 0) {
-          ocrBadge.textContent = `📐 ${ocrWords.length} words`;
+          ocrBadge.textContent = `${ocrWords.length} words`;
           ocrBadge.classList.remove('hidden');
         } else {
           ocrBadge.classList.add('hidden');
@@ -776,17 +776,17 @@ async function openDocumentDrawer(documentId) {
       if (btnToggleOcr) {
         if (ocrWords.length > 0) {
           btnToggleOcr.classList.remove('hidden');
-          btnToggleOcr.textContent = '📐 View Coords';
+          btnToggleOcr.textContent = 'View coordinates';
           btnToggleOcr.setAttribute('data-showing-coords', 'false');
           btnToggleOcr.onclick = () => {
             const isShowingCoords = btnToggleOcr.getAttribute('data-showing-coords') === 'true';
             if (isShowingCoords) {
               extractedTextBody.textContent = text.trim() ? text.trim() : 'No text extracted from this document.';
-              btnToggleOcr.textContent = '📐 View Coords';
+              btnToggleOcr.textContent = 'View coordinates';
               btnToggleOcr.setAttribute('data-showing-coords', 'false');
             } else {
               extractedTextBody.textContent = JSON.stringify(ocrWords, null, 2);
-              btnToggleOcr.textContent = '📝 View Text';
+              btnToggleOcr.textContent = 'View text';
               btnToggleOcr.setAttribute('data-showing-coords', 'true');
             }
           };
@@ -813,10 +813,9 @@ async function loadVersionPreview(versionId, mimeType, fileName, fileSize) {
     } else {
       drawerPreviewBox.innerHTML = `
         <div class="pdf-preview-box">
-          <div style="font-size: 40px;">📄</div>
           <div style="font-weight: 600; font-size: 14px;">${escapeHtml(fileName)}</div>
           <div style="font-size: 11px; color: var(--text-muted);">${formatBytes(fileSize)}</div>
-          <div style="font-size: 11px; color: var(--success); margin-top: 4px;">✓ Authenticated &amp; Verified (AES-256-GCM)</div>
+          <div style="font-size: 11px; color: var(--success); margin-top: 4px;">Authenticated and verified (AES-256-GCM)</div>
         </div>
       `;
     }
@@ -1052,7 +1051,7 @@ if (btnSaveDocMetadata) {
       showToast('Update failed: ' + err.message, 'error');
     } finally {
       btnSaveDocMetadata.disabled = false;
-      btnSaveDocMetadata.textContent = '💾 Save Changes';
+      btnSaveDocMetadata.textContent = 'Save Changes';
     }
   });
 }
@@ -1355,7 +1354,7 @@ btnCreateBackup.addEventListener('click', async () => {
     showToast('Backup failed: ' + err.message, 'error');
   } finally {
     btnCreateBackup.disabled = false;
-    btnCreateBackup.textContent = 'Backup Vault 💾';
+    btnCreateBackup.textContent = 'Backup';
   }
 });
 
@@ -1403,12 +1402,12 @@ btnOpenAiQa.addEventListener('click', async () => {
         aiQuickSetupBox.classList.remove('hidden');
         if (setupTitle) setupTitle.textContent = '⚡ One-Click Setup: Gemma 2 2B Neural Model';
         if (setupDesc) setupDesc.textContent = "Automatically download Google's Gemma 2 2B model (~1.6 GB) to run neural questions completely offline on your computer.";
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = '⬇️ Download & Enable Gemma 2 2B';
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Download and enable Gemma 2 2B';
       } else {
         aiQuickSetupBox.classList.remove('hidden');
         if (setupTitle) setupTitle.textContent = '⚡ Gemma 2 2B Model is Ready';
         if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local engine.';
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = '🚀 Start Gemma 2 2B Engine';
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma 2 2B engine';
       }
     }
   } catch (e) {}
@@ -1466,7 +1465,7 @@ async function runAiQuery() {
             ${res.sources.map(src => `
               <div class="ai-citation-pill" data-doc-id="${escapeHtml(src.documentId)}" style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 6px 10px; font-size: 11px; cursor: pointer; transition: background 0.15s;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                  <strong style="color: #60a5fa;">📄 ${escapeHtml(src.documentTitle)}</strong>
+                  <strong style="color: #8dd8c3;">${escapeHtml(src.documentTitle)}</strong>
                   <span style="font-size: 10px; color: var(--text-muted);">${escapeHtml(src.fileName || '')}</span>
                 </div>
                 <div style="font-style: italic; color: #cbd5e1; font-size: 11px;">"${escapeHtml(src.snippet)}"</div>
@@ -1480,7 +1479,7 @@ async function runAiQuery() {
     botMsgEl.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <span class="badge badge-blue" style="font-size: 10px;">${engineBadgeText}</span>
-        <button class="btn btn-secondary btn-copy-turn-answer" style="padding: 2px 6px; font-size: 10px;">📋 Copy</button>
+        <button class="btn btn-secondary btn-copy-turn-answer" style="padding: 2px 6px; font-size: 10px;">Copy</button>
       </div>
       <div style="white-space: pre-wrap;">${escapedAnswer}</div>
       ${citationsHtml}
@@ -1635,7 +1634,7 @@ if (btnStopAiServer) {
         const setupDesc = document.getElementById('ai-setup-desc');
         if (setupTitle) setupTitle.textContent = '⚡ Gemma 2 2B Model is Ready';
         if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local engine.';
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = '🚀 Start Gemma 2 2B Engine';
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma 2 2B engine';
       }
     } catch (err) {
       showToast('Failed to stop engine: ' + err.message, 'error');
@@ -1671,20 +1670,20 @@ async function checkAiModelStatus() {
       if (modelModalStageText) modelModalStageText.textContent = 'Complete';
       if (btnModalStartDownload) {
         if (status.isServerRunning) {
-          btnModalStartDownload.textContent = '✅ Neural Engine Active';
+          btnModalStartDownload.textContent = 'Local AI engine active';
           btnModalStartDownload.disabled = true;
           btnModalStartDownload.style.background = '#059669';
         } else {
-          btnModalStartDownload.textContent = '🚀 Start Local AI Engine';
+          btnModalStartDownload.textContent = 'Start local AI engine';
           btnModalStartDownload.disabled = false;
           btnModalStartDownload.style.background = '#4f46e5';
         }
       }
       if (btnDownloadSetupGemma) {
-        btnDownloadSetupGemma.textContent = status.isServerRunning ? '🚀 Engine Running' : '🚀 Start Gemma 2 2B Engine';
+        btnDownloadSetupGemma.textContent = status.isServerRunning ? 'Local AI engine active' : 'Start Gemma 2 2B engine';
       }
     } else {
-      if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⬇️';
+      if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
       if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'Download AI Model';
       btnTopbarDownloadModel.style.background = 'rgba(79, 70, 229, 0.25)';
       btnTopbarDownloadModel.style.borderColor = '#6366f1';
@@ -1702,12 +1701,12 @@ async function checkAiModelStatus() {
       if (modelModalPercentText) modelModalPercentText.textContent = '0%';
       if (modelModalStageText) modelModalStageText.textContent = 'Idle';
       if (btnModalStartDownload) {
-        btnModalStartDownload.textContent = '⬇️ Start Download & Setup (1.65 GB)';
+        btnModalStartDownload.textContent = 'Download and set up (1.65 GB)';
         btnModalStartDownload.disabled = false;
         btnModalStartDownload.style.background = '#4f46e5';
       }
       if (btnDownloadSetupGemma) {
-        btnDownloadSetupGemma.textContent = '⬇️ Download & Enable Gemma 2 2B';
+        btnDownloadSetupGemma.textContent = 'Download and enable Gemma 2 2B';
       }
     }
   } catch (e) {}
@@ -1731,7 +1730,7 @@ async function startGemmaDownload() {
     btnDownloadSetupGemma.textContent = 'Downloading...';
   }
   if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'Downloading...';
-  if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⏳';
+  if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
   if (modelModalStatusBadge) {
     modelModalStatusBadge.className = 'badge badge-orange';
     modelModalStatusBadge.textContent = 'Downloading...';
