@@ -1774,10 +1774,14 @@ async function checkAiModelStatus() {
 
     if (status.isModelDownloaded && status.isBinaryAvailable) {
       if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⚡';
-      if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'AI Model Ready';
-      btnTopbarDownloadModel.style.background = 'rgba(16, 185, 129, 0.15)';
-      btnTopbarDownloadModel.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-      btnTopbarDownloadModel.style.color = '#6ee7b7';
+      if (btnTopbarDownloadText) {
+        btnTopbarDownloadText.textContent = status.modelName || 'Gemma 2 2B';
+        btnTopbarDownloadText.classList.add('ai-model-blinking-text');
+      }
+      btnTopbarDownloadModel.classList.add('btn-acrylic-model-ready');
+      btnTopbarDownloadModel.style.background = '';
+      btnTopbarDownloadModel.style.borderColor = '';
+      btnTopbarDownloadModel.style.color = '';
 
       if (modelModalStatusBadge) {
         modelModalStatusBadge.className = 'badge badge-green';
@@ -1808,10 +1812,14 @@ async function checkAiModelStatus() {
       }
     } else {
       if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
-      if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'Download AI Model';
-      btnTopbarDownloadModel.style.background = 'rgba(79, 70, 229, 0.25)';
-      btnTopbarDownloadModel.style.borderColor = '#6366f1';
-      btnTopbarDownloadModel.style.color = '#c7d2fe';
+      if (btnTopbarDownloadText) {
+        btnTopbarDownloadText.textContent = 'Download AI Model';
+        btnTopbarDownloadText.classList.remove('ai-model-blinking-text');
+      }
+      btnTopbarDownloadModel.classList.remove('btn-acrylic-model-ready');
+      btnTopbarDownloadModel.style.background = '';
+      btnTopbarDownloadModel.style.borderColor = '';
+      btnTopbarDownloadModel.style.color = '';
 
       if (modelModalStatusBadge) {
         modelModalStatusBadge.className = 'badge badge-blue';
@@ -1853,7 +1861,16 @@ async function startGemmaDownload() {
     btnDownloadSetupGemma.disabled = true;
     btnDownloadSetupGemma.textContent = 'Downloading...';
   }
-  if (btnTopbarDownloadText) btnTopbarDownloadText.textContent = 'Downloading...';
+  if (btnTopbarDownloadText) {
+    btnTopbarDownloadText.textContent = 'Downloading...';
+    btnTopbarDownloadText.classList.remove('ai-model-blinking-text');
+  }
+  if (btnTopbarDownloadModel) {
+    btnTopbarDownloadModel.classList.remove('btn-acrylic-model-ready');
+    btnTopbarDownloadModel.style.background = '';
+    btnTopbarDownloadModel.style.borderColor = '';
+    btnTopbarDownloadModel.style.color = '';
+  }
   if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
   if (modelModalStatusBadge) {
     modelModalStatusBadge.className = 'badge badge-orange';

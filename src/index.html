@@ -106,15 +106,21 @@
         <!-- Top Bar -->
         <header class="top-bar">
           <div class="vault-info">
+            <div class="vault-brand-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </div>
             <div>
               <div class="vault-title" id="active-vault-name">MyFamily.vault</div>
-              <span class="badge badge-green">100% Offline &amp; Encrypted</span>
+              <span class="vault-security-tagline">End-to-End Encrypted &amp; Portable</span>
             </div>
           </div>
 
           <div class="top-bar-actions">
-            <button id="btn-open-ai-qa" class="btn btn-primary" style="background: #4f46e5;">Ask Assistant</button>
-            <button id="btn-topbar-download-model" class="btn btn-secondary" style="background: rgba(79, 70, 229, 0.2); border: 1px solid #6366f1; color: #c7d2fe; display: inline-flex; align-items: center; gap: 6px;">
+            <button id="btn-open-ai-qa" class="btn btn-primary">Ask Assistant</button>
+            <button id="btn-topbar-download-model" class="btn btn-secondary btn-topbar-model">
               <span id="btn-topbar-download-icon" aria-hidden="true"></span>
               <span id="btn-topbar-download-text">Download AI Model</span>
             </button>
