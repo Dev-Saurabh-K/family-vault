@@ -378,6 +378,29 @@
             </div>
           </div>
 
+          <!-- Auto-Analysis & Extraction Loader (Progress Bar) -->
+          <div id="import-analysis-loader" class="hidden" style="margin-top: 6px; margin-bottom: 12px; padding: 12px; border-radius: var(--radius-sm); background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 12px; color: #93c5fd; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 13px;">⚡</span>
+                <span id="import-analysis-status-text">Extracting OCR text &amp; analyzing document...</span>
+              </span>
+              <span id="import-analysis-badge" class="badge badge-blue" style="font-size: 10px;">Reading file...</span>
+            </div>
+            <div style="width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
+              <div id="import-analysis-progress-bar" style="width: 25%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); transition: width 0.3s ease;"></div>
+            </div>
+          </div>
+
+          <!-- Auto-Analysis Detection Summary Banner -->
+          <div id="import-analysis-banner" class="hidden" style="margin-top: 6px; margin-bottom: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); font-size: 12px; color: #6ee7b7; display: flex; align-items: flex-start; gap: 8px;">
+            <span style="font-size: 15px;">✨</span>
+            <div style="flex: 1;">
+              <strong style="color: #a7f3d0; display: block; margin-bottom: 2px;">Smart Auto-Fill Applied</strong>
+              <span id="import-analysis-banner-details" style="color: #cbd5e1; font-size: 11px;">Category, Person, and Tags detected from extracted OCR text. You can freely edit any field below before saving.</span>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>Document Title</label>
             <input type="text" id="import-title-input" class="input-field" placeholder="e.g. Passport, Health Insurance Policy" />
@@ -397,7 +420,8 @@
 
           <div class="form-group">
             <label>Family Member / Person (optional)</label>
-            <input type="text" id="import-person-input" class="input-field" placeholder="e.g. John Doe" />
+            <input type="text" id="import-person-input" class="input-field" placeholder="e.g. John Doe" list="family-members-datalist" />
+            <datalist id="family-members-datalist"></datalist>
           </div>
 
           <div class="form-group">

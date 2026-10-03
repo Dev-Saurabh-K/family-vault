@@ -658,6 +658,21 @@ function searchVectorEmbeddings(db, queryVector, { limit = 5, minScore = 0.05 } 
   return scored.slice(0, limit);
 }
 
+/**
+ * Retrieves a list of distinct family members (persons) recorded in the vault.
+ * @param {Database} db
+ * @returns {Array<string>}
+ */
+function listDistinctPersons(db) {
+  ensureIsDeletedColumn(db);
+  const rows = db.prepare(`
+    SELECT DISTINCT person FROM documents
+    WHERE (is_deleted IS NULL OR is_deleted = 0) AND person IS NOT NULL AND TRIM(person) != ''
+    ORDER BY person ASC
+  `).all();
+  return rows.map(r => r.person.trim()).filter(Boolean);
+}
+
 module.exports = {
   DB_FILE_NAME,
   openVaultDatabase,
@@ -667,6 +682,7 @@ module.exports = {
   getDocumentById,
   listDocuments,
   listUpcomingExpiries,
+  listDistinctPersons,
   getDocumentVersions,
   getVersionById,
   findVersionByHash,

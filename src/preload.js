@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('familyVault', {
   exportAuditLogs: (destinationPath) => ipcRenderer.invoke('vault:export-audit-logs', { destinationPath }),
 
   // Document management
+  preAnalyzeDocument: (filePath) => ipcRenderer.invoke('document:pre-analyze', { filePath }),
+  listFamilyMembers: () => ipcRenderer.invoke('vault:list-family-members'),
   importDocument: (args) => ipcRenderer.invoke('document:import', args),
   addDocumentVersion: (args) => ipcRenderer.invoke('document:add-version', args),
   listDocuments: (filters) => ipcRenderer.invoke('document:list', filters),

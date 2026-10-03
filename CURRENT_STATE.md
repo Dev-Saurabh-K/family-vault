@@ -18,7 +18,7 @@ The repository contains a complete, fully tested, functional implementation of F
   - `src/main/vault/vaultService.js`: Vault lifecycle management (create, unlock, lock, zeroize keys, password rewrapping, document import with automatic offline text extraction & analysis, immutable version appending, export, metadata review/confirmation, upcoming expiries, grounded local AI Q&A, semantic similarity search, and portable encrypted backup/restore).
   - `src/main/vault/backupService.js`: Portable encrypted vault backup generation (`.fvbackup`) and cryptographic restoration with SHA-256 tamper verification.
 - **Text Extraction & Deterministic Analysis**:
-  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), image and scanned PDF OCR pipeline (`tesseract.js`) with detailed word-level coordinate extraction (`{ text, x, y, width, height, confidence }`) and tabular column layout reconstruction, deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, insurance policies, tax documents, medical records, property/deeds), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`).
+  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), image and scanned PDF OCR pipeline (`tesseract.js`) with detailed word-level coordinate extraction (`{ text, x, y, width, height, confidence }`) and tabular column layout reconstruction, deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, identity cards, insurance policies, tax documents, medical records, property/deeds), family member (person) detection matching existing vault persons and labeled name patterns, automatic relevant tag generation (`generateAutoTags`), human-readable document title suggestions (`suggestDocumentTitle`), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`).
 - **Semantic Vector Embeddings & Similarity Retrieval**:
   - `src/main/services/embeddingService.js`: Modular, 100% offline embedding service supporting normalized vector generation, text passage chunking, cosine similarity scoring, BLOB serialization/deserialization for SQLCipher storage, and deterministic feature-hashing vectorization (with optional local `llama-server` embedding endpoint support).
 - **Local AI & Grounded Document Q&A**:
@@ -26,7 +26,7 @@ The repository contains a complete, fully tested, functional implementation of F
   - Automated setup & packaging: `scripts/setup-ai.js` (`npm run setup:ai`) and `forge.config.js` `packagerConfig.extraResource` (`bin/` and `models/`) to bundle or place the engine and model alongside `app.asar`.
   - In-app 1-click setup: Direct download and configuration card in the AI modal with real-time progress bar and percentage display, streaming updates via IPC (`ai:download-gemma` and `ai:download-progress`).
 - **Electron Shell & UI**:
-  - `src/main/ipc.js`: Strictly typed and validated IPC handlers including metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma 2 2B download/setup, semantic vector search, encrypted audit log queries, and encrypted backup/restore.
+  - `src/main/ipc.js`: Strictly typed and validated IPC handlers including pre-analysis (`document:pre-analyze`), family member enumeration (`vault:list-family-members`), metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma 2 2B download/setup, semantic vector search, encrypted audit log queries, and encrypted backup/restore.
   - `src/preload.js`: Secure context-isolated bridge exposing `window.familyVault`.
   - `src/index.js`: Electron main process with strict Content Security Policy (`connect-src 'none'`), sandbox mode, and lock-on-exit key cleanup.
   - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive dark-mode desktop UI supporting:
@@ -35,8 +35,8 @@ The repository contains a complete, fully tested, functional implementation of F
     - Time-sensitive Expiry Alert Banner with quick-view and session dismissal.
     - Clickable tag filtering with active tag bar and 1-click clear.
     - Search bar with Keyword vs Semantic search toggle.
-    - Document import modal and detail drawer with in-memory preview.
-    - Extracted OCR & plaintext inspection panel with structured word-coordinate viewer, count badge, and 1-click clipboard copy.
+    - Document import modal with live pre-analysis: on browsing a file, an in-modal progress loader analyzes the document via OCR/text extraction and automatically fills title, category, family member (with `<datalist>` auto-suggestions), tags, and notes, displaying a detection summary banner while giving the user full editing control before encrypting and saving.
+    - Detail drawer with in-memory preview, extracted OCR & plaintext inspection panel with structured word-coordinate viewer, count badge, and 1-click clipboard copy.
     - Inline document metadata editing in the detail drawer (title, category, person, tags, notes) with toggle controls, input validation, and real-time FTS re-indexing.
     - End-to-end document deletion with 1-click delete buttons on every document card (`.btn-card-delete`), the drawer header (`#btn-delete-document-header`), and the drawer footer (`#btn-delete-document`), confirmation dialog (`#modal-confirm-delete`), and immediate reactive UI feedback. Soft-deletes records in SQLCipher (`is_deleted = 1`), purges FTS5 full-text indexes and vector embeddings, logs immutable `DOCUMENT_DELETED` audit events, and strictly preserves encrypted disk objects in `objects/`.
     - Automatic defensive SQLite migration (`ensureIsDeletedColumn`) that gracefully ensures the `is_deleted` column exists on newly created or legacy opened vaults without query errors.
@@ -48,6 +48,7 @@ The repository contains a complete, fully tested, functional implementation of F
 - **Test Suite**:
   - `tests/crypto.test.js`: Unit tests for Argon2id, VMK wrapping/unwrapping, AES-256-GCM envelope, HKDF, and zeroization.
   - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, inline metadata updating & FTS re-indexing, document soft-deletion with audit trail and semantic search filtering, in-memory preview, export, password rewrapping, and encrypted audit logging.
+  - `tests/autoCategorizeAndPersonDetection.test.js`: Unit and integration tests for auto-categorization, family member detection matching known vault members, auto-tag generation, title suggestion, and `preAnalyzeDocument`.
   - `tests/documentDeletion.test.js`: Comprehensive integration tests for multi-document deletion, FTS search removal, semantic vector search cleanup, immutable disk object preservation, and audit logging.
   - `tests/extraction.test.js`: Unit and integration tests for date extraction, document classification, deterministic expiry calculation, metadata review confirmation, and upcoming expiries queries.
   - `tests/embedding.test.js`: Unit and integration tests for passage chunking, normalized vector generation, cosine similarity, BLOB serialization, and end-to-end semantic search across encrypted vault documents.

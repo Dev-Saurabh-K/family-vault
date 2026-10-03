@@ -32,7 +32,9 @@ const ImportDocumentSchema = z.object({
   category: z.string().default('other'),
   person: z.string().nullable().optional(),
   tags: z.array(z.string()).default([]),
-  notes: z.string().default('')
+  notes: z.string().default(''),
+  preExtractedText: z.string().nullable().optional(),
+  preExtractedOcrWords: z.array(z.any()).optional()
 });
 
 const AddVersionSchema = z.object({
@@ -140,7 +142,17 @@ function registerIpcHandlers(mainWindow) {
     return vaultService.exportAuditLogs(destinationPath);
   });
 
+  ipcMain.handle('vault:list-family-members', async () => {
+    return vaultService.listFamilyMembers();
+  });
+
   // Document Operations
+  ipcMain.handle('document:pre-analyze', async (_event, rawArgs) => {
+    const filePath = typeof rawArgs === 'string' ? rawArgs : (rawArgs && rawArgs.filePath);
+    if (!filePath) throw new Error('Missing filePath');
+    return vaultService.preAnalyzeDocument(filePath);
+  });
+
   ipcMain.handle('document:import', async (_event, rawArgs) => {
     const validated = ImportDocumentSchema.parse(rawArgs);
     return await vaultService.importDocument(validated);

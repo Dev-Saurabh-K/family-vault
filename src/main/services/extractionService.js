@@ -8,6 +8,7 @@
  * and AI output as untrusted suggestions. The app clearly labels it as active, expiring soon, or expired based on deterministic date logic."
  */
 
+const path = require('path');
 const pdfParse = require('pdf-parse');
 
 const MONTH_NAMES = {
@@ -322,32 +323,251 @@ function findDateCandidates(text) {
   return candidates;
 }
 
+const PERSON_NAME_STOP_WORDS = new Set([
+  'republic', 'department', 'authority', 'government', 'united', 'states',
+  'national', 'hospital', 'insurance', 'state', 'farm', 'health', 'service',
+  'office', 'company', 'bank', 'ministry', 'medical', 'clinic', 'passport',
+  'driving', 'driver', 'license', 'licence', 'official', 'policy', 'date',
+  'birth', 'address', 'gender', 'sex', 'signature', 'number', 'expiry',
+  'valid', 'issue', 'permanent', 'temporary', 'invoice', 'total', 'amount',
+  'notice', 'federation', 'confederation', 'commonwealth', 'kingdom',
+  'center', 'centre', 'laboratories', 'laboratory', 'prescription', 'doctor',
+  'physician', 'patient', 'insured', 'holder', 'policyholder', 'cardholder',
+  'applicant', 'beneficiary', 'employee', 'taxpayer', 'tenant', 'landlord',
+  'mortgage', 'agreement', 'document', 'report', 'specimen', 'sample', 'wonderland'
+]);
+
 /**
- * Proposes document type, issuer, issue date, and expiry date based on text analysis.
+ * Sanitizes and validates a candidate person name string.
  */
-function analyzeDocumentText(text, fileName = '') {
+function cleanPersonName(rawName) {
+  if (!rawName) return null;
+  // Discard anything after a newline
+  const firstLine = rawName.split(/[\r\n]+/)[0];
+  let cleaned = firstLine.replace(/[^a-zA-Z\s'’-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned || cleaned.length < 3 || cleaned.length > 40) return null;
+
+  const words = cleaned.split(' ').filter(w => w.length > 1);
+  if (words.length === 0) return null;
+
+  // Stop collecting words upon encountering a stop word (e.g. "David Miller Blood Test" -> "David Miller")
+  const validWords = [];
+  for (const w of words) {
+    if (PERSON_NAME_STOP_WORDS.has(w.toLowerCase())) {
+      break;
+    }
+    validWords.push(w);
+  }
+
+  if (validWords.length === 0) return null;
+
+  // Check capitalization (at least one word should start with uppercase)
+  const hasCapital = validWords.some(w => /^[A-Z]/.test(w));
+  if (!hasCapital) return null;
+
+  return validWords.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
+
+/**
+ * Detects family member / person from document text.
+ * Checks known persons first for high accuracy matching, then falls back to labeled regex heuristics.
+ * @param {string} text
+ * @param {Array<string>} [knownPersons=[]]
+ * @returns {string|null}
+ */
+function detectPerson(text, knownPersons = []) {
+  if (!text) return null;
+
+  // 1. Check known family members recorded in the vault first
+  if (Array.isArray(knownPersons) && knownPersons.length > 0) {
+    for (const kp of knownPersons) {
+      if (!kp || typeof kp !== 'string') continue;
+      const trimmed = kp.trim();
+      if (trimmed.length < 3) continue;
+
+      // Word boundary match (case-insensitive)
+      const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+      if (regex.test(text)) {
+        return trimmed;
+      }
+    }
+  }
+
+  // 2. Specific check for Passport layout: Given Names & Surname
+  const givenMatch = text.match(/(?:Given\s+Names?|First\s+Name)[:\t ]+([A-Za-z'’-]+(?:[ \t]+[A-Za-z'’-]+)?)/i);
+  const surnameMatch = text.match(/(?:Surname|Last\s+Name)[:\t ]+([A-Za-z'’-]+)/i);
+  if (givenMatch && surnameMatch) {
+    const combined = `${givenMatch[1].trim()} ${surnameMatch[1].trim()}`;
+    const cleaned = cleanPersonName(combined);
+    if (cleaned) return cleaned;
+  }
+
+  // 3. Check labeled patterns in document (matching only on the same line)
+  const labeledPatterns = [
+    /(?:Given\s+Names?|First\s+Name)[:\t ]+([A-Za-z'’-]+(?:[ \t]+[A-Za-z'’-]+)?)/i,
+    /(?:Patient(?:\s+Name)?|Insured(?:\s+Name)?|Policyholder|Cardholder|Taxpayer|Applicant|Employee|Tenant|Member\s+Name|Name\s+of\s+Holder|Name)[:\t ]+([A-Za-z'’-]+(?:[ \t]+[A-Za-z'’-]+){1,3})/i,
+    /\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b/
+  ];
+
+  for (const pattern of labeledPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const candidate = cleanPersonName(match[1]);
+      if (candidate) return candidate;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Generates relevant semantic tags based on category, document type, person, and text content.
+ * @param {string} text
+ * @param {string} category
+ * @param {string} docType
+ * @param {string|null} person
+ * @param {string|null} issueDate
+ * @param {string|null} expiryDate
+ * @returns {Array<string>}
+ */
+function generateAutoTags(text, category, docType, person, issueDate, expiryDate) {
+  const tagsSet = new Set();
+  const lowerText = (text || '').toLowerCase();
+
+  // Category tag
+  if (category && category !== 'other') {
+    tagsSet.add(category);
+  }
+
+  // Document type tag
+  if (docType && docType !== 'other') {
+    tagsSet.add(docType.replace(/_/g, '-'));
+  }
+
+  // Category-specific semantic tags
+  if (category === 'identity') {
+    tagsSet.add('id');
+    if (/passport/i.test(lowerText)) tagsSet.add('travel');
+    if (/license|licence/i.test(lowerText)) tagsSet.add('driver');
+    if (/visa/i.test(lowerText)) tagsSet.add('visa');
+  } else if (category === 'insurance') {
+    tagsSet.add('policy');
+    if (/health|medical/i.test(lowerText)) tagsSet.add('health');
+    if (/auto|car|motor|vehicle/i.test(lowerText)) tagsSet.add('vehicle');
+    if (/life/i.test(lowerText)) tagsSet.add('life');
+    if (/home|property|renter/i.test(lowerText)) tagsSet.add('home');
+  } else if (category === 'medical') {
+    if (/prescription|rx/i.test(lowerText)) tagsSet.add('prescription');
+    if (/lab|test|blood|lipid|panel/i.test(lowerText)) tagsSet.add('lab-report');
+    if (/vaccin|immuniz/i.test(lowerText)) tagsSet.add('vaccine');
+    if (/dental|dentist/i.test(lowerText)) tagsSet.add('dental');
+    if (/hospital|clinic/i.test(lowerText)) tagsSet.add('hospital');
+  } else if (category === 'tax') {
+    tagsSet.add('finance');
+    if (/1040/i.test(lowerText)) tagsSet.add('form-1040');
+    if (/w-?2/i.test(lowerText)) tagsSet.add('w2');
+    if (/return/i.test(lowerText)) tagsSet.add('return');
+  } else if (category === 'property') {
+    tagsSet.add('legal');
+    if (/lease|rental/i.test(lowerText)) tagsSet.add('lease');
+    if (/mortgage/i.test(lowerText)) tagsSet.add('mortgage');
+    if (/deed/i.test(lowerText)) tagsSet.add('deed');
+  }
+
+  // Year tag from dates
+  const yearMatch = (expiryDate || issueDate || '').match(/\b(20\d\d)\b/);
+  if (yearMatch) {
+    tagsSet.add(yearMatch[1]);
+  } else {
+    const textYear = lowerText.match(/\b(20[2-3]\d)\b/);
+    if (textYear) {
+      tagsSet.add(textYear[1]);
+    }
+  }
+
+  return Array.from(tagsSet).slice(0, 7);
+}
+
+const DOC_TYPE_LABELS = {
+  passport: 'Passport',
+  driving_license: 'Driving License',
+  identity_card: 'Identity Card',
+  insurance_policy: 'Insurance Policy',
+  tax_document: 'Tax Document',
+  medical_record: 'Medical Record',
+  property_document: 'Property Document',
+  other: 'Document'
+};
+
+/**
+ * Suggests a clear, human-readable document title based on analysis.
+ */
+function suggestDocumentTitle(fileName, category, docType, person, issuer, issueDate, expiryDate) {
+  const baseType = DOC_TYPE_LABELS[docType] || 'Document';
+  const year = (expiryDate || issueDate || '').substring(0, 4);
+
+  if (person && docType !== 'other') {
+    return `${baseType} - ${person}`;
+  }
+  if (person && category !== 'other') {
+    const catLabel = category.charAt(0).toUpperCase() + category.slice(1);
+    return `${catLabel} - ${person}`;
+  }
+  if (issuer && docType !== 'other') {
+    return `${baseType} - ${issuer}`;
+  }
+  if (year && docType !== 'other') {
+    return `${baseType} (${year})`;
+  }
+  if (docType !== 'other') {
+    return baseType;
+  }
+
+  // Fallback to formatted filename
+  if (fileName) {
+    const clean = path.parse(fileName).name.replace(/[-_]+/g, ' ').trim();
+    if (clean) {
+      return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
+  }
+
+  return 'Document';
+}
+
+/**
+ * Proposes document type, category, person, tags, suggested title, issuer, issue date, and expiry date based on text analysis.
+ * @param {string} text
+ * @param {string} [fileName='']
+ * @param {object} [options={}]
+ * @param {Array<string>} [options.knownPersons=[]]
+ */
+function analyzeDocumentText(text, fileName = '', options = {}) {
   const lowerText = (text + ' ' + fileName).toLowerCase();
 
-  // Document Type Classification
+  // Document Type & Category Classification
   let docType = 'other';
   let category = 'other';
 
   if (/passport|republic|nationality|travel document/i.test(lowerText)) {
     docType = 'passport';
     category = 'identity';
-  } else if (/driver['’]?s?\s*license|driving\s*licence|motor\s*vehicle/i.test(lowerText)) {
+  } else if (/driver['’]?s?\s*license|driving\s*licence|motor\s*vehicle|dl\s*no/i.test(lowerText)) {
     docType = 'driving_license';
     category = 'identity';
-  } else if (/insurance|policy\s*no|premium|coverage|insured/i.test(lowerText)) {
+  } else if (/national\s*id|identity\s*card|aadhaar|pan\s*card|voter\s*id|social\s*security|ssn/i.test(lowerText)) {
+    docType = 'identity_card';
+    category = 'identity';
+  } else if (/insurance|policy\s*no|premium|coverage|insured|sum\s*assured|deductible|claim\s*no/i.test(lowerText)) {
     docType = 'insurance_policy';
     category = 'insurance';
-  } else if (/tax\s*return|form\s*1040|w-2|incometax|internal\s*revenue/i.test(lowerText)) {
+  } else if (/tax\s*return|form\s*1040|w-?2|1099|incometax|internal\s*revenue|revenue\s*service|irs|itr/i.test(lowerText)) {
     docType = 'tax_document';
     category = 'tax';
-  } else if (/prescription|clinic|hospital|patient|doctor|diagnosis|medical\s*center/i.test(lowerText)) {
+  } else if (/prescription|clinic|hospital|patient|doctor|physician|diagnosis|medical\s*center|lab\s*report|blood\s*test|lipid\s*profile/i.test(lowerText)) {
     docType = 'medical_record';
     category = 'medical';
-  } else if (/deed|mortgage|lease|tenant|property|land\s*registry/i.test(lowerText)) {
+  } else if (/deed|mortgage|lease|lease\s*agreement|tenant|landlord|rental\s*agreement|property\s*tax|land\s*registry|title\s*deed/i.test(lowerText)) {
     docType = 'property_document';
     category = 'property';
   }
@@ -365,7 +585,6 @@ function analyzeDocumentText(text, fileName = '') {
   const issueKeywords = /issu|date\s+of\s+issue|valid\s+from|start\s+date/i;
 
   for (const candidate of candidates) {
-    // Check prefix first, then snippet
     if (expiryKeywords.test(candidate.prefix)) {
       if (!expiryDate || candidate.date > expiryDate) {
         expiryDate = candidate.date;
@@ -405,9 +624,30 @@ function analyzeDocumentText(text, fileName = '') {
     issuer = lines[0];
   }
 
+  // Detect Family Member / Person
+  const knownPersons = (options && options.knownPersons) ? options.knownPersons : [];
+  const person = detectPerson(text, knownPersons);
+
+  // Generate Auto-Tags
+  const tags = generateAutoTags(text, category, docType, person, issueDate, expiryDate);
+
+  // Suggest Document Title
+  const suggestedTitle = suggestDocumentTitle(fileName, category, docType, person, issuer, issueDate, expiryDate);
+
+  // Build notes summary from detected provenance
+  const noteParts = [];
+  if (expiryDate) noteParts.push(`Expiry Date: ${expiryDate}`);
+  if (issueDate) noteParts.push(`Issue Date: ${issueDate}`);
+  if (issuer) noteParts.push(`Issuer: ${issuer}`);
+  const notesSummary = noteParts.length > 0 ? noteParts.join('. ') + '.' : '';
+
   return {
     docType,
     category,
+    person,
+    tags,
+    suggestedTitle,
+    notesSummary,
     issuer,
     issueDate,
     issueSnippet,
@@ -456,5 +696,8 @@ module.exports = {
   reconstructStructuredTableLayout,
   findDateCandidates,
   analyzeDocumentText,
-  computeExpiryStatus
+  computeExpiryStatus,
+  detectPerson,
+  generateAutoTags,
+  suggestDocumentTitle
 };

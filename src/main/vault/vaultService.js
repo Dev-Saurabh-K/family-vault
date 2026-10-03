@@ -310,7 +310,16 @@ class VaultService {
   /**
    * Imports a document file, creates Document record and immutable Version 1.
    */
-  async importDocument({ filePath, title, category = 'other', person = null, tags = [], notes = '' }) {
+  async importDocument({
+    filePath,
+    title,
+    category = 'other',
+    person = null,
+    tags = [],
+    notes = '',
+    preExtractedText = null,
+    preExtractedOcrWords = null
+  }) {
     this._assertUnlocked();
 
     if (!filePath || !fs.existsSync(filePath)) {
@@ -346,6 +355,7 @@ class VaultService {
     // 3. Insert immutable Version 1
     const version = dbLayer.createDocumentVersion(this._db, {
       documentId: doc.id,
+      versionNumber: 1,
       objectId,
       sha256,
       fileName,
@@ -361,11 +371,21 @@ class VaultService {
       sha256
     });
 
-    // 4. Extract text and analyze metadata locally
+    // 4. Extract text and analyze metadata locally (reuse pre-extracted data if provided)
     try {
-      const { text, ocrWords = [] } = await extractionService.extractTextFromBuffer(plaintextBuffer, mimeType);
+      let text = (typeof preExtractedText === 'string') ? preExtractedText : null;
+      let ocrWords = Array.isArray(preExtractedOcrWords) ? preExtractedOcrWords : [];
+
+      if (!text) {
+        const extracted = await extractionService.extractTextFromBuffer(plaintextBuffer, mimeType);
+        text = extracted.text || '';
+        ocrWords = extracted.ocrWords || [];
+      }
+
       if (text) {
-        const analysis = extractionService.analyzeDocumentText(text, fileName);
+        const knownPersons = dbLayer.listDistinctPersons(this._db);
+        const analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+
         dbLayer.saveMetadata(this._db, {
           versionId: version.id,
           docType: analysis.docType,
@@ -383,9 +403,14 @@ class VaultService {
           }
         });
 
-        // If category was 'other' and analysis found a specific category, auto-categorize
+        // If user left category as 'other', auto-categorize if detected
         if (category === 'other' && analysis.category && analysis.category !== 'other') {
           this._db.prepare('UPDATE documents SET category = ? WHERE id = ?').run(analysis.category, doc.id);
+        }
+
+        // If user left person blank and a person was detected, auto-assign
+        if (!person && analysis.person) {
+          this._db.prepare('UPDATE documents SET person = ? WHERE id = ?').run(analysis.person, doc.id);
         }
 
         // Generate and store vector embeddings for semantic search
@@ -595,6 +620,53 @@ class VaultService {
   listUpcomingExpiries() {
     this._assertUnlocked();
     return dbLayer.listUpcomingExpiries(this._db);
+  }
+
+  /**
+   * Retrieves unique family members (persons) recorded across vault documents.
+   * @returns {Array<string>}
+   */
+  listFamilyMembers() {
+    this._assertUnlocked();
+    return dbLayer.listDistinctPersons(this._db);
+  }
+
+  /**
+   * Extracts text, runs OCR, and pre-analyzes document metadata (category, person, tags, suggested title).
+   * Used for responsive live autofill in the Import Document modal with user-editable review.
+   * @param {string} filePath
+   * @returns {Promise<object>}
+   */
+  async preAnalyzeDocument(filePath) {
+    this._assertUnlocked();
+
+    if (!filePath || !fs.existsSync(filePath)) {
+      throw new Error(`Source file does not exist: ${filePath}`);
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+      throw new Error(`Unsupported file type: ${ext}. Supported: ${SUPPORTED_EXTENSIONS.join(', ')}`);
+    }
+
+    const fileName = path.basename(filePath);
+    const plaintextBuffer = fs.readFileSync(filePath);
+    const mimeType = this._guessMimeType(ext);
+
+    // 1. Extract text and OCR coordinates
+    const { text, ocrWords = [] } = await extractionService.extractTextFromBuffer(plaintextBuffer, mimeType);
+
+    // 2. Query known family members already recorded in the vault for high-confidence matching
+    const knownPersons = dbLayer.listDistinctPersons(this._db);
+
+    // 3. Run deterministic classification, person detection, and auto-tag generation
+    const analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+
+    return {
+      ...analysis,
+      textContent: text,
+      ocrWords
+    };
   }
 
   /**

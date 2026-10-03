@@ -15,6 +15,7 @@ let documents = [];
 let selectedDocumentId = null;
 let activeDocumentRecord = null;
 let documentIdPendingDelete = null;
+let preAnalyzedDocData = null;
 
 // DOM Elements - Views
 const viewLauncher = document.getElementById('view-launcher');
@@ -162,6 +163,13 @@ const importPersonInput = document.getElementById('import-person-input');
 const importTagsInput = document.getElementById('import-tags-input');
 const importNotesInput = document.getElementById('import-notes-input');
 const submitImportBtn = document.getElementById('submit-import-btn');
+const importAnalysisLoader = document.getElementById('import-analysis-loader');
+const importAnalysisStatusText = document.getElementById('import-analysis-status-text');
+const importAnalysisBadge = document.getElementById('import-analysis-badge');
+const importAnalysisProgressBar = document.getElementById('import-analysis-progress-bar');
+const importAnalysisBanner = document.getElementById('import-analysis-banner');
+const importAnalysisBannerDetails = document.getElementById('import-analysis-banner-details');
+const familyMembersDatalist = document.getElementById('family-members-datalist');
 
 const modalNewVersion = document.getElementById('modal-new-version');
 const newVersionFilepathInput = document.getElementById('new-version-filepath-input');
@@ -1143,24 +1151,122 @@ if (btnConfirmDeleteAction) {
   });
 }
 
+// Refresh datalist of known family members
+async function refreshFamilyMembersDatalist() {
+  if (!familyMembersDatalist) return;
+  try {
+    const members = await window.familyVault.listFamilyMembers();
+    familyMembersDatalist.innerHTML = '';
+    if (Array.isArray(members)) {
+      members.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        familyMembersDatalist.appendChild(option);
+      });
+    }
+  } catch (e) {}
+}
+
 // Import Document Modal
-btnOpenImport.addEventListener('click', () => {
+btnOpenImport.addEventListener('click', async () => {
   importFilepathInput.value = '';
   importTitleInput.value = '';
   importPersonInput.value = '';
   importTagsInput.value = '';
   importNotesInput.value = '';
+  importCategorySelect.value = 'identity';
+  preAnalyzedDocData = null;
+
+  if (importAnalysisLoader) importAnalysisLoader.classList.add('hidden');
+  if (importAnalysisBanner) importAnalysisBanner.classList.add('hidden');
+
+  await refreshFamilyMembersDatalist();
   modalImport.classList.remove('hidden');
 });
 
 importBrowseBtn.addEventListener('click', async () => {
   const filePath = await window.familyVault.selectFile();
-  if (filePath) {
-    importFilepathInput.value = filePath;
-    if (!importTitleInput.value.trim()) {
-      const fileName = filePath.split(/[\\/]/).pop() || '';
-      importTitleInput.value = fileName.replace(/\.[^/.]+$/, '');
+  if (!filePath) return;
+
+  importFilepathInput.value = filePath;
+  const fileName = filePath.split(/[\\/]/).pop() || '';
+  const defaultTitle = fileName.replace(/\.[^/.]+$/, '');
+  importTitleInput.value = defaultTitle;
+
+  // Show progress loader inside import modal
+  if (importAnalysisLoader) {
+    importAnalysisLoader.classList.remove('hidden');
+    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '25%';
+    if (importAnalysisStatusText) importAnalysisStatusText.textContent = 'Extracting OCR text & analyzing document...';
+    if (importAnalysisBadge) importAnalysisBadge.textContent = 'Reading file...';
+  }
+  if (importAnalysisBanner) importAnalysisBanner.classList.add('hidden');
+
+  // Smooth visual progress increments
+  const timer1 = setTimeout(() => {
+    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '60%';
+    if (importAnalysisBadge) importAnalysisBadge.textContent = 'Running OCR...';
+  }, 350);
+
+  const timer2 = setTimeout(() => {
+    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '85%';
+    if (importAnalysisBadge) importAnalysisBadge.textContent = 'Classifying & tagging...';
+  }, 900);
+
+  try {
+    const analysis = await window.familyVault.preAnalyzeDocument(filePath);
+    clearTimeout(timer1);
+    clearTimeout(timer2);
+
+    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '100%';
+    if (importAnalysisBadge) importAnalysisBadge.textContent = 'Complete ✓';
+
+    preAnalyzedDocData = analysis;
+
+    // Autofill fields with high-confidence suggestions
+    if (analysis.suggestedTitle) {
+      importTitleInput.value = analysis.suggestedTitle;
     }
+    if (analysis.category && analysis.category !== 'other') {
+      importCategorySelect.value = analysis.category;
+    }
+    if (analysis.person) {
+      importPersonInput.value = analysis.person;
+    }
+    if (analysis.tags && analysis.tags.length > 0) {
+      importTagsInput.value = analysis.tags.join(', ');
+    }
+    if (analysis.notesSummary) {
+      importNotesInput.value = analysis.notesSummary;
+    }
+
+    // Display summary banner
+    if (importAnalysisBanner && importAnalysisBannerDetails) {
+      const summaryParts = [];
+      const catLabel = analysis.category.charAt(0).toUpperCase() + analysis.category.slice(1);
+      summaryParts.push(`Category: <strong>${escapeHtml(catLabel)}</strong>`);
+      if (analysis.person) {
+        summaryParts.push(`Family Member: <strong>${escapeHtml(analysis.person)}</strong>`);
+      }
+      if (analysis.tags && analysis.tags.length > 0) {
+        summaryParts.push(`Tags: <em>${escapeHtml(analysis.tags.join(', '))}</em>`);
+      }
+      importAnalysisBannerDetails.innerHTML = summaryParts.join(' &bull; ') + '. You can edit any details below.';
+      importAnalysisBanner.classList.remove('hidden');
+    }
+  } catch (err) {
+    clearTimeout(timer1);
+    clearTimeout(timer2);
+    // If analysis fails (e.g. non-text file or scanner format), don't block import
+    if (importAnalysisBanner && importAnalysisBannerDetails) {
+      importAnalysisBannerDetails.textContent = 'Standard file selected. You can enter metadata manually.';
+      importAnalysisBanner.classList.remove('hidden');
+    }
+  } finally {
+    // Hide progress loader after a brief confirmation moment
+    setTimeout(() => {
+      if (importAnalysisLoader) importAnalysisLoader.classList.add('hidden');
+    }, 500);
   }
 });
 
@@ -1178,7 +1284,7 @@ submitImportBtn.addEventListener('click', async () => {
   }
 
   submitImportBtn.disabled = true;
-  submitImportBtn.textContent = 'Encrypting & Analyzing...';
+  submitImportBtn.textContent = 'Encrypting & Saving...';
 
   try {
     await window.familyVault.importDocument({
@@ -1187,12 +1293,15 @@ submitImportBtn.addEventListener('click', async () => {
       category,
       person,
       tags,
-      notes
+      notes,
+      preExtractedText: preAnalyzedDocData ? preAnalyzedDocData.textContent : null,
+      preExtractedOcrWords: preAnalyzedDocData ? preAnalyzedDocData.ocrWords : null
     });
 
     modalImport.classList.add('hidden');
-    showToast('Document encrypted and analyzed in vault', 'success');
-    loadDocuments();
+    preAnalyzedDocData = null;
+    showToast('Document encrypted and saved in vault', 'success');
+    await loadDocuments();
   } catch (err) {
     showToast('Import error: ' + err.message, 'error');
   } finally {
