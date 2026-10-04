@@ -5,7 +5,7 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
 const extraResources = [];
 if (fs.existsSync(path.join(__dirname, 'bin'))) extraResources.push('./bin');
-// Keep the installer small by default (~80 MB). The user can download Gemma 2 2B on-demand in the app.
+// Keep the installer small by default (~80 MB). The user can download Gemma-4-E2B on-demand in the app.
 if (process.env.BUNDLE_MODEL === 'true' && fs.existsSync(path.join(__dirname, 'models'))) {
   extraResources.push('./models');
 }

@@ -1263,8 +1263,8 @@ importBrowseBtn.addEventListener('click', async () => {
       if (analysis.tags && analysis.tags.length > 0) {
         summaryParts.push(`Tags: <em>${escapeHtml(analysis.tags.join(', '))}</em>`);
       }
-      const engineBadge = analysis.method === 'local-ai-gemma2'
-        ? '<span class="badge badge-blue" style="font-size: 10px; margin-right: 6px;">✨ Local AI</span>'
+      const engineBadge = (analysis.method === 'local-ai-gemma4' || analysis.method === 'multimodal-gemma4-vision' || analysis.method === 'local-ai-gemma2')
+        ? '<span class="badge badge-blue" style="font-size: 10px; margin-right: 6px;">✨ Gemma-4 AI</span>'
         : '<span class="badge badge-gray" style="font-size: 10px; margin-right: 6px;">OCR Heuristic</span>';
       importAnalysisBannerDetails.innerHTML = engineBadge + summaryParts.join(' &bull; ') + '. You can edit any details below.';
       importAnalysisBanner.classList.remove('hidden');
@@ -1495,7 +1495,7 @@ btnOpenAiQa.addEventListener('click', async () => {
     const engineText = document.getElementById('ai-active-engine-text');
     if (engineText) {
       engineText.textContent = status.isServerRunning
-        ? 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)'
+        ? 'Local Gemma-4-E2B (CPU Multimodal 127.0.0.1)'
         : 'Local Extractive & Semantic Retrieval';
     }
 
@@ -1524,14 +1524,14 @@ btnOpenAiQa.addEventListener('click', async () => {
         aiQuickSetupBox.classList.add('hidden');
       } else if (!status.isModelDownloaded) {
         aiQuickSetupBox.classList.remove('hidden');
-        if (setupTitle) setupTitle.textContent = '⚡ One-Click Setup: Gemma 2 2B Neural Model';
-        if (setupDesc) setupDesc.textContent = "Automatically download Google's Gemma 2 2B model (~1.6 GB) to run neural questions completely offline on your computer.";
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Download and enable Gemma 2 2B';
+        if (setupTitle) setupTitle.textContent = '⚡ One-Click Setup: Gemma-4-E2B Multimodal Model (CPU)';
+        if (setupDesc) setupDesc.textContent = "Automatically download Gemma-4-E2B multimodal model (~1.6 GB) to run neural questions & vision OCR completely offline on your CPU.";
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Download and enable Gemma-4-E2B';
       } else {
         aiQuickSetupBox.classList.remove('hidden');
-        if (setupTitle) setupTitle.textContent = '⚡ Gemma 2 2B Model is Ready';
-        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local engine.';
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma 2 2B engine';
+        if (setupTitle) setupTitle.textContent = '⚡ Gemma-4-E2B Model is Ready';
+        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local CPU engine.';
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma-4-E2B engine';
       }
     }
   } catch (e) {}
@@ -1577,7 +1577,7 @@ async function runAiQuery() {
     const botMsgEl = document.createElement('div');
     botMsgEl.style.cssText = 'align-self: flex-start; max-width: 92%; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border); border-radius: 12px 12px 12px 2px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 1.5; color: var(--text-primary); box-shadow: 0 2px 6px rgba(0,0,0,0.3);';
 
-    const engineBadgeText = res.mode === 'llama-server' ? 'Local Gemma 2 2B GGUF' : 'Local Extractive Assistant';
+    const engineBadgeText = res.mode === 'llama-server' ? 'Local Gemma-4-E2B GGUF' : 'Local Extractive Assistant';
     const escapedAnswer = escapeHtml(res.answer);
 
     let citationsHtml = '';
@@ -1726,8 +1726,8 @@ if (btnStartAiServer) {
     try {
       const ready = await window.familyVault.startAiServer({ binaryPath, modelPath });
       if (ready) {
-        showToast('Local Neural LLM engine started successfully (127.0.0.1:18432)', 'success');
-        document.getElementById('ai-active-engine-text').textContent = 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)';
+        showToast('Local Gemma-4-E2B neural engine started successfully (127.0.0.1:18432)', 'success');
+        document.getElementById('ai-active-engine-text').textContent = 'Local Gemma-4-E2B (CPU Multimodal 127.0.0.1)';
         btnStartAiServer.classList.add('hidden');
         btnStopAiServer.classList.remove('hidden');
         if (aiQuickSetupBox) aiQuickSetupBox.classList.add('hidden');
@@ -1756,9 +1756,9 @@ if (btnStopAiServer) {
         aiQuickSetupBox.classList.remove('hidden');
         const setupTitle = document.getElementById('ai-setup-title');
         const setupDesc = document.getElementById('ai-setup-desc');
-        if (setupTitle) setupTitle.textContent = '⚡ Gemma 2 2B Model is Ready';
-        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local engine.';
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma 2 2B engine';
+        if (setupTitle) setupTitle.textContent = '⚡ Gemma-4-E2B Model is Ready';
+        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local CPU engine.';
+        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma-4-E2B engine';
       }
     } catch (err) {
       showToast('Failed to stop engine: ' + err.message, 'error');
@@ -1775,7 +1775,7 @@ async function checkAiModelStatus() {
     if (status.isModelDownloaded && status.isBinaryAvailable) {
       if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⚡';
       if (btnTopbarDownloadText) {
-        btnTopbarDownloadText.textContent = status.modelName || 'Gemma 2 2B';
+        btnTopbarDownloadText.textContent = status.modelName || 'Gemma-4-E2B';
         btnTopbarDownloadText.classList.add('ai-model-blinking-text');
       }
       btnTopbarDownloadModel.classList.add('btn-acrylic-model-ready');
@@ -1789,8 +1789,8 @@ async function checkAiModelStatus() {
       }
       if (modelModalStatusText) {
         modelModalStatusText.textContent = status.isServerRunning
-          ? 'Local Gemma 2 2B neural engine is running and responding on 127.0.0.1:18432.'
-          : 'Gemma 2 2B model weights (~1.65 GB) are stored locally. Engine is ready to start.';
+          ? 'Local Gemma-4-E2B CPU multimodal engine is running and responding on 127.0.0.1:18432.'
+          : 'Gemma-4-E2B model weights (~1.65 GB) are stored locally. Engine is ready to start.';
       }
       if (modelModalBytesText) modelModalBytesText.textContent = '~1.65 GB (Installed)';
       if (modelModalProgressBar) modelModalProgressBar.style.width = '100%';
@@ -1808,7 +1808,7 @@ async function checkAiModelStatus() {
         }
       }
       if (btnDownloadSetupGemma) {
-        btnDownloadSetupGemma.textContent = status.isServerRunning ? 'Local AI engine active' : 'Start Gemma 2 2B engine';
+        btnDownloadSetupGemma.textContent = status.isServerRunning ? 'Local AI engine active' : 'Start Gemma-4-E2B engine';
       }
     } else {
       if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
@@ -1838,7 +1838,7 @@ async function checkAiModelStatus() {
         btnModalStartDownload.style.background = '#4f46e5';
       }
       if (btnDownloadSetupGemma) {
-        btnDownloadSetupGemma.textContent = 'Download and enable Gemma 2 2B';
+        btnDownloadSetupGemma.textContent = 'Download and enable Gemma-4-E2B';
       }
     }
   } catch (e) {}
@@ -1880,7 +1880,7 @@ async function startGemmaDownload() {
   if (aiDownloadProgressContainer) aiDownloadProgressContainer.classList.remove('hidden');
 
   const unsubscribe = window.familyVault.onAiDownloadProgress((data) => {
-    const statusMsg = data.message || (data.stage === 'llama-server' ? 'Downloading llama-server runtime...' : 'Downloading Gemma 2 2B weights (~1.65 GB)...');
+    const statusMsg = data.message || (data.stage === 'llama-server' ? 'Downloading llama-server runtime...' : 'Downloading Gemma-4-E2B weights (~1.65 GB)...');
 
     if (modelModalStatusText) modelModalStatusText.textContent = statusMsg;
     if (aiDownloadStatusText) aiDownloadStatusText.textContent = statusMsg;
@@ -1903,10 +1903,10 @@ async function startGemmaDownload() {
   try {
     const res = await window.familyVault.downloadGemmaModel();
     if (res && res.success) {
-      showToast('Gemma 2 2B model installed & local engine started! (127.0.0.1:18432)', 'success');
+      showToast('Gemma-4-E2B model installed & local CPU engine started! (127.0.0.1:18432)', 'success');
       await checkAiModelStatus();
       const engineText = document.getElementById('ai-active-engine-text');
-      if (engineText) engineText.textContent = 'Local Gemma 2 2B GGUF (llama-server 127.0.0.1)';
+      if (engineText) engineText.textContent = 'Local Gemma-4-E2B (CPU Multimodal 127.0.0.1)';
       if (btnStartAiServer) btnStartAiServer.classList.add('hidden');
       if (btnStopAiServer) btnStopAiServer.classList.remove('hidden');
       if (aiQuickSetupBox) aiQuickSetupBox.classList.add('hidden');

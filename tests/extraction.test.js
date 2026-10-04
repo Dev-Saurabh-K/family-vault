@@ -166,3 +166,37 @@ test('VaultService: Integrated metadata review and upcoming expiries flow', asyn
   service.lockVault();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('ExtractionService: Multimodal vision OCR priority and graceful Tesseract fallback', async () => {
+  const { llmService } = require('../src/main/services/llmService');
+
+  // Case 1: When multimodal model is ready, it is used as primary
+  llmService._isReady = true;
+  llmService.processImageWithVision = async () => ({
+    text: 'Aadhaar Card Government of India\nName: Rajesh Kumar',
+    ocrWords: [
+      { text: 'Aadhaar', x: 20, y: 15, width: 60, height: 14, confidence: 98 },
+      { text: 'Card', x: 85, y: 15, width: 35, height: 14, confidence: 98 },
+      { text: 'Name:', x: 20, y: 40, width: 45, height: 12, confidence: 95 },
+      { text: 'Rajesh', x: 70, y: 40, width: 50, height: 12, confidence: 97 },
+      { text: 'Kumar', x: 125, y: 40, width: 45, height: 12, confidence: 97 }
+    ],
+    method: 'multimodal-gemma4-vision'
+  });
+
+  const validImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const visionRes = await extractTextFromBuffer(validImage, 'image/png');
+  assert.strictEqual(visionRes.method, 'multimodal-gemma4-vision');
+  assert.strictEqual(visionRes.ocrWords.length, 5);
+  assert.ok(visionRes.text.includes('Aadhaar Card'));
+  assert.ok(visionRes.text.includes('Rajesh Kumar'));
+
+  // Case 2: When multimodal model fails or throws, gracefully falls back
+  llmService.processImageWithVision = async () => {
+    throw new Error('Neural model execution failure');
+  };
+
+  const fallbackRes = await extractTextFromBuffer(validImage, 'image/png');
+  // Should gracefully proceed to fallback without unhandled rejections
+  assert.ok(fallbackRes.method === 'ocr-tesseract-fallback' || fallbackRes.method === 'ocr-unavailable');
+});

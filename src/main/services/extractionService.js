@@ -170,21 +170,53 @@ async function extractTextFromBuffer(buffer, mimeType) {
 
         if (cleanedText.length < 40) {
           try {
-            const Tesseract = require('tesseract.js');
             const pagesToOcr = Math.min(pageCount, 3);
             let combinedOcr = '';
             const allWords = [];
+            let ocrMethod = 'pdf-ocr-tesseract-fallback';
+
             for (let p = 1; p <= pagesToOcr; p++) {
               const shot = await parser.getScreenshot({ page: p });
               if (shot && shot.pages && shot.pages[0] && shot.pages[0].dataUrl) {
-                const ocrResult = await Tesseract.recognize(shot.pages[0].dataUrl, 'eng');
-                const pageWords = extractOcrWordCoordinates(ocrResult?.data);
-                if (pageWords.length > 0) {
-                  allWords.push(...pageWords);
+                const dataUrl = shot.pages[0].dataUrl;
+                let pageExtracted = false;
+
+                // 1. Primary: Try local Gemma-4-E2B multimodal vision
+                try {
+                  const { llmService } = require('./llmService');
+                  if (llmService && typeof llmService.isReady === 'function' && llmService.isReady()) {
+                    const imgBuf = Buffer.from(dataUrl.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+                    const visionRes = await llmService.processImageWithVision({
+                      imageBuffer: imgBuf,
+                      mimeType: 'image/png'
+                    });
+                    if (visionRes && visionRes.text && visionRes.text.trim()) {
+                      if (Array.isArray(visionRes.ocrWords) && visionRes.ocrWords.length > 0) {
+                        allWords.push(...visionRes.ocrWords);
+                      }
+                      combinedOcr += (combinedOcr ? '\n\n' : '') + visionRes.text.trim();
+                      ocrMethod = 'pdf-ocr-gemma4-vision';
+                      pageExtracted = true;
+                    }
+                  }
+                } catch (visionErr) {
+                  // Fall through to Tesseract fallback
                 }
-                const pageText = ocrResult?.data?.text?.trim() || '';
-                if (pageText) {
-                  combinedOcr += (combinedOcr ? '\n\n' : '') + pageText;
+
+                // 2. Fallback: Local Tesseract.js upon model failure or unavailability
+                if (!pageExtracted) {
+                  try {
+                    const Tesseract = require('tesseract.js');
+                    const ocrResult = await Tesseract.recognize(dataUrl, 'eng');
+                    const pageWords = extractOcrWordCoordinates(ocrResult?.data);
+                    if (pageWords.length > 0) {
+                      allWords.push(...pageWords);
+                    }
+                    const pageText = ocrResult?.data?.text?.trim() || '';
+                    if (pageText) {
+                      combinedOcr += (combinedOcr ? '\n\n' : '') + pageText;
+                    }
+                  } catch (tessErr) {}
                 }
               }
             }
@@ -194,7 +226,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
               text = structured.structuredText && structured.structuredText.length >= combinedOcr.length
                 ? structured.structuredText
                 : combinedOcr;
-              method = 'pdf-ocr-tesseract';
+              method = ocrMethod;
             }
           } catch (ocrErr) {}
         }
@@ -227,13 +259,38 @@ async function extractTextFromBuffer(buffer, mimeType) {
     }
   }
 
-  // For image formats, perform OCR with Tesseract.js and extract detailed coordinates
+  // For image formats, attempt Gemma-4-E2B multimodal vision OCR first, falling back to Tesseract.js
   if (mimeType.startsWith('image/')) {
+    // 1. Primary: Local Gemma-4-E2B Multimodal Vision OCR
+    try {
+      const { llmService } = require('./llmService');
+      if (llmService && typeof llmService.isReady === 'function' && llmService.isReady()) {
+        const visionResult = await llmService.processImageWithVision({
+          imageBuffer: buffer,
+          mimeType
+        });
+        if (visionResult && visionResult.text && visionResult.text.trim()) {
+          return {
+            text: visionResult.text,
+            pageCount: 1,
+            method: 'multimodal-gemma4-vision',
+            ocrWords: visionResult.ocrWords || []
+          };
+        }
+      }
+    } catch (visionErr) {
+      // Fall through to Tesseract fallback
+    }
+
+    // 2. Fallback: Local Tesseract.js OCR with detailed word coordinates on model failure
     try {
       const Tesseract = require('tesseract.js');
-      const res = await Tesseract.recognize(buffer, 'eng');
-      const rawText = res && res.data && res.data.text ? res.data.text.trim() : '';
-      ocrWords = extractOcrWordCoordinates(res && res.data);
+      const res = await Tesseract.recognize(buffer, 'eng').catch(() => null);
+      if (!res || !res.data) {
+        return { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
+      }
+      const rawText = res.data.text ? res.data.text.trim() : '';
+      ocrWords = extractOcrWordCoordinates(res.data);
       const structured = reconstructStructuredTableLayout(ocrWords);
       const text = structured.structuredText && structured.structuredText.length >= rawText.length
         ? structured.structuredText
@@ -242,7 +299,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
       return {
         text,
         pageCount: 1,
-        method: 'ocr-tesseract',
+        method: 'ocr-tesseract-fallback',
         ocrWords
       };
     } catch (e) {

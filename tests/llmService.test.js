@@ -293,7 +293,7 @@ DATE OF EXPIRY: 14/04/2031`;
     knownPersons: ['Rahul Sharma']
   });
 
-  assert.strictEqual(aiRes.method, 'local-ai-gemma2');
+  assert.strictEqual(aiRes.method, 'local-ai-gemma4');
   assert.strictEqual(aiRes.category, 'identity');
   assert.strictEqual(aiRes.person, 'Rahul Sharma');
   assert.strictEqual(aiRes.expiryDate, '2031-04-14');
@@ -317,5 +317,51 @@ DATE OF EXPIRY: 14/04/2031`;
   });
 
   assert.strictEqual(guardedRes.category, 'identity', 'Must fall back to valid deterministic category');
+});
+
+test('LlmService: processImageWithVision extracts coordinates and structured text', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+
+  service._queryLlamaChat = async () => {
+    return JSON.stringify({
+      fullText: 'Diagnostic Tool Version 12.0',
+      words: [
+        { text: 'Diagnostic', x: 20, y: 10, width: 60, height: 14, confidence: 96 },
+        { text: 'Tool', x: 85, y: 10, width: 30, height: 14, confidence: 97 },
+        { text: 'Version', x: 20, y: 35, width: 50, height: 12, confidence: 95 },
+        { text: '12.0', x: 120, y: 35, width: 30, height: 12, confidence: 98 }
+      ]
+    });
+  };
+
+  const dummyImage = Buffer.from('fake-image-bytes');
+  const result = await service.processImageWithVision({ imageBuffer: dummyImage, mimeType: 'image/png' });
+
+  assert.strictEqual(result.method, 'multimodal-gemma4-vision');
+  assert.strictEqual(result.ocrWords.length, 4);
+  assert.strictEqual(result.ocrWords[0].text, 'Diagnostic');
+  assert.strictEqual(result.ocrWords[0].x, 20);
+  assert.strictEqual(result.ocrWords[0].y, 10);
+  assert.strictEqual(result.ocrWords[0].confidence, 96);
+  assert.ok(result.text.includes('Diagnostic Tool'));
+  assert.ok(result.text.includes('Version'));
+});
+
+test('LlmService: processImageWithVision throws on failure for graceful Tesseract fallback', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+  service._queryLlamaChat = async () => {
+    throw new Error('Vision projector offline');
+  };
+  service._queryLlamaCompletion = async () => {
+    throw new Error('Completion offline');
+  };
+
+  const dummyImage = Buffer.from('fake-image-bytes');
+  await assert.rejects(
+    async () => await service.processImageWithVision({ imageBuffer: dummyImage }),
+    /offline/
+  );
 });
 

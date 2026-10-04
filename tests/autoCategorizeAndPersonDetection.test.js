@@ -163,7 +163,7 @@ test('VaultService: Local AI-powered strict auto-categorization, family member d
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-ai-vault-'));
   const vaultPath = path.join(tmpDir, 'MyAiVault.fvault');
 
-  // Create a mock LLM service representing active local llama-server with strict Gemma 2 extractor
+  // Create a mock LLM service representing active local llama-server with strict Gemma-4-E2B extractor
   const mockLlmService = {
     isReady: () => true,
     extractDocumentMetadata: async ({ text, fileName, knownPersons }) => {
@@ -182,7 +182,7 @@ test('VaultService: Local AI-powered strict auto-categorization, family member d
         notesSummary: 'Expiry Date: 2029-10-31. Issue Date: 2024-10-31. Issuer: Prudential Life.',
         confidence: 0.96,
         reviewStatus: 'proposed',
-        method: 'local-ai-gemma2'
+        method: 'local-ai-gemma4'
       };
     }
   };
@@ -219,7 +219,7 @@ test('VaultService: Local AI-powered strict auto-categorization, family member d
 
   // 1. Pre-analysis triggers local AI
   const preAnalysis = await service.preAnalyzeDocument(policyFile);
-  assert.strictEqual(preAnalysis.method, 'local-ai-gemma2');
+  assert.strictEqual(preAnalysis.method, 'local-ai-gemma4');
   assert.strictEqual(preAnalysis.category, 'insurance');
   assert.strictEqual(preAnalysis.person, 'Priya Sharma');
   assert.strictEqual(preAnalysis.expiryDate, '2029-10-31');
@@ -236,7 +236,7 @@ test('VaultService: Local AI-powered strict auto-categorization, family member d
   assert.strictEqual(importedDoc.category, 'insurance');
   assert.strictEqual(importedDoc.person, 'Priya Sharma');
   assert.strictEqual(importedDoc.currentVersion.metadata.expiryDate, '2029-10-31');
-  assert.strictEqual(importedDoc.currentVersion.metadata.rawPayload.method, 'local-ai-gemma2');
+  assert.strictEqual(importedDoc.currentVersion.metadata.rawPayload.method, 'local-ai-gemma4');
 
   service.lockVault();
   fs.rmSync(tmpDir, { recursive: true, force: true });

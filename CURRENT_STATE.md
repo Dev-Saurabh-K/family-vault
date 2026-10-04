@@ -1,6 +1,6 @@
 # Current Repository State
 
-Last updated: 2026-10-03 (Asia/Kolkata)
+Last updated: 2026-10-04 (Asia/Kolkata)
 
 ## What exists
 
@@ -17,20 +17,20 @@ The repository contains a complete, fully tested, functional implementation of F
   - `src/main/vault/database.js`: SQLCipher encrypted relational SQLite database with tables for `documents`, immutable `document_versions`, `extracted_metadata`, `audit_events`, and `vector_embeddings`, plus FTS5 virtual table synchronization.
   - `src/main/vault/vaultService.js`: Vault lifecycle management (create, unlock, lock, zeroize keys, password rewrapping, document import with automatic offline text extraction & analysis, immutable version appending, export, metadata review/confirmation, upcoming expiries, grounded local AI Q&A, semantic similarity search, and portable encrypted backup/restore).
   - `src/main/vault/backupService.js`: Portable encrypted vault backup generation (`.fvbackup`) and cryptographic restoration with SHA-256 tamper verification.
-- **Text Extraction & Deterministic Analysis**:
-  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), image and scanned PDF OCR pipeline (`tesseract.js`) with detailed word-level coordinate extraction (`{ text, x, y, width, height, confidence }`) and tabular column layout reconstruction, deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, identity cards, insurance policies, tax documents, medical records, property/deeds), family member (person) detection matching existing vault persons and labeled name patterns, automatic relevant tag generation (`generateAutoTags`), human-readable document title suggestions (`suggestDocumentTitle`), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`).
+- **Text Extraction & Multimodal Document Understanding**:
+  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), document OCR pipeline with detailed word-level coordinate extraction (`{ text, x, y, width, height, confidence }`) and tabular column layout reconstruction. Architected for primary image processing and visual OCR via the multimodal Gemma-4-E2B model with `tesseract.js` running 100% locally as a robust fallback on model failure; deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, identity cards, insurance policies, tax documents, medical records, property/deeds), family member (person) detection matching existing vault persons and labeled name patterns, automatic relevant tag generation (`generateAutoTags`), human-readable document title suggestions (`suggestDocumentTitle`), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`).
 - **Semantic Vector Embeddings & Similarity Retrieval**:
   - `src/main/services/embeddingService.js`: Modular, 100% offline embedding service supporting normalized vector generation, text passage chunking, cosine similarity scoring, BLOB serialization/deserialization for SQLCipher storage, and deterministic feature-hashing vectorization (with optional local `llama-server` embedding endpoint support).
 - **Local AI & Grounded Document Q&A**:
   - `src/main/services/llmService.js`:
-    - Strict AI document metadata extraction (`extractDocumentMetadata`): Prompts local Gemma 2 model to extract strictly structured JSON metadata. Enforces categorization strictly to `identity`, `insurance`, `medical`, `tax`, `property`, `other`. Invalid categories are rejected and fallback to deterministic analysis.
+    - Strict AI document metadata extraction (`extractDocumentMetadata`): Prompts local Gemma-4-E2B model to extract strictly structured JSON metadata. Enforces categorization strictly to `identity`, `insurance`, `medical`, `tax`, `property`, `other`. Invalid categories are rejected and fallback to deterministic analysis.
     - AI-powered family member detection: Matches candidate names against existing family members (`knownPersons`) with canonical naming, or extracts individual cardholders/patients/policyholders while strictly filtering false positive entities (authorities, governments, hospitals).
     - Grounded expiry date detection: Validates ISO `YYYY-MM-DD` formatting and verifies date numbers against document text to prevent AI hallucinations.
-    - Grounded document Q&A engine with citations (`answerQuestion`). Manages local `llama-server.exe` child process targeting Google Gemma 2 2B GGUF (`gemma-2-2b-it-Q4_K_M.gguf`, enforcing strict `--host 127.0.0.1:18432` binding, no LAN, no web UI, Gemma 2 turn formatting) with a built-in deterministic extractive QA fallback that scores passages by distinct query term coverage, formats citations, and guarantees no cloud leakage.
+    - Grounded document Q&A engine with citations (`answerQuestion`). Manages local `llama-server.exe` child process targeting Gemma-4-E2B multimodal GGUF (enforcing strict `--host 127.0.0.1:18432` binding, no LAN, no web UI, Gemma turn formatting) with a built-in deterministic extractive QA fallback that scores passages by distinct query term coverage, formats citations, and guarantees no cloud leakage.
   - Automated setup & packaging: `scripts/setup-ai.js` (`npm run setup:ai`) and `forge.config.js` `packagerConfig.extraResource` (`bin/` and `models/`) to bundle or place the engine and model alongside `app.asar`.
   - In-app 1-click setup: Direct download and configuration card in the AI modal with real-time progress bar and percentage display, streaming updates via IPC (`ai:download-gemma` and `ai:download-progress`).
 - **Electron Shell & UI**:
-  - `src/main/ipc.js`: Strictly typed and validated IPC handlers including pre-analysis (`document:pre-analyze`), family member enumeration (`vault:list-family-members`), metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma 2 2B download/setup, semantic vector search, encrypted audit log queries, and encrypted backup/restore.
+  - `src/main/ipc.js`: Strictly typed and validated IPC handlers including pre-analysis (`document:pre-analyze`), family member enumeration (`vault:list-family-members`), metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma-4-E2B download/setup, semantic vector search, encrypted audit log queries, and encrypted backup/restore.
   - `src/preload.js`: Secure context-isolated bridge exposing `window.familyVault`.
   - `src/index.js`: Electron main process with strict Content Security Policy (`connect-src 'none'`), sandbox mode, and lock-on-exit key cleanup.
   - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive dark-mode desktop UI supporting:
@@ -48,7 +48,7 @@ The repository contains a complete, fully tested, functional implementation of F
     - Immutable version history timeline and new version upload.
     - Master password change modal.
     - Tamper-evident encrypted audit log viewer modal with 1-click JSON export (`btn-export-audit-logs`).
-    - Conversational multi-turn Grounded AI Assistant modal with chat bubbles, 1-click Gemma 2 2B setup card, answer copy, clickable citations, and clear chat button.
+    - Conversational multi-turn Grounded AI Assistant modal with chat bubbles, 1-click Gemma-4-E2B setup card, answer copy, clickable citations, and clear chat button.
 - **Test Suite**:
   - `tests/crypto.test.js`: Unit tests for Argon2id, VMK wrapping/unwrapping, AES-256-GCM envelope, HKDF, and zeroization.
   - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, inline metadata updating & FTS re-indexing, document soft-deletion with audit trail and semantic search filtering, in-memory preview, export, password rewrapping, and encrypted audit logging.
@@ -103,7 +103,7 @@ The repository contains a complete, fully tested, functional implementation of F
 ```bash
 npm test
 ```
-All 32 automated tests pass across:
+All 35 automated tests pass across:
 - `tests/crypto.test.js`
 - `tests/vaultService.test.js`
 - `tests/userProfile.test.js`
@@ -118,9 +118,10 @@ All 32 automated tests pass across:
 ```bash
 npm run package
 ```
-Packaging builds `family-vault.exe` directly in `out/family-vault-win32-x64/` with all native SQLCipher bindings cleanly prepared and **Option B verified**: both `llama-server.exe` and Google Gemma 2 2B weights (`gemma-2-2b-it-Q4_K_M.gguf`, 1.70 GB) are packaged directly under `out/family-vault-win32-x64/resources/` via `packagerConfig.extraResource`, providing a 100% offline out-of-the-box local neural AI experience on first run.
+Packaging builds `family-vault.exe` directly in `out/family-vault-win32-x64/` with all native SQLCipher bindings cleanly prepared and **Option B verified**: both `llama-server.exe` and Gemma-4-E2B multimodal weights (`gemma-4-e2b.gguf`) are packaged directly under `out/family-vault-win32-x64/resources/` via `packagerConfig.extraResource`, providing a 100% offline out-of-the-box local neural AI and multimodal vision OCR experience on first run.
 
 ## Distribution Notes
 
 1. **Option B (100% Offline Pre-bundled Distribution)**: Both `bin/` and `models/` are populated and packaged alongside `app.asar`. When installed on any user's PC, FamilyVault immediately starts `llama-server.exe` on `127.0.0.1:18432` without any internet connection.
-2. Local Wi-Fi sync is reserved for future approved architecture changes.
+2. **Gemma-4-E2B Multimodal CPU Engine Implemented**: The architecture and implementation use Gemma-4-E2B multimodal capabilities as the primary vision OCR and document understanding engine (running on host CPU threads with `-ngl 0`), with Tesseract.js acting strictly as a fallback upon model failure or unavailability.
+3. Local Wi-Fi sync is reserved for future approved architecture changes.

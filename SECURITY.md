@@ -40,7 +40,7 @@ Vault manifests may contain non-secret format and KDF metadata plus wrapped-key 
 
 ## OCR and AI boundary
 
-Local OCR (Tesseract.js) and llama.cpp run locally within the application boundary. Their inputs/outputs are untrusted data: limit inputs, validate structured output, enforce time/resource limits where feasible, and do not expose secrets beyond what each job requires. `llama-server.exe` must bind only to `127.0.0.1` on an application-selected port. Do not enable LAN access, plugins, tools, or file-operation capabilities.
+Document vision/OCR processing (via the local Gemma-4-E2B multimodal model or Tesseract.js fallback) and text inference run strictly locally within the application boundary. Document image buffers and user queries passed to `llama-server.exe` are confined entirely to the loopback interface (`127.0.0.1:18432`) without LAN exposure, telemetry, or cloud relays. Inputs and outputs are treated as untrusted data: limit inputs, validate structured JSON schemas deterministically, enforce timeouts, and do not expose secrets beyond what each inference job requires. `llama-server.exe` must bind only to `127.0.0.1` on an application-selected port. Do not enable LAN access, plugins, tools, or file-operation capabilities.
 
 ## Threat and change review
 

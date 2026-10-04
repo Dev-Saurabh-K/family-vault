@@ -10,8 +10,8 @@ Electron main process
     ├── Vault core (keys, lifecycle, paths, object storage)
     ├── SQLCipher database and search
     ├── import / processing job system
-    ├── OCRService → Tesseract.js runtime (with word coordinates & tabular layout)
-    ├── LLMService → bundled llama-server.exe → Gemma 2 2B GGUF
+    ├── OCR & Document Vision → Gemma-4-E2B (primary) with Tesseract.js fallback
+    ├── LLMService → bundled llama-server.exe → Gemma-4-E2B Multimodal GGUF
     └── optional EmbeddingService + VectorStore
 ```
 
@@ -53,13 +53,15 @@ Do not treat a matching hash as permission to delete, overwrite, or silently hid
 ### Processing
 
 ```text
-version → native PDF text extraction when available
-→ OCRService when text is absent/insufficient
-→ normalized text → validated extraction/classification
+version → native PDF text extraction when digital/available
+→ Multimodal Vision & OCR (Gemma-4-E2B primary; Tesseract.js on failure)
+→ normalized text & coordinates → validated extraction/classification
 → metadata + FTS indexing → optional embeddings/indexing
 ```
 
-`OCRService` uses Tesseract.js running 100% locally in the main process with zero external Python or heavy system runtime requirements. In addition to raw text extraction, it extracts and persists detailed word-level bounding boxes and spatial coordinates (`text`, `x`, `y`, `width`, `height`, `confidence`) for structured table and form understanding without cloud dependencies.
+Document vision and OCR leverages the bundled **Gemma-4-E2B** multimodal model as the primary engine. It directly processes document image buffers for visual layout understanding, extracting text, tabular arrangements, and word-level coordinates (`text`, `x`, `y`, `width`, `height`, `confidence`) without cloud dependencies.
+
+If the multimodal model is unavailable, times out, or fails during processing, `OCRService` automatically falls back to the local `Tesseract.js` pipeline running in the main process, ensuring resilient, 100% offline document understanding.
 
 ### Search and answers
 
@@ -72,7 +74,7 @@ The LLM may parse a query into a constrained schema or write a grounded answer; 
 
 ## Local AI runtime
 
-Bundle `llama-server.exe` and the initial Gemma 2 2B GGUF with the application distribution; keep model assets outside `app.asar`. The server is launched and supervised by the main process on an application-selected local port with an explicit `127.0.0.1` host binding. It is inference-only, not a general agent or files tool. The LLM and embedding interfaces must remain replaceable.
+Bundle `llama-server.exe` and the Gemma-4-E2B multimodal GGUF model with the application distribution; keep model assets outside `app.asar`. The server is launched and supervised by the main process on an application-selected local port with an explicit `127.0.0.1` host binding. It provides multimodal vision capabilities for document processing and OCR as well as text inference for grounded document Q&A. It is inference-only, not a general agent or files tool. The LLM and embedding interfaces must remain replaceable.
 
 ## Backups and future sync
 

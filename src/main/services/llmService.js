@@ -185,9 +185,11 @@ function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = [
   };
 }
 
-const GEMMA_MODEL_URL = 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf';
-const GEMMA_MODEL_FILENAME = 'gemma-2-2b-it-Q4_K_M.gguf';
-const LLAMA_WIN_BIN_URL = 'https://github.com/ggml-org/llama.cpp/releases/download/b4759/llama-b4759-bin-win-avx2-x64.zip';
+const GEMMA_MODEL_URL = 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf';
+const GEMMA_MODEL_FILENAME = 'gemma-4-e2b.gguf';
+const GEMMA_MMPROJ_URL = 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf';
+const GEMMA_MMPROJ_FILENAME = 'mmproj-gemma-4-e2b.gguf';
+const LLAMA_WIN_BIN_URL = 'https://github.com/ggml-org/llama.cpp/releases/download/b11384/llama-b11384-bin-win-cpu-x64.zip';
 
 function getUserDataDir() {
   try {
@@ -219,6 +221,7 @@ class LlmService {
     this._process = null;
     this._port = 18432;
     this._modelPath = null;
+    this._projectorPath = null;
     this._isReady = false;
   }
 
@@ -275,13 +278,66 @@ class LlmService {
   }
 
   findModelPath() {
-    const candidates = [
-      process.resourcesPath ? path.join(process.resourcesPath, 'models', GEMMA_MODEL_FILENAME) : null,
-      path.join(getUserDataDir(), 'models', GEMMA_MODEL_FILENAME),
-      path.join(path.resolve(__dirname, '../../..'), 'models', GEMMA_MODEL_FILENAME),
-      path.join(process.cwd(), 'models', GEMMA_MODEL_FILENAME)
+    const candidateNames = [
+      'gemma-4-e2b.gguf',
+      'gemma-4-e2b-it.gguf',
+      'gemma-4-e2b-Q4_K_M.gguf',
+      'gemma-4-e2b-it-Q4_K_M.gguf',
+      GEMMA_MODEL_FILENAME
     ];
-    return candidates.find(p => p && fs.existsSync(p)) || null;
+
+    const searchDirs = [
+      process.resourcesPath ? path.join(process.resourcesPath, 'models') : null,
+      path.join(getUserDataDir(), 'models'),
+      path.join(path.resolve(__dirname, '../../..'), 'models'),
+      path.join(process.cwd(), 'models')
+    ].filter(Boolean);
+
+    for (const dir of searchDirs) {
+      if (!fs.existsSync(dir)) continue;
+      for (const fn of candidateNames) {
+        const full = path.join(dir, fn);
+        if (fs.existsSync(full)) return full;
+      }
+      try {
+        const files = fs.readdirSync(dir);
+        const match = files.find(f => /gemma[-_]?4.*\.gguf$/i.test(f) && !f.startsWith('mmproj'));
+        if (match) return path.join(dir, match);
+      } catch (e) {}
+    }
+
+    return null;
+  }
+
+  findProjectorPath() {
+    const candidateNames = [
+      'mmproj-gemma-4-e2b.gguf',
+      'mmproj-gemma-4-e2b-f16.gguf',
+      'mmproj-model-f16.gguf',
+      GEMMA_MMPROJ_FILENAME
+    ];
+
+    const searchDirs = [
+      process.resourcesPath ? path.join(process.resourcesPath, 'models') : null,
+      path.join(getUserDataDir(), 'models'),
+      path.join(path.resolve(__dirname, '../../..'), 'models'),
+      path.join(process.cwd(), 'models')
+    ].filter(Boolean);
+
+    for (const dir of searchDirs) {
+      if (!fs.existsSync(dir)) continue;
+      for (const fn of candidateNames) {
+        const full = path.join(dir, fn);
+        if (fs.existsSync(full)) return full;
+      }
+      try {
+        const files = fs.readdirSync(dir);
+        const match = files.find(f => /mmproj.*\.gguf$/i.test(f));
+        if (match) return path.join(dir, match);
+      } catch (e) {}
+    }
+
+    return null;
   }
 
   findBinaryPath() {
@@ -305,10 +361,12 @@ class LlmService {
   getStatus() {
     return {
       isServerRunning: this._isReady,
-      engine: this._isReady ? 'llama-server-gemma2' : 'local-extractive-qa',
+      engine: this._isReady ? 'llama-server-gemma4-e2b (CPU)' : 'local-extractive-qa',
+      modelName: 'Gemma-4-E2B (CPU Multimodal)',
       port: this._port,
       modelConfigured: !!this._modelPath,
       modelPath: this._modelPath || this.findModelPath(),
+      projectorPath: this._projectorPath || this.findProjectorPath(),
       binaryPath: this.findBinaryPath(),
       isModelDownloaded: this.isModelDownloaded(),
       isBinaryAvailable: this.isBinaryAvailable()
@@ -316,7 +374,7 @@ class LlmService {
   }
 
   /**
-   * Downloads and sets up the Gemma 2 2B GGUF model and llama engine.
+   * Downloads and sets up the Gemma-4-E2B multimodal GGUF model and CPU llama engine.
    * Works in both development and shipped/packaged production environments.
    * @param {function} onProgress
    */
@@ -331,14 +389,28 @@ class LlmService {
 
     // 1. Download model if missing
     if (!fs.existsSync(targetModelPath)) {
-      onProgress({ stage: 'model', message: 'Downloading Gemma 2 2B GGUF Model (~1.6 GB)...', percent: 0, downloadedMb: '0', totalMb: '1630' });
+      onProgress({ stage: 'model', message: 'Downloading Gemma-4-E2B Model (~2.9 GB)...', percent: 0, downloadedMb: '0', totalMb: '2960' });
       await this._downloadFileWithProgress(GEMMA_MODEL_URL, targetModelPath, onProgress, 'model');
     }
 
-    // 2. Download llama binary if missing
+    // 2. Download multimodal vision projector if missing
+    let targetProjectorPath = this.findProjectorPath();
+    if (!targetProjectorPath) {
+      targetProjectorPath = path.join(modelsDir, GEMMA_MMPROJ_FILENAME);
+    }
+    if (!fs.existsSync(targetProjectorPath)) {
+      onProgress({ stage: 'projector', message: 'Downloading Gemma-4-E2B Vision Projector (~940 MB)...', percent: 0, downloadedMb: '0', totalMb: '940' });
+      try {
+        await this._downloadFileWithProgress(GEMMA_MMPROJ_URL, targetProjectorPath, onProgress, 'projector');
+      } catch (projErr) {
+        console.warn('[llmService] Vision projector download skipped/failed:', projErr.message);
+      }
+    }
+
+    // 3. Download llama binary if missing
     let targetBinPath = this.findBinaryPath();
     if (!targetBinPath) {
-      onProgress({ stage: 'binary', message: 'Downloading local llama engine (~35 MB)...', percent: 0, downloadedMb: '0', totalMb: '35' });
+      onProgress({ stage: 'binary', message: 'Downloading local CPU llama engine (~35 MB)...', percent: 0, downloadedMb: '0', totalMb: '35' });
       const tempZip = path.join(binDir, 'llama-win.zip');
       await this._downloadFileWithProgress(LLAMA_WIN_BIN_URL, tempZip, onProgress, 'binary');
 
@@ -352,13 +424,13 @@ class LlmService {
       });
     }
 
-    // 3. Start engine
-    onProgress({ stage: 'starting', message: 'Starting Gemma 2 2B local server...', percent: 99 });
+    // 4. Start engine
+    onProgress({ stage: 'starting', message: 'Starting Gemma-4-E2B CPU local server...', percent: 99 });
     const started = await this.autoDetectAndStart();
 
     onProgress({
       stage: 'ready',
-      message: started ? 'Gemma 2 2B engine active and ready!' : 'Model ready (offline fallback active)',
+      message: started ? 'Gemma-4-E2B CPU multimodal engine active and ready!' : 'Model ready (offline fallback active)',
       percent: 100,
       isServerRunning: started
     });
@@ -380,7 +452,11 @@ class LlmService {
           return reject(new Error('Too many HTTP redirects'));
         }
 
-        const req = https.get(currentUrl, (res) => {
+        const req = https.get(currentUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FamilyVault/1.0'
+          }
+        }, (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume();
             return fetchUrl(res.headers.location, redirectCount + 1);
@@ -467,28 +543,46 @@ class LlmService {
     this._modelPath = modelPath;
 
     // Strict local-only parameters: host 127.0.0.1, no web UI, no remote endpoints
+    // CPU version: optimize threads to host CPU core count, enforce 0 GPU offload
     const cpuCount = os.cpus() ? os.cpus().length : 4;
-    const threadCount = Math.max(2, Math.min(8, Math.floor(cpuCount / 2)));
+    const threadCount = Math.max(2, Math.min(12, Math.floor(cpuCount)));
     const args = [
       '--host', '127.0.0.1',
       '--port', String(port),
       '-m', modelPath,
       '-c', '4096',
-      '-t', String(threadCount)
+      '-t', String(threadCount),
+      '-ngl', '0' // CPU execution: zero GPU offload layers, purely host CPU
     ];
+
+    const projectorPath = this.findProjectorPath();
+    if (projectorPath) {
+      this._projectorPath = projectorPath;
+      args.push('--mmproj', projectorPath);
+    }
 
     this._process = spawn(binaryPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     });
 
-    this._process.on('exit', () => {
+    let stderrBuffer = '';
+    if (this._process.stderr) {
+      this._process.stderr.on('data', (chunk) => {
+        stderrBuffer = (stderrBuffer + chunk.toString()).slice(-1000);
+      });
+    }
+
+    this._process.on('exit', (code) => {
       this._isReady = false;
       this._process = null;
+      if (code && code !== 0) {
+        console.warn(`[llmService] llama-server exited with code ${code}. Stderr: ${stderrBuffer.trim()}`);
+      }
     });
 
     // Wait for health endpoint
-    this._isReady = await this._waitForHealth(port, 20000);
+    this._isReady = await this._waitForHealth(port, 45000);
     return this._isReady;
   }
 
@@ -543,7 +637,7 @@ class LlmService {
 
   /**
    * Strictly extracts metadata (category, person, expiryDate, tags, docType)
-   * using local Gemma 2 model when available, falling back to deterministic extraction.
+   * using local Gemma-4-E2B model when available, falling back to deterministic extraction.
    * Adheres to AGENTS.md:
    * "AI work additionally requires a structured output contract, rejection of invalid output,
    * explicit handling of unknown values, and source references when it presents document-derived claims."
@@ -622,7 +716,7 @@ class LlmService {
         expirySnippet,
         confidence: Math.max(validatedAi.confidence, deterministic.confidence),
         reviewStatus: 'proposed',
-        method: 'local-ai-gemma2'
+        method: 'local-ai-gemma4'
       };
     } catch (err) {
       console.warn('[llmService] AI metadata extraction failed, falling back to deterministic:', err.message || err);
@@ -969,6 +1063,196 @@ ${truncatedText}<end_of_turn>
       req.on('timeout', () => {
         req.destroy();
         reject(new Error('LLM request timed out'));
+      });
+
+      req.write(data);
+      req.end();
+    });
+  }
+
+  /**
+   * Processes a document image buffer using Gemma-4-E2B multimodal vision capabilities.
+   * Extracts text, tabular layout, and word-level coordinates: { text, x, y, width, height, confidence }
+   * Returns: { text: string, ocrWords: Array<object>, method: 'multimodal-gemma4-vision' }
+   * Throws on failure so caller gracefully falls back to local Tesseract.js.
+   */
+  async processImageWithVision({ imageBuffer, mimeType = 'image/png', prompt }) {
+    if (!this._isReady) {
+      throw new Error('Local Gemma-4-E2B neural engine is not running');
+    }
+    if (!imageBuffer || !Buffer.isBuffer(imageBuffer) || imageBuffer.length === 0) {
+      throw new Error('Invalid or empty image buffer');
+    }
+
+    const base64Data = imageBuffer.toString('base64');
+    const systemPrompt = prompt || `You are an expert offline multimodal OCR and document understanding model.
+Examine this document image closely.
+Extract all visible text in logical reading order, preserving tabular alignments, columns, numbers, and dates.
+Output a JSON object with:
+{
+  "fullText": "extracted document text preserving layout",
+  "words": [
+    { "text": "word", "x": 10, "y": 20, "width": 40, "height": 15, "confidence": 95 }
+  ]
+}
+If exact bounding boxes are not measurable, return { "fullText": "..." }. Respond ONLY with JSON.`;
+
+    const requestPayload = {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: systemPrompt },
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+          ]
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 2048
+    };
+
+    let rawContent = '';
+    try {
+      rawContent = await this._queryLlamaChat(requestPayload);
+    } catch (chatErr) {
+      // Fallback: try raw completion with image_data payload
+      const completionPayload = {
+        prompt: `<start_of_turn>user\n${systemPrompt}<end_of_turn>\n<start_of_turn>model\n`,
+        image_data: [{ data: base64Data, id: 1 }],
+        temperature: 0.1,
+        n_predict: 2048
+      };
+      rawContent = await this._queryLlamaCompletion(completionPayload);
+    }
+
+    if (!rawContent || !rawContent.trim()) {
+      throw new Error('Empty response from multimodal vision inference');
+    }
+
+    const parsedJson = extractJsonFromText(rawContent);
+    let extractedText = '';
+    let ocrWords = [];
+
+    if (parsedJson && typeof parsedJson === 'object') {
+      if (typeof parsedJson.fullText === 'string') {
+        extractedText = parsedJson.fullText.trim();
+      } else if (typeof parsedJson.text === 'string') {
+        extractedText = parsedJson.text.trim();
+      }
+
+      if (Array.isArray(parsedJson.words)) {
+        ocrWords = parsedJson.words
+          .filter(w => w && typeof w.text === 'string' && w.text.trim())
+          .map(w => ({
+            text: w.text.trim(),
+            x: Math.max(0, Math.round(Number(w.x) || 0)),
+            y: Math.max(0, Math.round(Number(w.y) || 0)),
+            width: Math.max(0, Math.round(Number(w.width) || 0)),
+            height: Math.max(0, Math.round(Number(w.height) || 0)),
+            confidence: Math.max(0, Math.min(100, Math.round(Number(w.confidence) || 90)))
+          }));
+      }
+    }
+
+    if (!extractedText && !ocrWords.length) {
+      extractedText = rawContent
+        .replace(/```(?:json)?\s*/gi, '')
+        .replace(/```/g, '')
+        .trim();
+    }
+
+    if (!extractedText && !ocrWords.length) {
+      throw new Error('No readable text extracted by multimodal model');
+    }
+
+    if (ocrWords.length > 0) {
+      const structured = extractionService.reconstructStructuredTableLayout(ocrWords);
+      if (structured.structuredText && structured.structuredText.length >= extractedText.length) {
+        extractedText = structured.structuredText;
+      }
+    }
+
+    return {
+      text: extractedText,
+      ocrWords,
+      method: 'multimodal-gemma4-vision'
+    };
+  }
+
+  async _queryLlamaChat(payload) {
+    return new Promise((resolve, reject) => {
+      const data = JSON.stringify(payload);
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: this._port,
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data)
+        },
+        timeout: 45000
+      }, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          try {
+            if (res.statusCode !== 200) {
+              return reject(new Error(`Chat completion returned status ${res.statusCode}: ${body}`));
+            }
+            const parsed = JSON.parse(body);
+            const content = parsed.choices?.[0]?.message?.content || '';
+            resolve(content);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Multimodal chat request timed out'));
+      });
+
+      req.write(data);
+      req.end();
+    });
+  }
+
+  async _queryLlamaCompletion(payload) {
+    return new Promise((resolve, reject) => {
+      const data = JSON.stringify(payload);
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: this._port,
+        path: '/completion',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data)
+        },
+        timeout: 45000
+      }, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          try {
+            if (res.statusCode !== 200) {
+              return reject(new Error(`Completion returned status ${res.statusCode}: ${body}`));
+            }
+            const parsed = JSON.parse(body);
+            resolve(parsed.content || '');
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Completion request timed out'));
       });
 
       req.write(data);

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Automated provisioning script to download Gemma 2 2B GGUF model and llama-server.exe
+ * Automated provisioning script to download Gemma-4-E2B Multimodal GGUF model and CPU llama-server.exe
  * into the project's bin/ and models/ directories so that the app automatically
  * bundles and configures them during packaging and startup.
  */
@@ -11,9 +11,11 @@ const path = require('node:path');
 const https = require('node:https');
 const { exec, spawn } = require('node:child_process');
 
-const MODEL_URL = 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf';
-const MODEL_NAME = 'gemma-2-2b-it-Q4_K_M.gguf';
-const LLAMA_WIN_BIN_URL = 'https://github.com/ggml-org/llama.cpp/releases/download/b4759/llama-b4759-bin-win-avx2-x64.zip';
+const MODEL_URL = 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf';
+const MODEL_NAME = 'gemma-4-e2b.gguf';
+const MMPROJ_URL = 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf';
+const MMPROJ_NAME = 'mmproj-gemma-4-e2b.gguf';
+const LLAMA_WIN_BIN_URL = 'https://github.com/ggml-org/llama.cpp/releases/download/b11384/llama-b11384-bin-win-cpu-x64.zip';
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const MODELS_DIR = path.join(ROOT_DIR, 'models');
@@ -130,7 +132,7 @@ async function main() {
   if (fs.existsSync(targetModelPath)) {
     console.log(`✓ Model already present: ${targetModelPath}`);
   } else {
-    console.log(`\nDownloading Gemma 2 2B Q4_K_M GGUF (~1.6 GB)...`);
+    console.log(`\nDownloading Gemma-4-E2B Q4_K_M GGUF (~2.9 GB)...`);
     try {
       await downloadFile(MODEL_URL, targetModelPath);
       console.log(`✓ Model saved to: ${targetModelPath}`);
@@ -139,6 +141,19 @@ async function main() {
       console.log(`\nYou can manually download "${MODEL_NAME}" from:`);
       console.log(`  ${MODEL_URL}`);
       console.log(`and place it in:\n  ${MODELS_DIR}\n`);
+    }
+  }
+
+  const targetMmprojPath = path.join(MODELS_DIR, MMPROJ_NAME);
+  if (fs.existsSync(targetMmprojPath)) {
+    console.log(`✓ Multimodal projector already present: ${targetMmprojPath}`);
+  } else {
+    console.log(`\nDownloading Gemma-4-E2B Vision Projector (~940 MB)...`);
+    try {
+      await downloadFile(MMPROJ_URL, targetMmprojPath);
+      console.log(`✓ Projector saved to: ${targetMmprojPath}`);
+    } catch (err) {
+      console.error(`\nNote: Vision projector download skipped: ${err.message}`);
     }
   }
 
