@@ -78,7 +78,6 @@
           <!-- Restore Vault Form -->
           <div id="form-restore-container" class="hidden">
             <div class="security-notice">
-              <span>📦</span>
               <span>Restore a portable encrypted <strong>.fvbackup</strong> archive. The backup integrity is cryptographically validated before restoring.</span>
             </div>
 
@@ -435,15 +434,14 @@
               <span id="import-analysis-badge" class="badge badge-blue" style="font-size: 10px;">Reading file...</span>
             </div>
             <div style="width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
-              <div id="import-analysis-progress-bar" style="width: 25%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); transition: width 0.3s ease;"></div>
+              <div id="import-analysis-progress-bar" style="width: 25%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); transition: width 1.2s cubic-bezier(.22, 1, .36, 1);"></div>
             </div>
           </div>
 
           <!-- Auto-Analysis Detection Summary Banner -->
-          <div id="import-analysis-banner" class="hidden" style="margin-top: 6px; margin-bottom: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); font-size: 12px; color: #6ee7b7; display: flex; align-items: flex-start; gap: 8px;">
-            <span style="font-size: 15px;">✨</span>
+          <div id="import-analysis-banner" class="hidden" style="margin-top: 6px; margin-bottom: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(69, 45, 29, 0.32); border: 1px solid rgba(167, 121, 82, 0.28); font-size: 12px; color: #d8c5b3; display: flex; align-items: flex-start; gap: 8px;">
             <div style="flex: 1;">
-              <strong style="color: #a7f3d0; display: block; margin-bottom: 2px;">Smart Auto-Fill Applied</strong>
+              <strong style="color: #e1c6a9; display: block; margin-bottom: 2px;">Smart Auto-Fill Applied</strong>
               <span id="import-analysis-banner-details" style="color: #cbd5e1; font-size: 11px;">Category, Person, and Tags detected from extracted OCR text. You can freely edit any field below before saving.</span>
             </div>
           </div>

@@ -47,7 +47,8 @@ const DocumentFilterSchema = z.object({
   category: z.string().optional(),
   person: z.string().optional(),
   tag: z.string().optional(),
-  search: z.string().optional()
+  search: z.string().optional(),
+  expiryFilter: z.enum(['expiring_soon', 'expired', 'has_expiry']).optional()
 }).optional();
 
 const AiAskStreamSchema = z.object({

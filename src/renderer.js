@@ -466,7 +466,7 @@ function updateTagBar() {
 // Load & Filter Documents
 async function loadDocuments() {
   try {
-    if (searchMode === 'semantic' && currentSearch) {
+    if (searchMode === 'semantic' && currentSearch && !currentExpiryFilter) {
       try {
         const semanticMatches = await window.familyVault.searchSemantic({ query: currentSearch, limit: 15 });
         if (semanticMatches && semanticMatches.length > 0) {
@@ -762,7 +762,47 @@ function renderDocuments() {
   }
   emptyState.classList.add('hidden');
 
+  const categoryLabels = {
+    identity: 'Identity & Passports',
+    insurance: 'Insurance',
+    medical: 'Medical Records',
+    tax: 'Tax & Finance',
+    property: 'Property & Legal',
+    other: 'Other'
+  };
+  const categoryOrder = ['identity', 'insurance', 'medical', 'tax', 'property', 'other'];
+  const documentGroups = new Map();
   documents.forEach(doc => {
+    const category = String(doc.category || 'other').trim().toLowerCase() || 'other';
+    if (!documentGroups.has(category)) documentGroups.set(category, []);
+    documentGroups.get(category).push(doc);
+  });
+
+  const sortedCategories = [...documentGroups.keys()].sort((a, b) => {
+    const aIndex = categoryOrder.indexOf(a);
+    const bIndex = categoryOrder.indexOf(b);
+    if (aIndex >= 0 || bIndex >= 0) {
+      return (aIndex < 0 ? categoryOrder.length : aIndex) - (bIndex < 0 ? categoryOrder.length : bIndex);
+    }
+    return a.localeCompare(b);
+  });
+
+  sortedCategories.forEach(category => {
+    const categoryDocs = documentGroups.get(category);
+    const categorySection = document.createElement('section');
+    categorySection.className = 'doc-category-section';
+
+    const categoryHeading = document.createElement('div');
+    categoryHeading.className = 'doc-category-heading';
+    const categoryLabel = categoryLabels[category] || category.replace(/[_-]+/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+    categoryHeading.innerHTML = `<h2>${escapeHtml(categoryLabel)}</h2><span>${categoryDocs.length} ${categoryDocs.length === 1 ? 'document' : 'documents'}</span>`;
+
+    const categoryGrid = document.createElement('div');
+    categoryGrid.className = 'doc-category-grid';
+    categorySection.append(categoryHeading, categoryGrid);
+    docGrid.appendChild(categorySection);
+
+    categoryDocs.forEach(doc => {
     const card = document.createElement('div');
     card.className = 'doc-card';
     card.addEventListener('click', () => openDocumentDrawer(doc.id));
@@ -842,7 +882,8 @@ function renderDocuments() {
       });
     });
 
-    docGrid.appendChild(card);
+    categoryGrid.appendChild(card);
+    });
   });
 }
 
@@ -922,6 +963,9 @@ sidebarItems.forEach(item => {
     if (exp) {
       currentCategory = '';
       currentExpiryFilter = exp === 'upcoming' ? 'expiring_soon' : 'expired';
+      const filterPersonSelect = document.getElementById('filter-person-select');
+      if (filterPersonSelect) filterPersonSelect.value = '';
+      document.querySelectorAll('.sidebar-member-item').forEach(member => member.classList.remove('active'));
     } else {
       currentCategory = cat || '';
       currentExpiryFilter = '';
@@ -1496,7 +1540,13 @@ importBrowseBtn.addEventListener('click', async () => {
   // Show progress loader inside import modal
   if (importAnalysisLoader) {
     importAnalysisLoader.classList.remove('hidden');
-    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '25%';
+    if (importAnalysisProgressBar) {
+      importAnalysisProgressBar.style.transition = 'none';
+      importAnalysisProgressBar.style.width = '25%';
+      void importAnalysisProgressBar.offsetWidth;
+      importAnalysisProgressBar.style.transition = 'width 18s linear';
+      importAnalysisProgressBar.style.width = '90%';
+    }
     if (importAnalysisStatusText) importAnalysisStatusText.textContent = 'Extracting OCR text & analyzing document...';
     if (importAnalysisBadge) importAnalysisBadge.textContent = 'Reading file...';
   }
@@ -1504,12 +1554,10 @@ importBrowseBtn.addEventListener('click', async () => {
 
   // Smooth visual progress increments
   const timer1 = setTimeout(() => {
-    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '60%';
     if (importAnalysisBadge) importAnalysisBadge.textContent = 'Running OCR...';
   }, 350);
 
   const timer2 = setTimeout(() => {
-    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '85%';
     if (importAnalysisBadge) importAnalysisBadge.textContent = 'Classifying & tagging...';
   }, 900);
 
@@ -1518,7 +1566,10 @@ importBrowseBtn.addEventListener('click', async () => {
     clearTimeout(timer1);
     clearTimeout(timer2);
 
-    if (importAnalysisProgressBar) importAnalysisProgressBar.style.width = '100%';
+    if (importAnalysisProgressBar) {
+      importAnalysisProgressBar.style.transition = 'width .45s ease-out';
+      importAnalysisProgressBar.style.width = '100%';
+    }
     if (importAnalysisBadge) importAnalysisBadge.textContent = 'Complete ✓';
 
     preAnalyzedDocData = analysis;
@@ -1575,7 +1626,7 @@ importBrowseBtn.addEventListener('click', async () => {
         summaryParts.push(`Tags: <em>${escapeHtml(analysis.tags.join(', '))}</em>`);
       }
       const engineBadge = (analysis.method === 'local-ai-gemma4' || analysis.method === 'multimodal-gemma4-vision' || analysis.method === 'local-ai-gemma2')
-        ? '<span class="badge badge-blue" style="font-size: 10px; margin-right: 6px;">✨ Gemma-4 AI</span>'
+        ? '<span class="badge badge-blue" style="font-size: 10px; margin-right: 6px;">Gemma-4 AI</span>'
         : '<span class="badge badge-gray" style="font-size: 10px; margin-right: 6px;">OCR Heuristic</span>';
       importAnalysisBannerDetails.innerHTML = engineBadge + summaryParts.join(' &bull; ') + '. You can edit any details below.';
       importAnalysisBanner.classList.remove('hidden');

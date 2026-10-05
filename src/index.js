@@ -21,6 +21,7 @@ const createWindow = () => {
     minWidth: 900,
     minHeight: 600,
     title: 'FamilyVault',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -43,6 +44,10 @@ const createWindow = () => {
 
   registerIpcHandlers(mainWindow);
 
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.maximize();
+    mainWindow.show();
+  });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 };
 
