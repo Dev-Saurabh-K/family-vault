@@ -332,8 +332,10 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
 }
 
 /* Application shell */
-.top-bar { align-items: center; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); background: rgba(23, 23, 23, .78); border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; min-height: 60px; padding: 10px 20px; }
-.vault-info, .top-bar-actions { align-items: center; display: flex; gap: 10px; }
+.top-bar { align-items: center; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); background: rgba(23, 23, 23, .78); border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; min-height: 60px; padding: 10px 20px; gap: 12px; -webkit-app-region: drag; }
+.vault-info, .top-bar-actions, .window-controls, .app-window-title { align-items: center; display: flex; }
+.vault-info, .top-bar-actions { gap: 10px; }
+.vault-info, .top-bar-actions, .app-window-title { -webkit-app-region: no-drag; }
 .vault-info .vault-title { font-size: 15px; font-weight: 600; line-height: 20px; }
 .vault-brand-icon {
   align-items: center;
@@ -356,6 +358,49 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
   margin-top: 1px;
   opacity: 0.95;
   display: block;
+}
+.app-window-title {
+  color: var(--text-primary);
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  justify-content: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.window-controls {
+  gap: 6px;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+.window-control-btn {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  height: 24px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 24px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.window-control-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.window-control-btn.close {
+  background: rgba(220, 38, 38, 0.18);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+.window-control-btn.close:hover {
+  background: rgba(220, 38, 38, 0.32);
+}
+.window-control-btn:active {
+  transform: translateY(1px);
 }
 
 #btn-open-ai-qa {

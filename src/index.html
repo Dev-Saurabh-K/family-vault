@@ -111,17 +111,13 @@
         <!-- Top Bar -->
         <header class="top-bar">
           <div class="vault-info">
-            <div class="vault-brand-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-              </svg>
-            </div>
             <div>
               <div class="vault-title" id="active-vault-name">MyFamily.vault</div>
               <span class="vault-security-tagline">End-to-End Encrypted &amp; Portable</span>
             </div>
           </div>
+
+          <div class="app-window-title">FamilyVault</div>
 
           <div class="top-bar-actions">
             <button id="btn-open-ai-qa" class="btn btn-primary">Ask Assistant</button>
@@ -133,6 +129,12 @@
             <button id="btn-create-backup" class="btn btn-secondary">Backup</button>
             <button id="btn-change-password-modal" class="btn btn-secondary">Change Password</button>
             <button id="btn-lock-vault" class="btn btn-danger">Lock Vault</button>
+          </div>
+
+          <div class="window-controls" aria-label="Window controls">
+            <button id="btn-window-minimize" class="window-control-btn" aria-label="Minimize">−</button>
+            <button id="btn-window-maximize" class="window-control-btn" aria-label="Maximize">□</button>
+            <button id="btn-window-close" class="window-control-btn close" aria-label="Close">×</button>
           </div>
         </header>
 

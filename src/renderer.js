@@ -48,6 +48,9 @@ const submitRestoreBtn = document.getElementById('submit-restore-btn');
 
 // Workspace
 const activeVaultName = document.getElementById('active-vault-name');
+const btnWindowMinimize = document.getElementById('btn-window-minimize');
+const btnWindowMaximize = document.getElementById('btn-window-maximize');
+const btnWindowClose = document.getElementById('btn-window-close');
 const btnLockVault = document.getElementById('btn-lock-vault');
 const btnChangePasswordModal = document.getElementById('btn-change-password-modal');
 const btnOpenAiQa = document.getElementById('btn-open-ai-qa');
@@ -439,6 +442,19 @@ submitCreateBtn.addEventListener('click', async () => {
 createPasswordInput.addEventListener('input', () => clearInlineError('create-error-banner'));
 createPasswordConfirmInput.addEventListener('input', () => clearInlineError('create-error-banner'));
 createPathInput.addEventListener('input', () => clearInlineError('create-error-banner'));
+
+// Window controls
+btnWindowMinimize.addEventListener('click', () => {
+  window.familyVault.windowControls.minimize();
+});
+
+btnWindowMaximize.addEventListener('click', () => {
+  window.familyVault.windowControls.maximize();
+});
+
+btnWindowClose.addEventListener('click', () => {
+  window.familyVault.windowControls.close();
+});
 
 // Lock Vault
 btnLockVault.addEventListener('click', async () => {

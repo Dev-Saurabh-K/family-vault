@@ -21,6 +21,9 @@ const createWindow = () => {
     minWidth: 900,
     minHeight: 600,
     title: 'FamilyVault',
+    icon: path.join(__dirname, 'assets', 'family-vault-logo.png'),
+    frame: false,
+    autoHideMenuBar: true,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

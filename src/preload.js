@@ -9,6 +9,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 let nextAiRequestId = 0;
 
 contextBridge.exposeInMainWorld('familyVault', {
+  // Window controls
+  windowControls: {
+    minimize: () => ipcRenderer.send('window:minimize'),
+    maximize: () => ipcRenderer.send('window:maximize'),
+    close: () => ipcRenderer.send('window:close')
+  },
+
   // Vault status & lifecycle
   getStatus: () => ipcRenderer.invoke('vault:status'),
   createVault: (args) => ipcRenderer.invoke('vault:create', args),

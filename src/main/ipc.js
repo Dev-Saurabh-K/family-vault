@@ -57,6 +57,28 @@ const AiAskStreamSchema = z.object({
 });
 
 function registerIpcHandlers(mainWindow) {
+  ipcMain.on('window:minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.minimize();
+    }
+  });
+
+  ipcMain.on('window:maximize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize();
+      } else {
+        mainWindow.maximize();
+      }
+    }
+  });
+
+  ipcMain.on('window:close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.close();
+    }
+  });
+
   // Vault lifecycle
   ipcMain.handle('vault:status', async () => {
     return vaultService.getStatus();
