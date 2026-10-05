@@ -15,9 +15,17 @@ const {
   reconstructStructuredTableLayout,
   normalizeExtractedText,
   hasUsableExtractedText,
+  assessExtractedTextQuality,
   meanOcrConfidence,
   shouldTrySecondaryOcr,
-  chooseOcrCandidate
+  chooseOcrCandidate,
+  selectPagesForOcr,
+  selectSparseTextPages,
+  estimateSkewAngle,
+  shouldTryDeskewOcr,
+  shouldTryRightAngleRotation,
+  hasPredominantlyVerticalTextBoxes,
+  selectRightAngleOcrOrientation
 } = require('../src/main/services/extractionService');
 const { VaultService } = require('../src/main/vault/vaultService');
 
@@ -85,6 +93,22 @@ test('ExtractionService: reconstructStructuredTableLayout groups lines and prese
   assert.ok(result.structuredText.includes('Version   \t12.0'));
 });
 
+test('ExtractionService: Scales table row and column grouping to high-resolution OCR geometry', () => {
+  const highResolutionWords = [
+    { text: 'TOTAL', x: 20, y: 150, width: 70, height: 30, confidence: 96 },
+    { text: '$100.00', x: 260, y: 156, width: 110, height: 30, confidence: 96 },
+    { text: 'Product', x: 20, y: 60, width: 105, height: 36, confidence: 94 },
+    { text: 'A', x: 132, y: 57, width: 18, height: 30, confidence: 94 },
+    { text: '2', x: 260, y: 64, width: 18, height: 30, confidence: 95 },
+    { text: '$50.00', x: 330, y: 60, width: 100, height: 34, confidence: 95 }
+  ];
+
+  const result = reconstructStructuredTableLayout(highResolutionWords);
+  assert.equal(result.lines.length, 2);
+  assert.equal(result.structuredText.split('\n')[0], 'Product A   \t2   \t$50.00');
+  assert.equal(result.structuredText.split('\n')[1], 'TOTAL   \t$100.00');
+});
+
 test('ExtractionService: Normalizes OCR whitespace without changing document values or table rows', () => {
   const rawText = '\u0000  Policy Number: HV-482901.  \r\n\r\n\r\nTOTAL PAYABLE: $1,870.00.   \rItem\tQuantity\tAmount';
   const normalized = normalizeExtractedText(rawText);
@@ -95,6 +119,31 @@ test('ExtractionService: Normalizes OCR whitespace without changing document val
   );
   assert.ok(hasUsableExtractedText(normalized));
   assert.equal(hasUsableExtractedText(' \u0000---... '), false);
+});
+
+test('ExtractionService: Detects corrupt extracted PDF text without rejecting normal tables', () => {
+  const corrupted = 'Policy �� �߿ ��� #### ��� �߿ ��� ### Policy �� ��� ��� �߿';
+  const readableTable = 'ITEM  QTY  AMOUNT\nProduct A  2  $50.00\nTOTAL  $100.00';
+  assert.ok(assessExtractedTextQuality(corrupted) < 0.72);
+  assert.ok(assessExtractedTextQuality(readableTable) >= 0.72);
+});
+
+test('ExtractionService: Samples OCR pages across long PDFs while retaining all short-PDF pages', () => {
+  assert.deepEqual(selectPagesForOcr(2), [1, 2]);
+  assert.deepEqual(selectPagesForOcr(3), [1, 2, 3]);
+  assert.deepEqual(selectPagesForOcr(12), [1, 6, 12]);
+  assert.deepEqual(selectPagesForOcr(12, 2), [1, 12]);
+});
+
+test('ExtractionService: Selects sparse pages from mixed native and scanned PDF text', () => {
+  const pages = [
+    { num: 1, text: 'Page one contains a readable amount due of $100.00.' },
+    { num: 2, text: 'Page two contains readable account details and dates.' },
+    { num: 3, text: '' },
+    { num: 4, text: 'Page four contains readable terms and conditions here.' },
+    { num: 5, text: 'Page five contains a readable signature statement.' }
+  ];
+  assert.deepEqual(selectSparseTextPages(pages), [3]);
 });
 
 test('ExtractionService: Uses OCR confidence to decide when to compare the secondary engine', () => {
@@ -115,6 +164,93 @@ test('ExtractionService: Uses OCR confidence to decide when to compare the secon
     { text: 'Policy N0:', ocrWords: weakPaddleWords, method: 'paddle' },
     { text: 'Policy No: AB-001908', ocrWords: strongTesseractWords, method: 'tesseract' }
   ).method, 'tesseract');
+});
+
+test('ExtractionService: Estimates page skew from word positions and ignores aligned text', () => {
+  const alignedWords = [
+    { text: 'Policy', x: 0, y: 0, width: 25, height: 10 },
+    { text: 'Number', x: 35, y: 0, width: 30, height: 10 },
+    { text: 'AB001', x: 75, y: 0, width: 30, height: 10 }
+  ];
+  const skewedWords = [
+    { text: 'Policy', x: 0, y: 0, width: 25, height: 10 },
+    { text: 'Number', x: 35, y: 2, width: 30, height: 10 },
+    { text: 'AB001', x: 75, y: 4, width: 30, height: 10 }
+  ];
+
+  assert.equal(estimateSkewAngle(alignedWords), 0);
+  assert.ok(estimateSkewAngle(skewedWords) > 1.25);
+  assert.equal(shouldTryDeskewOcr(alignedWords), false);
+  assert.equal(shouldTryDeskewOcr(skewedWords), true);
+});
+
+test('ExtractionService: Flags OCR text with many short fragments for orientation checks', () => {
+  const sidewaysOcr = '3 3 33 E Cs 33 gl Ee gz 4 FEE 22a i gE S 15 i 1 26 4';
+  const readableInvoice = 'Tax Invoice Venkatesh IT Solutions Private Limited Amount Due 61000';
+  const sparseOcr = 'a 2 b 7';
+  const verticalBoxes = Array.from({ length: 8 }, (_, index) => ({
+    text: `word${index}`,
+    x: 0,
+    y: index * 20,
+    width: 8,
+    height: 18,
+    confidence: 90
+  }));
+  assert.equal(shouldTryRightAngleRotation(sidewaysOcr), true);
+  assert.equal(shouldTryRightAngleRotation(sparseOcr), true);
+  assert.equal(shouldTryRightAngleRotation(readableInvoice), false);
+  assert.equal(hasPredominantlyVerticalTextBoxes(verticalBoxes), true);
+  assert.equal(shouldTryRightAngleRotation('Readable extracted line of text with enough useful words', verticalBoxes), true);
+  assert.equal(hasPredominantlyVerticalTextBoxes(verticalBoxes.slice(0, 5)), false);
+});
+
+test('ExtractionService: Chooses a right-angle OCR result only when its text score improves', async () => {
+  const baseline = {
+    data: {
+      text: '3 3 33 E Cs 33 gl Ee gz 4 FEE 22a i gE S 15 i 1 26 4',
+      words: [{ text: '3', bbox: { x0: 0, y0: 0, x1: 4, y1: 8 }, confidence: 40 }]
+    }
+  };
+  const worker = {
+    recognize: async (_image, options) => options.rotateRadians === Math.PI / 2
+      ? {
+        data: {
+          text: 'Tax Invoice Venkatesh IT Solutions Private Limited Amount Due 61000',
+          words: [{ text: 'Invoice', bbox: { x0: 0, y0: 0, x1: 40, y1: 10 }, confidence: 96 }]
+        }
+      }
+      : {
+        data: {
+          text: '3 3 33 E Cs 33 gl Ee gz 4 FEE 22a i gE S 15 i 1 26 4',
+          words: [{ text: '3', bbox: { x0: 0, y0: 0, x1: 4, y1: 8 }, confidence: 40 }]
+        }
+      },
+    terminate: async () => {}
+  };
+  const selected = await selectRightAngleOcrOrientation({
+    createWorker: async () => worker
+  }, Buffer.from('image'), baseline);
+  assert.equal(selected.rotation, Math.PI / 2);
+  assert.match(selected.result.data.text, /Tax Invoice/);
+});
+
+test('ExtractionService: Accepts modest OCR score improvement when the initial scan is unreadable', async () => {
+  const baseline = {
+    data: {
+      text: 'a 2 b 7',
+      words: []
+    }
+  };
+  const worker = {
+    recognize: async (_image, options) => options.rotateRadians === Math.PI / 2
+      ? { data: { text: 'Invoice 12 34 56', words: [] } }
+      : { data: { text: 'a 2 b 7', words: [] } },
+    terminate: async () => {}
+  };
+  const selected = await selectRightAngleOcrOrientation({
+    createWorker: async () => worker
+  }, Buffer.from('image'), baseline);
+  assert.equal(selected.rotation, Math.PI / 2);
 });
 
 test('ExtractionService: Retries low-confidence PaddleOCR and selects the stronger OCR result', async () => {
@@ -163,7 +299,9 @@ test('ExtractionService: Applies OCR confidence comparison to scanned PDF pages'
   const Tesseract = require('tesseract.js');
   const originalPdfParse = pdfParseModule.PDFParse;
   const originalPaddleExtract = paddleOcrService.extractText;
-  const originalRecognize = Tesseract.recognize;
+  const originalCreateWorker = Tesseract.createWorker;
+  let autoRotationEnabled = false;
+  let workerTerminated = false;
 
   pdfParseModule.PDFParse = class {
     async load() {}
@@ -178,21 +316,238 @@ test('ExtractionService: Applies OCR confidence comparison to scanned PDF pages'
     ocrWords: [{ text: 'Expiry', x: 0, y: 0, width: 30, height: 10, confidence: 30 }],
     method: 'ocr-paddleocr-primary'
   });
-  Tesseract.recognize = async () => ({
-    data: {
-      text: 'Expiry date: 2030-08-14',
-      words: [{ text: 'Expiry', bbox: { x0: 0, y0: 0, x1: 30, y1: 10 }, confidence: 95 }]
-    }
+  Tesseract.createWorker = async () => ({
+    recognize: async (_image, options) => {
+      autoRotationEnabled = options.rotateAuto;
+      return {
+        data: {
+          text: 'Expiry date: 2030-08-14',
+          words: [{ text: 'Expiry', bbox: { x0: 0, y0: 0, x1: 30, y1: 10 }, confidence: 95 }]
+        }
+      };
+    },
+    terminate: async () => { workerTerminated = true; }
   });
 
   try {
     const result = await extractTextFromBuffer(Buffer.from('pdf'), 'application/pdf');
     assert.equal(result.method, 'pdf-ocr-tesseract-fallback');
     assert.ok(result.text.includes('Expiry date: 2030-08-14'));
+    assert.equal(autoRotationEnabled, true);
+    assert.equal(workerTerminated, true);
   } finally {
     pdfParseModule.PDFParse = originalPdfParse;
     paddleOcrService.extractText = originalPaddleExtract;
+    Tesseract.createWorker = originalCreateWorker;
+  }
+});
+
+test('ExtractionService: Runs auto-deskew when confident PaddleOCR word positions show skew', async () => {
+  const pdfParseModule = require('pdf-parse');
+  const { paddleOcrService } = require('../src/main/services/paddleOcrService');
+  const Tesseract = require('tesseract.js');
+  const originalPdfParse = pdfParseModule.PDFParse;
+  const originalPaddleExtract = paddleOcrService.extractText;
+  const originalPaddleIsReady = paddleOcrService.isReady;
+  const originalPaddleInitialize = paddleOcrService.initialize;
+  const originalCreateWorker = Tesseract.createWorker;
+  let workerCalls = 0;
+
+  pdfParseModule.PDFParse = class {
+    async load() {}
+    async getText() { return { total: 1, pages: [{}], text: '' }; }
+    async getScreenshot() {
+      return { pages: [{ dataUrl: 'data:image/png;base64,AA==' }] };
+    }
+    async destroy() {}
+  };
+  paddleOcrService.isReady = () => true;
+  paddleOcrService.initialize = async () => {};
+  paddleOcrService.extractText = async () => ({
+    text: 'Policy number AB001908',
+    ocrWords: [
+      { text: 'Policy', x: 0, y: 0, width: 25, height: 10, confidence: 92 },
+      { text: 'number', x: 35, y: 2, width: 30, height: 10, confidence: 92 },
+      { text: 'AB001908', x: 75, y: 4, width: 40, height: 10, confidence: 92 }
+    ],
+    method: 'ocr-paddleocr-primary'
+  });
+  Tesseract.createWorker = async () => ({
+    recognize: async (_image, options) => {
+      assert.equal(options.rotateAuto, true);
+      workerCalls += 1;
+      return {
+        data: {
+          text: 'Policy number AB001908',
+          words: [{ text: 'Policy', bbox: { x0: 0, y0: 0, x1: 30, y1: 10 }, confidence: 98 }]
+        }
+      };
+    },
+    terminate: async () => {}
+  });
+
+  try {
+    const result = await extractTextFromBuffer(Buffer.from('pdf'), 'application/pdf');
+    assert.equal(workerCalls, 1);
+    assert.equal(result.method, 'pdf-ocr-tesseract-fallback');
+    assert.ok(result.text.includes('Policy number AB001908'));
+  } finally {
+    pdfParseModule.PDFParse = originalPdfParse;
+    paddleOcrService.extractText = originalPaddleExtract;
+    paddleOcrService.isReady = originalPaddleIsReady;
+    paddleOcrService.initialize = originalPaddleInitialize;
+    Tesseract.createWorker = originalCreateWorker;
+  }
+});
+
+test('ExtractionService: Replaces corrupted native PDF text with readable OCR output', async () => {
+  const pdfParseModule = require('pdf-parse');
+  const { paddleOcrService } = require('../src/main/services/paddleOcrService');
+  const originalPdfParse = pdfParseModule.PDFParse;
+  const originalPaddleExtract = paddleOcrService.extractText;
+  const originalPaddleIsReady = paddleOcrService.isReady;
+  const originalPaddleInitialize = paddleOcrService.initialize;
+  const Tesseract = require('tesseract.js');
+  const originalRecognize = Tesseract.recognize;
+  Tesseract.recognize = async () => ({
+    data: { text: 'Policy No: AB-001908\nTotal payable: $1,870.00', words: [] }
+  });
+
+  pdfParseModule.PDFParse = class {
+    async load() {}
+    async getText() {
+      return {
+        total: 1,
+        pages: [{}],
+        text: 'Policy �� �߿ ��� #### ��� �߿ ��� ### Policy �� ��� ��� �߿'
+      };
+    }
+    async getScreenshot() {
+      return { pages: [{ dataUrl: 'data:image/png;base64,AA==' }] };
+    }
+    async destroy() {}
+  };
+  paddleOcrService.isReady = () => true;
+  paddleOcrService.initialize = async () => {};
+  paddleOcrService.extractText = async () => ({
+    text: 'Policy No: AB-001908\nTotal payable: $1,870.00',
+    ocrWords: [
+      { text: 'Policy', x: 0, y: 0, width: 30, height: 10, confidence: 95 },
+      { text: 'AB-001908', x: 40, y: 0, width: 60, height: 10, confidence: 96 }
+    ],
+    method: 'ocr-paddleocr-primary'
+  });
+
+  try {
+    const result = await extractTextFromBuffer(Buffer.from('pdf'), 'application/pdf');
+    assert.equal(result.method, 'pdf-ocr-paddleocr-primary');
+    assert.equal(result.text, 'Page 1\nPolicy No: AB-001908\nTotal payable: $1,870.00');
+  } finally {
+    pdfParseModule.PDFParse = originalPdfParse;
+    paddleOcrService.extractText = originalPaddleExtract;
+    paddleOcrService.isReady = originalPaddleIsReady;
+    paddleOcrService.initialize = originalPaddleInitialize;
     Tesseract.recognize = originalRecognize;
+  }
+});
+
+test('ExtractionService: Includes OCR from the last page of a long scanned PDF', async () => {
+  const pdfParseModule = require('pdf-parse');
+  const { paddleOcrService } = require('../src/main/services/paddleOcrService');
+  const originalPdfParse = pdfParseModule.PDFParse;
+  const originalPaddleExtract = paddleOcrService.extractText;
+  const originalPaddleIsReady = paddleOcrService.isReady;
+  const originalPaddleInitialize = paddleOcrService.initialize;
+  const requestedPages = [];
+
+  pdfParseModule.PDFParse = class {
+    async load() {}
+    async getText() { return { total: 12, pages: Array(12).fill({}), text: '' }; }
+    async getScreenshot({ page }) {
+      requestedPages.push(page);
+      return {
+        pages: [{
+          dataUrl: `data:image/png;base64,${Buffer.from(String(page)).toString('base64')}`
+        }]
+      };
+    }
+    async destroy() {}
+  };
+  paddleOcrService.isReady = () => true;
+  paddleOcrService.initialize = async () => {};
+  paddleOcrService.extractText = async image => ({
+    text: image.toString() === '12' ? 'Expiry date: 2032-08-17' : `Page text ${image.toString()}`,
+    ocrWords: [{ text: 'Page', x: 0, y: 0, width: 30, height: 10, confidence: 95 }],
+    method: 'ocr-paddleocr-primary'
+  });
+
+  try {
+    const result = await extractTextFromBuffer(Buffer.from('pdf'), 'application/pdf');
+    assert.deepEqual(requestedPages, [1, 6, 12]);
+    assert.ok(result.text.includes('Page 12\nExpiry date: 2032-08-17'));
+  } finally {
+    pdfParseModule.PDFParse = originalPdfParse;
+    paddleOcrService.extractText = originalPaddleExtract;
+    paddleOcrService.isReady = originalPaddleIsReady;
+    paddleOcrService.initialize = originalPaddleInitialize;
+  }
+});
+
+test('ExtractionService: OCRs only the sparse page in a mixed text/scanned PDF', async () => {
+  const pdfParseModule = require('pdf-parse');
+  const { paddleOcrService } = require('../src/main/services/paddleOcrService');
+  const originalPdfParse = pdfParseModule.PDFParse;
+  const originalPaddleExtract = paddleOcrService.extractText;
+  const originalPaddleIsReady = paddleOcrService.isReady;
+  const originalPaddleInitialize = paddleOcrService.initialize;
+  const requestedPages = [];
+  const nativePages = [
+    { num: 1, text: 'Page one contains a readable amount due of $100.00.' },
+    { num: 2, text: 'Page two contains readable account details and dates.' },
+    { num: 3, text: '' },
+    { num: 4, text: 'Page four contains readable terms and conditions here.' },
+    { num: 5, text: 'Page five contains a readable signature statement.' }
+  ];
+
+  pdfParseModule.PDFParse = class {
+    async load() {}
+    async getText() {
+      return {
+        total: nativePages.length,
+        pages: nativePages,
+        text: nativePages.map(page => page.text).join('\n')
+      };
+    }
+    async getScreenshot({ page }) {
+      requestedPages.push(page);
+      return {
+        pages: [{
+          dataUrl: `data:image/png;base64,${Buffer.from(String(page)).toString('base64')}`
+        }]
+      };
+    }
+    async destroy() {}
+  };
+  paddleOcrService.isReady = () => true;
+  paddleOcrService.initialize = async () => {};
+  paddleOcrService.extractText = async image => ({
+    text: `Scanned page ${image.toString()} expiry date: 2032-08-17`,
+    ocrWords: [{ text: 'Scanned', x: 0, y: 0, width: 40, height: 10, confidence: 95 }],
+    method: 'ocr-paddleocr-primary'
+  });
+
+  try {
+    const result = await extractTextFromBuffer(Buffer.from('pdf'), 'application/pdf');
+    assert.deepEqual(requestedPages, [3]);
+    assert.equal(result.method, 'pdf-ocr-paddleocr-primary');
+    assert.ok(result.text.includes('Page 1\nPage one contains a readable amount due of $100.00.'));
+    assert.ok(result.text.includes('Page 3\nScanned page 3 expiry date: 2032-08-17'));
+    assert.ok(result.text.includes('Page 5\nPage five contains a readable signature statement.'));
+  } finally {
+    pdfParseModule.PDFParse = originalPdfParse;
+    paddleOcrService.extractText = originalPaddleExtract;
+    paddleOcrService.isReady = originalPaddleIsReady;
+    paddleOcrService.initialize = originalPaddleInitialize;
   }
 });
 
@@ -258,6 +613,65 @@ test('ExtractionService: Falls back from unusable PaddleOCR text and preserves e
   } finally {
     paddleOcrService.extractText = originalPaddleExtract;
     Tesseract.recognize = originalRecognize;
+  }
+});
+
+test('ExtractionService: Automatically checks right-angle orientations for sideways image OCR', async () => {
+  const { paddleOcrService } = require('../src/main/services/paddleOcrService');
+  const Tesseract = require('tesseract.js');
+  const originalPaddleExtract = paddleOcrService.extractText;
+  const originalPaddleIsReady = paddleOcrService.isReady;
+  const originalPaddleInitialize = paddleOcrService.initialize;
+  const originalRecognize = Tesseract.recognize;
+  const originalCreateWorker = Tesseract.createWorker;
+  let rotatedCandidateCalls = 0;
+  const sidewaysOcr = '3 3 33 E Cs 33 gl Ee gz 4 FEE 22a i gE S 15 i 1 26 4';
+
+  paddleOcrService.isReady = () => true;
+  paddleOcrService.initialize = async () => {};
+  paddleOcrService.extractText = async () => ({
+    text: sidewaysOcr,
+    ocrWords: [{ text: '3', x: 0, y: 0, width: 4, height: 8, confidence: 90 }],
+    method: 'ocr-paddleocr-primary'
+  });
+  Tesseract.recognize = async () => ({
+    data: {
+      text: sidewaysOcr,
+      words: [{ text: '3', bbox: { x0: 0, y0: 0, x1: 4, y1: 8 }, confidence: 40 }]
+    }
+  });
+  Tesseract.createWorker = async () => ({
+    recognize: async (_image, options) => {
+      rotatedCandidateCalls += 1;
+      return options.rotateRadians === Math.PI / 2
+        ? {
+          data: {
+            text: 'Tax Invoice Venkatesh IT Solutions Private Limited Amount Due 61000',
+            words: [{ text: 'Invoice', bbox: { x0: 0, y0: 0, x1: 40, y1: 10 }, confidence: 70 }]
+          }
+        }
+        : {
+          data: {
+            text: sidewaysOcr,
+            words: [{ text: '3', bbox: { x0: 0, y0: 0, x1: 4, y1: 8 }, confidence: 40 }]
+          }
+        };
+    },
+    terminate: async () => {}
+  });
+
+  try {
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const result = await extractTextFromBuffer(image, 'image/png');
+    assert.equal(rotatedCandidateCalls, 3);
+    assert.equal(result.method, 'ocr-tesseract-auto-rotated');
+    assert.match(result.text, /Tax Invoice Venkatesh IT Solutions/);
+  } finally {
+    paddleOcrService.extractText = originalPaddleExtract;
+    paddleOcrService.isReady = originalPaddleIsReady;
+    paddleOcrService.initialize = originalPaddleInitialize;
+    Tesseract.recognize = originalRecognize;
+    Tesseract.createWorker = originalCreateWorker;
   }
 });
 

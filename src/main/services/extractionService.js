@@ -85,29 +85,42 @@ function reconstructStructuredTableLayout(ocrWords, lineThreshold = 12, columnGa
     return { structuredText: '', lines: [] };
   }
 
-  // Sort words vertically first (y), then horizontally (x)
+  const heights = ocrWords
+    .map(word => Number(word.height))
+    .filter(height => Number.isFinite(height) && height > 0)
+    .sort((a, b) => a - b);
+  const medianHeight = heights.length
+    ? heights[Math.floor(heights.length / 2)]
+    : 0;
+  const adaptiveLineThreshold = Math.max(lineThreshold, medianHeight * 0.6);
+  const adaptiveColumnThreshold = Math.max(columnGapThreshold, medianHeight * 1.5);
+
+  // Use vertical centers so mixed glyph heights and scaled scans group consistently.
   const sorted = [...ocrWords].sort((a, b) => {
-    if (Math.abs(a.y - b.y) <= lineThreshold) {
-      return a.x - b.x;
-    }
-    return a.y - b.y;
+    const centerDifference = (a.y + a.height / 2) - (b.y + b.height / 2);
+    return centerDifference || a.x - b.x;
   });
 
   const lines = [];
   let currentLine = [];
-  let currentLineY = null;
+  let currentLineCenter = 0;
 
   for (const word of sorted) {
-    if (currentLineY === null) {
+    const wordCenter = word.y + word.height / 2;
+    if (currentLine.length === 0) {
       currentLine.push(word);
-      currentLineY = word.y;
-    } else if (Math.abs(word.y - currentLineY) <= lineThreshold) {
+      currentLineCenter = wordCenter;
+    } else if (Math.abs(wordCenter - currentLineCenter) <= adaptiveLineThreshold) {
       currentLine.push(word);
+      currentLineCenter = currentLine.reduce(
+        (sum, lineWord) => sum + lineWord.y + lineWord.height / 2,
+        0
+      ) / currentLine.length;
     } else {
       currentLine.sort((a, b) => a.x - b.x);
       lines.push(currentLine);
       currentLine = [word];
-      currentLineY = word.y;
+      currentLineCenter = wordCenter;
     }
   }
 
@@ -125,7 +138,7 @@ function reconstructStructuredTableLayout(ocrWords, lineThreshold = 12, columnGa
         lineStr += w.text;
       } else {
         const gap = w.x - lastRight;
-        if (gap >= columnGapThreshold) {
+        if (gap >= adaptiveColumnThreshold) {
           lineStr += '   \t' + w.text;
         } else {
           lineStr += ' ' + w.text;
@@ -157,6 +170,20 @@ function hasUsableExtractedText(text) {
   return /[\p{L}\p{N}]/u.test(normalizeExtractedText(text));
 }
 
+function assessExtractedTextQuality(text) {
+  const normalized = normalizeExtractedText(text);
+  if (!hasUsableExtractedText(normalized)) return 0;
+
+  const visible = normalized.replace(/\s/g, '');
+  if (!visible.length) return 0;
+  const useful = (visible.match(/[\p{L}\p{N}.,:;!?%$€£()/#&'"-]/gu) || []).length;
+  const replacementMarks = (visible.match(/[�□]/g) || []).length;
+  const controlMarks = (visible.match(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g) || []).length;
+  const usefulRatio = useful / visible.length;
+  const corruptionPenalty = Math.min(0.75, ((replacementMarks + controlMarks) / visible.length) * 3);
+  return Math.max(0, Math.min(1, usefulRatio - corruptionPenalty));
+}
+
 function meanOcrConfidence(ocrWords) {
   const confidences = (Array.isArray(ocrWords) ? ocrWords : [])
     .map(word => Number(word?.confidence))
@@ -171,6 +198,127 @@ function shouldTrySecondaryOcr(text, ocrWords) {
   return confidence !== null && confidence < 65;
 }
 
+function estimateSkewAngle(ocrWords) {
+  const words = (Array.isArray(ocrWords) ? ocrWords : [])
+    .filter(word => Number.isFinite(word?.x)
+      && Number.isFinite(word?.y)
+      && Number.isFinite(word?.width)
+      && Number.isFinite(word?.height)
+      && word.width > 0
+      && word.height > 0)
+    .sort((a, b) => a.x - b.x);
+  const heights = words.map(word => word.height).sort((a, b) => a - b);
+  if (heights.length < 3) return 0;
+
+  const medianHeight = heights[Math.floor(heights.length / 2)];
+  const angles = [];
+  for (let leftIndex = 0; leftIndex < words.length - 1; leftIndex++) {
+    const left = words[leftIndex];
+    const leftCenterY = left.y + left.height / 2;
+    for (let rightIndex = leftIndex + 1; rightIndex < words.length; rightIndex++) {
+      const right = words[rightIndex];
+      const horizontalDistance = right.x + right.width / 2 - (left.x + left.width / 2);
+      const gap = right.x - (left.x + left.width);
+      if (horizontalDistance < medianHeight * 1.5) continue;
+      if (gap > medianHeight * 8) break;
+
+      const verticalDifference = right.y + right.height / 2 - leftCenterY;
+      if (Math.abs(verticalDifference) > Math.min(medianHeight * 1.5, horizontalDistance * 0.12)) {
+        continue;
+      }
+
+      const angle = Math.atan2(verticalDifference, horizontalDistance) * (180 / Math.PI);
+      if (Math.abs(angle) <= 8) angles.push(angle);
+    }
+  }
+
+  if (angles.length < 2) return 0;
+  angles.sort((a, b) => a - b);
+  return angles[Math.floor(angles.length / 2)];
+}
+
+function shouldTryDeskewOcr(ocrWords) {
+  return Math.abs(estimateSkewAngle(ocrWords)) >= 1.25;
+}
+
+function hasPredominantlyVerticalTextBoxes(ocrWords) {
+  const positionedWords = (Array.isArray(ocrWords) ? ocrWords : [])
+    .filter(word => Number.isFinite(word?.width)
+      && Number.isFinite(word?.height)
+      && word.width > 0
+      && word.height > 0);
+  if (positionedWords.length < 6) return false;
+
+  const verticalWordRatio = positionedWords
+    .filter(word => word.height >= word.width * 1.25)
+    .length / positionedWords.length;
+  return verticalWordRatio >= 0.7;
+}
+
+function shouldTryRightAngleRotation(text, ocrWords = []) {
+  if (hasPredominantlyVerticalTextBoxes(ocrWords)) return true;
+  const tokens = normalizeExtractedText(text).match(/[\p{L}\p{N}]+/gu) || [];
+  if (tokens.length === 0) return false;
+  const shortTokenRatio = tokens.filter(token => token.length <= 2).length / tokens.length;
+  const meaningfulTokenRatio = tokens.filter(token => token.length >= 3).length / tokens.length;
+  if (tokens.length < 15) {
+    return (tokens.length <= 6 && shortTokenRatio >= 0.65 && meaningfulTokenRatio < 0.65)
+      || (!ocrWords.length && normalizeExtractedText(text).length < 40);
+  }
+  return shortTokenRatio >= 0.3 && meaningfulTokenRatio < 0.65;
+}
+
+function scoreOcrText(text, ocrWords) {
+  const normalizedText = normalizeExtractedText(text);
+  const tokens = normalizedText.match(/[\p{L}\p{N}]+/gu) || [];
+  if (!tokens.length) return 0;
+
+  const meaningfulTokenRatio = tokens.filter(token => token.length >= 3).length / tokens.length;
+  const confidence = meanOcrConfidence(ocrWords) ?? 0;
+  return confidence * 0.5 + meaningfulTokenRatio * 40;
+}
+
+function scoreOcrOrientation(result) {
+  return scoreOcrText(
+    result?.data?.text,
+    extractOcrWordCoordinates(result?.data)
+  );
+}
+
+async function selectRightAngleOcrOrientation(Tesseract, image, baselineResult) {
+  const worker = await Tesseract.createWorker('eng');
+  try {
+    let best = {
+      result: baselineResult,
+      rotation: 0,
+      score: scoreOcrOrientation(baselineResult)
+    };
+
+    for (const rotation of [Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const result = await worker.recognize(image, { rotateRadians: rotation });
+      const score = scoreOcrOrientation(result);
+      if (score > best.score) best = { result, rotation, score };
+    }
+
+    const baselineScore = scoreOcrOrientation(baselineResult);
+    const requiredImprovement = baselineScore < 30 ? 3 : 8;
+    return best.rotation !== 0 && best.score >= baselineScore + requiredImprovement
+      ? best
+      : { result: baselineResult, rotation: 0, score: baselineScore };
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function recognizePdfPageWithDeskew(Tesseract, image) {
+  const worker = await Tesseract.createWorker('eng');
+  try {
+    return await worker.recognize(image, { rotateAuto: true });
+  } finally {
+    await worker.terminate();
+  }
+}
+
 function chooseOcrCandidate(primary, secondary) {
   if (!primary || !hasUsableExtractedText(primary.text)) {
     return secondary && hasUsableExtractedText(secondary.text) ? secondary : null;
@@ -181,6 +329,38 @@ function chooseOcrCandidate(primary, secondary) {
   const secondaryConfidence = meanOcrConfidence(secondary.ocrWords);
   if (primaryConfidence === null || secondaryConfidence === null) return primary;
   return secondaryConfidence > primaryConfidence ? secondary : primary;
+}
+
+function selectPagesForOcr(pageCount, maxPages = 3) {
+  const totalPages = Math.max(1, Math.floor(Number(pageCount) || 1));
+  const limit = Math.max(1, Math.floor(Number(maxPages) || 1));
+  if (totalPages <= limit) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+  if (limit === 1) return [1];
+
+  const selected = new Set();
+  for (let index = 0; index < limit; index++) {
+    selected.add(1 + Math.floor((index * (totalPages - 1)) / (limit - 1)));
+  }
+  return [...selected].sort((a, b) => a - b);
+}
+
+function selectSparseTextPages(pages, maxPages = 3) {
+  if (!Array.isArray(pages) || !pages.length) return [];
+  const sparsePages = pages.map((page, index) => ({
+    page,
+    pageNumber: typeof page === 'object' && Number.isInteger(page?.num)
+      ? page.num
+      : index + 1
+  })).filter(({ page }) => {
+    const text = normalizeExtractedText(typeof page === 'string' ? page : page?.text);
+    return text.length < 40 || assessExtractedTextQuality(text) < 0.72;
+  }).map(({ pageNumber }) => pageNumber);
+  if (sparsePages.length <= maxPages) return sparsePages;
+  const selectedIndices = selectPagesForOcr(sparsePages.length, maxPages)
+    .map(pageNumber => pageNumber - 1);
+  return selectedIndices.map(index => sparsePages[index]);
 }
 
 /**
@@ -204,27 +384,43 @@ async function extractTextFromBuffer(buffer, mimeType) {
           ? textResult.text.trim()
           : (typeof textResult === 'string' ? textResult.trim() : '');
         text = normalizeExtractedText(text);
+        const nativePages = Array.isArray(textResult?.pages)
+          ? textResult.pages.map((page, index) => ({
+            num: Number.isInteger(page?.num) ? page.num : index + 1,
+            text: typeof page === 'string' ? page : typeof page?.text === 'string' ? page.text : null
+          }))
+          : [];
+        const hasPageText = nativePages.length === pageCount
+          && nativePages.every(page => typeof page.text === 'string');
 
         // If native PDF text is absent or insufficient (e.g. scanned ticket or photo PDF),
         // automatically perform OCR on rendered page screenshots
         const cleanedText = normalizeExtractedText(text.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, ''));
         let method = 'native-pdf';
 
-        if (cleanedText.length < 40) {
+        const nativeTextQuality = assessExtractedTextQuality(cleanedText);
+        const pagesToOcr = hasPageText
+          ? selectSparseTextPages(nativePages, 3)
+          : cleanedText.length < 40 || nativeTextQuality < 0.72
+            ? selectPagesForOcr(pageCount, 3)
+            : [];
+
+        if (pagesToOcr.length > 0) {
           try {
-            const pagesToOcr = Math.min(pageCount, 3);
             const ocrPages = [];
-            let combinedOcrLength = 0;
             const allWords = [];
+            const ocrTextByPage = new Map();
             let usedPaddle = false;
             let usedTesseract = false;
+            let usedAutoRotation = false;
 
-            for (let p = 1; p <= pagesToOcr; p++) {
+            for (const p of pagesToOcr) {
               const shot = await parser.getScreenshot({ page: p });
               if (shot && shot.pages && shot.pages[0] && shot.pages[0].dataUrl) {
                 const dataUrl = shot.pages[0].dataUrl;
                 const imgBuf = Buffer.from(dataUrl.replace(/^data:image\/\w+;base64,/, ''), 'base64');
                 let pageCandidate = null;
+                let candidateWords = [];
 
                 // 1. Primary: Local PaddleOCR PP-OCRv5 via onnxruntime-node
                 try {
@@ -237,15 +433,15 @@ async function extractTextFromBuffer(buffer, mimeType) {
                       const paddleRes = await paddleOcrService.extractText(imgBuf);
                       if (paddleRes) {
                         const paddleText = normalizeExtractedText(paddleRes.text);
-                        pageWords = Array.isArray(paddleRes.ocrWords) ? paddleRes.ocrWords : [];
-                        const structuredPage = reconstructStructuredTableLayout(pageWords).structuredText;
+                        candidateWords = Array.isArray(paddleRes.ocrWords) ? paddleRes.ocrWords : [];
+                        const structuredPage = reconstructStructuredTableLayout(candidateWords).structuredText;
                         const candidateText = structuredPage.length >= paddleText.length
                           ? structuredPage
                           : paddleText;
                         if (hasUsableExtractedText(candidateText)) {
                           pageCandidate = {
                             text: candidateText,
-                            ocrWords: pageWords,
+                            ocrWords: candidateWords,
                             method: 'paddle'
                           };
                         }
@@ -257,10 +453,30 @@ async function extractTextFromBuffer(buffer, mimeType) {
                 }
 
                 // 2. Fallback: Local Tesseract.js upon PaddleOCR failure or unavailability
-                if (shouldTrySecondaryOcr(pageCandidate?.text, pageCandidate?.ocrWords)) {
+                const tryDeskew = shouldTryDeskewOcr(pageCandidate?.ocrWords);
+                const tryRightAngleRotation = shouldTryRightAngleRotation(
+                  pageCandidate?.text,
+                  pageCandidate?.ocrWords
+                );
+                if (shouldTrySecondaryOcr(pageCandidate?.text, pageCandidate?.ocrWords)
+                  || tryDeskew
+                  || tryRightAngleRotation) {
                   try {
                     const Tesseract = require('tesseract.js');
-                    const ocrResult = await Tesseract.recognize(dataUrl, 'eng');
+                    let ocrResult = await recognizePdfPageWithDeskew(Tesseract, dataUrl);
+                    let rotation = 0;
+                    if (tryRightAngleRotation || shouldTryRightAngleRotation(
+                      ocrResult?.data?.text,
+                      extractOcrWordCoordinates(ocrResult?.data)
+                    )) {
+                      const selectedOrientation = await selectRightAngleOcrOrientation(
+                        Tesseract,
+                        dataUrl,
+                        ocrResult
+                      );
+                      ocrResult = selectedOrientation.result;
+                      rotation = selectedOrientation.rotation;
+                    }
                     const tessWords = extractOcrWordCoordinates(ocrResult?.data);
                     const tessText = normalizeExtractedText(ocrResult?.data?.text);
                     const structuredPage = reconstructStructuredTableLayout(tessWords).structuredText;
@@ -268,11 +484,17 @@ async function extractTextFromBuffer(buffer, mimeType) {
                       ? structuredPage
                       : tessText;
                     if (hasUsableExtractedText(candidateText)) {
-                      pageCandidate = chooseOcrCandidate(pageCandidate, {
+                      const tesseractCandidate = {
                         text: candidateText,
                         ocrWords: tessWords,
-                        method: 'tesseract'
-                      });
+                        method: 'tesseract',
+                        rotation
+                      };
+                      pageCandidate = rotation
+                        && scoreOcrText(tesseractCandidate.text, tesseractCandidate.ocrWords)
+                          > scoreOcrText(pageCandidate?.text, pageCandidate?.ocrWords)
+                        ? tesseractCandidate
+                        : chooseOcrCandidate(pageCandidate, tesseractCandidate);
                     }
                   } catch (tessErr) {}
                 }
@@ -282,17 +504,53 @@ async function extractTextFromBuffer(buffer, mimeType) {
                 if (pageText) {
                   if (pageCandidate.method === 'paddle') usedPaddle = true;
                   if (pageCandidate.method === 'tesseract') usedTesseract = true;
-                  ocrPages.push(`Page ${p}\n${pageText}`);
-                  combinedOcrLength += pageText.length;
+                  if (pageCandidate.rotation) {
+                    usedTesseract = true;
+                    usedAutoRotation = true;
+                  }
+                  ocrTextByPage.set(p, pageText);
                   allWords.push(...pageWords);
                 }
               }
             }
-            if (combinedOcrLength > cleanedText.length) {
+
+            let replacedPage = false;
+            if (hasPageText) {
+              for (const page of nativePages) {
+                const ocrText = ocrTextByPage.get(page.num);
+                if (!ocrText) continue;
+                const nativePageText = normalizeExtractedText(page.text);
+                const improvesQuality = assessExtractedTextQuality(ocrText)
+                  >= assessExtractedTextQuality(nativePageText) + 0.08;
+                const fillsSparsePage = nativePageText.length < 40
+                  && ocrText.length > nativePageText.length;
+                if (improvesQuality || fillsSparsePage) {
+                  page.text = ocrText;
+                  replacedPage = true;
+                }
+              }
+              if (replacedPage) {
+                text = normalizeExtractedText(nativePages
+                  .map(page => `Page ${page.num}\n${normalizeExtractedText(page.text)}`)
+                  .join('\n\n'));
+              }
+            } else {
+              ocrPages.push(...[...ocrTextByPage.entries()]
+                .sort(([a], [b]) => a - b)
+                .map(([pageNumber, pageText]) => `Page ${pageNumber}\n${pageText}`));
+              const ocrText = normalizeExtractedText(ocrPages.join('\n\n'));
+              const ocrTextQuality = assessExtractedTextQuality(ocrText);
+              replacedPage = ocrTextQuality >= nativeTextQuality + 0.08
+                || (cleanedText.length < 40 && ocrText.length > cleanedText.length);
+              if (replacedPage) text = ocrText;
+            }
+
+            if (replacedPage) {
               ocrWords = allWords;
-              text = normalizeExtractedText(ocrPages.join('\n\n'));
-              method = usedPaddle && usedTesseract
-                ? 'pdf-ocr-mixed'
+              method = usedAutoRotation
+                ? usedPaddle ? 'pdf-ocr-mixed-auto-rotated' : 'pdf-ocr-tesseract-auto-rotated'
+                : usedPaddle && usedTesseract
+                  ? 'pdf-ocr-mixed'
                 : usedPaddle
                   ? 'pdf-ocr-paddleocr-primary'
                   : 'pdf-ocr-tesseract-fallback';
@@ -355,7 +613,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
               ocrWords,
               method: paddleRes.method || 'ocr-paddleocr-primary'
             };
-            if (!shouldTrySecondaryOcr(text, ocrWords)) {
+            if (!shouldTrySecondaryOcr(text, ocrWords) && !shouldTryRightAngleRotation(text, ocrWords)) {
               return { ...paddleCandidate, pageCount: 1 };
             }
           }
@@ -368,11 +626,18 @@ async function extractTextFromBuffer(buffer, mimeType) {
     // 2. Use Tesseract when PaddleOCR fails or reports low word confidence.
     try {
       const Tesseract = require('tesseract.js');
-      const res = await Tesseract.recognize(buffer, 'eng').catch(() => null);
+      let res = await Tesseract.recognize(buffer, 'eng').catch(() => null);
       if (!res || !res.data) {
         return paddleCandidate
           ? { ...paddleCandidate, pageCount: 1 }
           : { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
+      }
+      let rotation = 0;
+      if (shouldTryRightAngleRotation(paddleCandidate?.text, paddleCandidate?.ocrWords)
+        || shouldTryRightAngleRotation(res.data.text, extractOcrWordCoordinates(res.data))) {
+        const selectedOrientation = await selectRightAngleOcrOrientation(Tesseract, buffer, res);
+        res = selectedOrientation.result;
+        rotation = selectedOrientation.rotation;
       }
       const rawText = normalizeExtractedText(res.data.text);
       ocrWords = extractOcrWordCoordinates(res.data);
@@ -388,10 +653,14 @@ async function extractTextFromBuffer(buffer, mimeType) {
 
       const tesseractCandidate = {
         text,
-        method: 'ocr-tesseract-fallback',
+        method: rotation ? 'ocr-tesseract-auto-rotated' : 'ocr-tesseract-fallback',
         ocrWords
       };
-      const selected = chooseOcrCandidate(paddleCandidate, tesseractCandidate);
+      const selected = rotation
+        && scoreOcrText(tesseractCandidate.text, tesseractCandidate.ocrWords)
+          > scoreOcrText(paddleCandidate?.text, paddleCandidate?.ocrWords)
+        ? tesseractCandidate
+        : chooseOcrCandidate(paddleCandidate, tesseractCandidate);
       return selected
         ? { ...selected, pageCount: 1 }
         : { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
@@ -1079,9 +1348,19 @@ module.exports = {
   reconstructStructuredTableLayout,
   normalizeExtractedText,
   hasUsableExtractedText,
+  assessExtractedTextQuality,
   meanOcrConfidence,
   shouldTrySecondaryOcr,
   chooseOcrCandidate,
+  selectPagesForOcr,
+  selectSparseTextPages,
+  estimateSkewAngle,
+  shouldTryDeskewOcr,
+  shouldTryRightAngleRotation,
+  hasPredominantlyVerticalTextBoxes,
+  scoreOcrOrientation,
+  scoreOcrText,
+  selectRightAngleOcrOrientation,
   findDateCandidates,
   analyzeDocumentText,
   computeExpiryStatus,

@@ -132,20 +132,58 @@ Implemented in `src/main/services/extractionService.js`:
    rewriting identifiers, amounts, or table columns.
 2. Native PDF text and image/PDF OCR outputs use the same normalization.
    Scanned PDF OCR preserves page separators in extracted text.
-3. PaddleOCR output must contain at least one letter or digit to be treated as
+3. Native PDF extraction now estimates text quality from readable character
+   content and corruption markers. When its score is low, OCR is tried on the
+   rendered pages and replaces the native text only when its measured text
+   quality is meaningfully stronger (or native text was short and OCR returned
+   more content).
+4. For long scanned PDFs, the bounded three-page OCR pass samples the first,
+   middle, and last pages instead of only the first three. Short PDFs still OCR
+   every page within the three-page limit.
+5. When the PDF parser exposes per-page native text, sparse or corrupted pages
+   are selected for OCR (up to three) even if other pages contain readable
+   selectable text. OCR replaces only a page whose text materially improves
+   or fills an otherwise sparse page; native text from the remaining pages is
+   retained.
+6. PaddleOCR output must contain at least one letter or digit to be treated as
    usable. If not, or if its mean word confidence is below 65, the image/PDF
    flow tries Tesseract and chooses the higher-confidence usable result; if
    Tesseract output is also unusable, the image result is marked
    `ocr-unavailable`.
-4. Scanned PDFs report `pdf-ocr-mixed` when pages used both PaddleOCR and
+7. Scanned PDFs report `pdf-ocr-mixed` when pages used both PaddleOCR and
    Tesseract, instead of implying the entire PDF used only one engine.
-5. OCR cleanup does not autocorrect ambiguous names, dates, or numbers; exact
+8. OCR cleanup does not autocorrect ambiguous names, dates, or numbers; exact
    extracted content remains available for review.
+9. OCR table reconstruction scales its row-alignment and column-gap thresholds
+   from the median detected word height, while preserving the existing pixel
+   thresholds as minimums. This avoids assuming all images have identical
+   resolution and font size.
+10. Scanned PDF pages with weak OCR confidence or word coordinates that indicate
+    a small skew are passed through Tesseract's local automatic gradient
+    correction. Its corrected OCR is compared with PaddleOCR and replaces it
+    only when word confidence is higher. This affects OCR processing only; the
+    original PDF is never rotated or modified. PDF page rotation metadata is
+    already honored by the renderer.
+11. Image uploads and scanned PDF pages whose OCR is dominated by short,
+    fragmented tokens are checked at 90, 180, and 270 degrees with local
+    Tesseract OCR. The app compares the rotated results with the initial
+    orientation and uses a rotated result only when its text/confidence score
+    improves materially. Sparse OCR results now trigger these checks too, and
+    nearly unreadable baselines use a lower improvement threshold so a useful
+    rotated result is not discarded for a small score difference. This handles
+    rotation baked into a scan without changing the stored source image or PDF;
+    ordinary, readable pages skip the extra orientation passes.
 
 Strict extraction regressions cover line ending/whitespace normalization,
-preservation of exact IDs and amounts, symbol-only OCR rejection, Tesseract
+preservation of exact IDs and amounts, corrupted-native-text replacement,
+normal-table-text retention, sampled last-page OCR in long PDFs, sparse-page
+OCR in mixed native/scanned PDFs, high-resolution table layout, symbol-only OCR
+rejection, Tesseract
 fallback after unusable PaddleOCR output, and the case where neither engine
-returns usable text.
+returns usable text. Deskew regressions cover skew estimation, skipping aligned
+text, and enabling automatic gradient correction for skewed PDF OCR. Rotation
+regressions cover suspicious-text detection, selecting a better right-angle
+OCR result, and skipping orientation checks for readable text.
 
 ### 4. Make the answer contract explicit
 

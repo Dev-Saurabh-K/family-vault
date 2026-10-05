@@ -1915,12 +1915,44 @@ btnCreateBackup.addEventListener('click', async () => {
 });
 
 // Grounded Local AI Document Assistant
+function autoResizeAiInput() {
+  if (!aiQueryInput) return;
+  aiQueryInput.style.height = 'auto';
+  const newHeight = Math.min(120, Math.max(38, aiQueryInput.scrollHeight));
+  aiQueryInput.style.height = newHeight + 'px';
+}
+
+if (aiQueryInput) {
+  aiQueryInput.addEventListener('input', autoResizeAiInput);
+  aiQueryInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      runAiQuery();
+    }
+  });
+}
+
+if (btnReturnToChat) {
+  btnReturnToChat.addEventListener('click', () => {
+    modalAiQa.classList.remove('hidden');
+    btnReturnToChat.classList.add('hidden');
+    if (aiQueryInput) aiQueryInput.focus();
+  });
+}
+
+if (btnOpenModelSetup) {
+  btnOpenModelSetup.addEventListener('click', () => {
+    if (modalDownloadModel) modalDownloadModel.classList.remove('hidden');
+  });
+}
+
 btnOpenAiQa.addEventListener('click', async () => {
-  aiQueryInput.value = '';
-  if (aiResultBox) aiResultBox.classList.add('hidden');
-  if (aiLoading) aiLoading.classList.add('hidden');
   modalAiQa.classList.remove('hidden');
-  aiQueryInput.focus();
+  if (btnReturnToChat) btnReturnToChat.classList.add('hidden');
+  if (aiQueryInput) {
+    aiQueryInput.focus();
+    autoResizeAiInput();
+  }
 
   try {
     const status = await window.familyVault.getAiStatus();
@@ -1971,30 +2003,71 @@ btnOpenAiQa.addEventListener('click', async () => {
 
 let aiHistory = [];
 
+function renderSafeMarkdown(rawText) {
+  if (!rawText || typeof rawText !== 'string') return '';
+  let escaped = escapeHtml(rawText);
+
+  // Inline code
+  escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Italics
+  escaped = escaped.replace(/(^|[^\*])\*([^\*]+)\*([^\*]|$)/g, '$1<em>$2</em>$3');
+
+  // Bullet and numbered lists
+  const lines = escaped.split('\n');
+  let inList = false;
+  const processed = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const bulletMatch = trimmed.match(/^[-*•]\s+(.*)$/);
+    if (bulletMatch) {
+      if (!inList) {
+        processed.push('<ul>');
+        inList = true;
+      }
+      processed.push(`<li>${bulletMatch[1]}</li>`);
+    } else {
+      if (inList) {
+        processed.push('</ul>');
+        inList = false;
+      }
+      if (trimmed) {
+        processed.push(`<p>${trimmed}</p>`);
+      }
+    }
+  }
+  if (inList) processed.push('</ul>');
+
+  return processed.join('');
+}
+
 async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
   const query = typeof queryOverride === 'string' ? queryOverride : aiQueryInput.value.trim();
   if (!query) return;
 
-  if (queryOverride === null) {
-    aiQueryInput.value = '';
-  }
   aiSubmitQueryBtn.disabled = true;
   aiSubmitQueryBtn.textContent = 'Searching...';
+  if (aiQueryInput) aiQueryInput.disabled = true;
 
   if (aiThreadWelcome) {
     aiThreadWelcome.classList.add('hidden');
   }
 
+  // Append user message bubble with design system class
   if (queryOverride === null) {
     const userMsgEl = document.createElement('div');
-    userMsgEl.style.cssText = 'align-self: flex-end; max-width: 82%; background: #4338ca; color: #fff; padding: 10px 14px; border-radius: 12px 12px 2px 12px; font-size: 13px; line-height: 1.4; word-break: break-word; box-shadow: 0 1px 3px rgba(0,0,0,0.2);';
+    userMsgEl.className = 'ai-user-bubble';
     userMsgEl.textContent = query;
     if (aiChatThread) {
       aiChatThread.appendChild(userMsgEl);
     }
   }
 
-  // Append loading indicator bubble
+  // Append loading indicator skeleton bubble
   const loadingBubble = document.createElement('div');
   loadingBubble.className = 'ai-response-loading';
   loadingBubble.setAttribute('role', 'status');
@@ -2011,25 +2084,34 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
 
   let streamedBubble = null;
   let streamedAnswer = '';
+  let streamedBodyEl = null;
+
   const onAnswerChunk = (chunk) => {
     if (typeof chunk !== 'string' || !chunk) return;
-
     streamedAnswer += chunk;
+
     if (!streamedBubble) {
       if (loadingBubble && loadingBubble.parentNode) loadingBubble.remove();
       streamedBubble = document.createElement('div');
       streamedBubble.className = 'ai-response-bubble';
-      streamedBubble.setAttribute('role', 'status');
-      streamedBubble.setAttribute('aria-live', 'polite');
-      const answerText = document.createElement('div');
-      answerText.className = 'ai-response-body';
-      answerText.style.whiteSpace = 'pre-wrap';
-      streamedBubble.appendChild(answerText);
+
+      const header = document.createElement('div');
+      header.className = 'ai-response-header';
+      header.innerHTML = `
+        <span class="ai-response-engine">Local Inference...</span>
+      `;
+      streamedBubble.appendChild(header);
+
+      streamedBodyEl = document.createElement('div');
+      streamedBodyEl.className = 'ai-response-body';
+      streamedBubble.appendChild(streamedBodyEl);
+
       if (aiChatThread) aiChatThread.appendChild(streamedBubble);
     }
 
-    const answerText = streamedBubble.firstElementChild;
-    if (answerText) answerText.textContent = streamedAnswer;
+    if (streamedBodyEl) {
+      streamedBodyEl.innerHTML = renderSafeMarkdown(streamedAnswer);
+    }
     if (aiChatThread) aiChatThread.scrollTop = aiChatThread.scrollHeight;
   };
 
@@ -2045,7 +2127,7 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
     botMsgEl.removeAttribute('aria-live');
 
     const engineBadgeText = `${res.mode === 'llama-server' ? 'Local Gemma-4-E2B GGUF' : 'Local Extractive Assistant'}${searchAllDocuments ? ' · All Documents' : ''}`;
-    const escapedAnswer = escapeHtml(res.answer);
+    const formattedAnswer = renderSafeMarkdown(res.answer);
 
     let citationsHtml = '';
     if (res.sources && res.sources.length > 0) {
@@ -2070,22 +2152,49 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
       `;
     }
 
+    // Contextual Fallbacks & Interactive Chips
+    let actionChipsHtml = '';
+    if (res.personScope?.status === 'not_found' && res.personScope.personName) {
+      actionChipsHtml = `
+        <div class="ai-action-chips-container">
+          <button class="ai-action-chip btn-add-missing-person" data-person-name="${escapeHtml(res.personScope.personName)}" type="button">
+            <span>👤</span> Add "${escapeHtml(res.personScope.personName)}" to Profiles
+          </button>
+        </div>
+      `;
+    } else if (res.personScope?.status === 'ambiguous' && Array.isArray(res.personScope.candidates)) {
+      actionChipsHtml = `
+        <div class="ai-action-chips-container">
+          <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Select member:</span>
+          ${res.personScope.candidates.map(cand => `
+            <button class="ai-action-chip btn-disambiguate-person" data-candidate-name="${escapeHtml(cand)}" type="button">
+              <span>👤</span> ${escapeHtml(cand)}
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    const isNoResults = res.hasResults === false || (!searchAllDocuments && /could not find information regarding this/i.test(res.answer));
+    const searchAllPromptHtml = isNoResults
+      ? `<div class="ai-search-all-prompt">
+           <span>No answer was found in the current search. Search OCR and extracted text across every document in the vault?</span>
+           <button class="btn btn-secondary btn-search-all-documents" type="button">Search all documents anyway</button>
+         </div>`
+      : '';
+
     botMsgEl.innerHTML = `
       <div class="ai-response-header">
         <span class="ai-response-engine">${engineBadgeText}</span>
         <button class="btn btn-secondary btn-copy-turn-answer" type="button">Copy</button>
       </div>
-      <div class="ai-response-body">${escapedAnswer}</div>
+      <div class="ai-response-body">${formattedAnswer}</div>
+      ${actionChipsHtml}
       ${citationsHtml}
-      ${!searchAllDocuments && /could not find information regarding this in your stored documents or family profiles\./i.test(res.answer)
-        ? `<div class="ai-search-all-prompt">
-             <span>No answer was found in the current search. Search OCR and extracted text across every document? This may include other family members’ documents.</span>
-             <button class="btn btn-secondary btn-search-all-documents" type="button">Search all documents anyway</button>
-           </div>`
-        : ''}
+      ${searchAllPromptHtml}
     `;
 
-    // Hook copy button for this answer turn
+    // Hook copy button
     const copyBtn = botMsgEl.querySelector('.btn-copy-turn-answer');
     if (copyBtn) {
       copyBtn.addEventListener('click', () => {
@@ -2097,6 +2206,7 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
       });
     }
 
+    // Hook search all documents anyway button
     const searchAllButton = botMsgEl.querySelector('.btn-search-all-documents');
     if (searchAllButton) {
       searchAllButton.addEventListener('click', () => {
@@ -2106,12 +2216,40 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
       });
     }
 
-    // Hook citations to open drawer
+    // Hook missing person button
+    const addPersonBtn = botMsgEl.querySelector('.btn-add-missing-person');
+    if (addPersonBtn) {
+      addPersonBtn.addEventListener('click', () => {
+        const pName = addPersonBtn.getAttribute('data-person-name');
+        if (modalQuickAddMember) {
+          modalAiQa.classList.add('hidden');
+          if (btnReturnToChat) btnReturnToChat.classList.remove('hidden');
+          const quickNameInput = document.getElementById('quick-member-name-input');
+          if (quickNameInput) quickNameInput.value = pName || '';
+          modalQuickAddMember.classList.remove('hidden');
+          if (quickNameInput) quickNameInput.focus();
+        }
+      });
+    }
+
+    // Hook ambiguous person candidate chips
+    botMsgEl.querySelectorAll('.btn-disambiguate-person').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const cand = chip.getAttribute('data-candidate-name');
+        if (cand) {
+          const replacedQuery = query.replace(new RegExp(escapeRegex(query.trim()), 'i'), cand) || `Tell me about ${cand}`;
+          runAiQuery(replacedQuery);
+        }
+      });
+    });
+
+    // Hook citations to open drawer with seamless Return to Chat flow
     botMsgEl.querySelectorAll('.ai-citation-pill').forEach(pill => {
       const openCitation = () => {
         const docId = pill.getAttribute('data-doc-id');
         if (docId) {
           modalAiQa.classList.add('hidden');
+          if (btnReturnToChat) btnReturnToChat.classList.remove('hidden');
           openDocumentDrawer(docId);
         }
       };
@@ -2130,6 +2268,12 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
     }
 
     aiHistory.push({ query, response: res });
+
+    // Safely clear input on success
+    if (queryOverride === null && aiQueryInput) {
+      aiQueryInput.value = '';
+      autoResizeAiInput();
+    }
   } catch (err) {
     if (loadingBubble && loadingBubble.parentNode) {
       loadingBubble.remove();
@@ -2138,31 +2282,54 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
       streamedBubble.remove();
     }
     const errorBubble = document.createElement('div');
-    errorBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #f87171;';
-    errorBubble.textContent = 'Assistant Error: ' + err.message;
+    errorBubble.className = 'ai-error-bubble';
+    errorBubble.innerHTML = `
+      <div><strong>Assistant Error:</strong> ${escapeHtml(err.message)}</div>
+      <button class="btn btn-secondary btn-retry-query" type="button">Retry question</button>
+    `;
+    const retryBtn = errorBubble.querySelector('.btn-retry-query');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        errorBubble.remove();
+        runAiQuery(query, searchAllDocuments);
+      });
+    }
+
     if (aiChatThread) {
       aiChatThread.appendChild(errorBubble);
       aiChatThread.scrollTop = aiChatThread.scrollHeight;
     }
     showToast('Assistant error: ' + err.message, 'error');
+
+    // Restore query into input on error so user doesn't lose it
+    if (aiQueryInput) {
+      aiQueryInput.value = query;
+      autoResizeAiInput();
+    }
   } finally {
     aiSubmitQueryBtn.disabled = false;
     aiSubmitQueryBtn.textContent = 'Ask';
+    if (aiQueryInput) {
+      aiQueryInput.disabled = false;
+      aiQueryInput.focus();
+    }
   }
 }
 
-aiSubmitQueryBtn.addEventListener('click', runAiQuery);
-aiQueryInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') runAiQuery();
-});
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+aiSubmitQueryBtn.addEventListener('click', () => runAiQuery());
 
 // Clear AI Chat History
 if (btnClearAiHistory) {
   btnClearAiHistory.addEventListener('click', () => {
     aiHistory = [];
+    if (btnReturnToChat) btnReturnToChat.classList.add('hidden');
     if (aiChatThread) {
       aiChatThread.innerHTML = `
-        <div id="ai-thread-welcome" style="text-align: center; padding: 24px 12px; color: var(--text-muted); font-size: 12px;">
+        <div id="ai-thread-welcome" class="ai-thread-welcome-box">
           <div style="font-size: 28px; margin-bottom: 8px;">💬</div>
           <strong style="color: var(--text-secondary); display: block; margin-bottom: 4px;">Private &amp; Offline Assistant</strong>
           Ask anything about your stored documents, insurance deadlines, passport numbers, tax forms, or train schedules.
@@ -3218,24 +3385,42 @@ window.addEventListener('unhandledrejection', (event) => {
   showToast('Operation failed: ' + (event.reason?.message || 'Unknown error'), 'error');
 });
 
+function closeAllModals() {
+  modalImport.classList.add('hidden');
+  modalNewVersion.classList.add('hidden');
+  modalReviewMetadata.classList.add('hidden');
+  modalAiQa.classList.add('hidden');
+  modalChangePassword.classList.add('hidden');
+  if (modalAuditLogs) modalAuditLogs.classList.add('hidden');
+  if (modalDownloadModel) modalDownloadModel.classList.add('hidden');
+  if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
+  if (modalUsersProfiles) modalUsersProfiles.classList.add('hidden');
+  if (modalEditUserProfile) modalEditUserProfile.classList.add('hidden');
+  if (modalAddFamilyMember) modalAddFamilyMember.classList.add('hidden');
+  if (modalConfirmRemoveUser) modalConfirmRemoveUser.classList.add('hidden');
+  if (modalQuickAddMember) modalQuickAddMember.classList.add('hidden');
+  if (modalFirstRunWelcome) modalFirstRunWelcome.classList.add('hidden');
+  documentIdPendingDelete = null;
+}
+
 // Modal close button handlers
 document.querySelectorAll('.modal-close-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    modalImport.classList.add('hidden');
-    modalNewVersion.classList.add('hidden');
-    modalReviewMetadata.classList.add('hidden');
-    modalAiQa.classList.add('hidden');
-    modalChangePassword.classList.add('hidden');
-    if (modalAuditLogs) modalAuditLogs.classList.add('hidden');
-    if (modalDownloadModel) modalDownloadModel.classList.add('hidden');
-    if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
-    if (modalUsersProfiles) modalUsersProfiles.classList.add('hidden');
-    if (modalEditUserProfile) modalEditUserProfile.classList.add('hidden');
-    if (modalAddFamilyMember) modalAddFamilyMember.classList.add('hidden');
-    if (modalConfirmRemoveUser) modalConfirmRemoveUser.classList.add('hidden');
-    if (modalQuickAddMember) modalQuickAddMember.classList.add('hidden');
-    if (modalFirstRunWelcome) modalFirstRunWelcome.classList.add('hidden');
-    documentIdPendingDelete = null;
+  btn.addEventListener('click', closeAllModals);
+});
+
+// Dismiss modals on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeAllModals();
+  }
+});
+
+// Dismiss modals on backdrop overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      closeAllModals();
+    }
   });
 });
 
