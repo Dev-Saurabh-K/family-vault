@@ -49,19 +49,6 @@ with sources display a bottom-of-answer caution that another family member's
 documents may be included and OCR/AI interpretations can be wrong, advising
 users to verify the cited originals.
 
-## Choosing a local Gemma model
-
-Model Settings offers Gemma 4 E2B and E4B. E2B needs about 4 GB of model and
-vision-projector downloads; E4B needs about 6 GB and has higher runtime memory
-needs (16 GB system RAM is a practical recommendation, not a hard requirement).
-Each variant is stored separately and its installation state is shown in the
-selector. The user must explicitly choose a variant and click its download/use
-button before any Hugging Face files are fetched. After setup, the selected
-model and Q&A inference run locally; model setup is user-initiated.
-The installed llama-server executable is reused; an older build may not load
-Gemma 4. If startup fails, select a compatible, up-to-date `llama-server.exe`
-in Model Settings.
-
 ## Recommended implementation sequence
 
 Make and measure one change at a time. Preserve the person-scoping behavior,

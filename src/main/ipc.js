@@ -332,11 +332,8 @@ function registerIpcHandlers(mainWindow) {
     return { success: true };
   });
 
-  ipcMain.handle('ai:download-gemma', async (_event, modelVariant = 'E2B') => {
-    if (modelVariant !== 'E2B' && modelVariant !== 'E4B') {
-      throw new Error('Unsupported Gemma model variant');
-    }
-    return await llmService.downloadAndSetupGemma(modelVariant, (progress) => {
+  ipcMain.handle('ai:download-gemma', async () => {
+    return await llmService.downloadAndSetupGemma((progress) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('ai:download-progress', progress);
       }

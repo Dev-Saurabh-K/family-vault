@@ -479,15 +479,8 @@ class LlmService {
       const preferredModelPath = this.getPreferredModelPath();
       if (preferredModelPath) return preferredModelPath;
     }
-    const candidateNames = modelVariant === 'E2B'
-      ? [
-        GEMMA_MODEL_VARIANTS.E2B.modelFilename,
-        'gemma-4-e2b-it.gguf',
-        'gemma-4-e2b-Q4_K_M.gguf',
-        'gemma-4-e2b-it-Q4_K_M.gguf'
-      ]
-      : modelVariant
-        ? [GEMMA_MODEL_VARIANTS[modelVariant]?.modelFilename].filter(Boolean)
+    const candidateNames = modelVariant
+      ? [GEMMA_MODEL_VARIANTS[modelVariant]?.modelFilename].filter(Boolean)
       : [
       'gemma-4-e2b.gguf',
       'gemma-4-e2b-it.gguf',
@@ -512,12 +505,7 @@ class LlmService {
       }
       try {
         const files = fs.readdirSync(dir);
-        const variantPattern = modelVariant === 'E4B'
-          ? /gemma[-_]?4.*e4b.*\.gguf$/i
-          : modelVariant === 'E2B'
-            ? /gemma[-_]?4.*e2b.*\.gguf$/i
-            : /gemma[-_]?4.*\.gguf$/i;
-        const match = files.find(file => variantPattern.test(file) && !file.startsWith('mmproj'));
+        const match = files.find(f => /gemma[-_]?4.*\.gguf$/i.test(f) && !f.startsWith('mmproj'));
         if (match) return path.join(dir, match);
       } catch (e) {}
     }
@@ -550,12 +538,7 @@ class LlmService {
       }
       try {
         const files = fs.readdirSync(dir);
-        const variantPattern = modelVariant === 'E4B'
-          ? /mmproj.*e4b.*\.gguf$/i
-          : modelVariant === 'E2B'
-            ? /mmproj.*e2b.*\.gguf$/i
-            : /mmproj.*\.gguf$/i;
-        const match = files.find(file => variantPattern.test(file));
+        const match = files.find(f => /mmproj.*\.gguf$/i.test(f));
         if (match) return path.join(dir, match);
       } catch (e) {}
     }
@@ -1548,8 +1531,7 @@ class LlmService {
             })),
             evidenceStrength: this._calculateEvidenceStrength(topSegments, true, query),
             mode: 'llama-server',
-            modelUsed: true,
-            modelName: GEMMA_MODEL_VARIANTS[this.getModelVariant(this._modelPath)].label
+            modelUsed: true
           };
         }
         if (cleanedAnswer && !valueValidation.valid) {

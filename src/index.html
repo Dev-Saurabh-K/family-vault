@@ -651,8 +651,8 @@
               </div>
               <label for="ai-model-variant-select" style="display: block; font-size: 11px; margin: 7px 0 4px;">Model variant</label>
               <select id="ai-model-variant-select" class="input-field" style="width: 100%; font-size: 11px; margin-bottom: 6px;">
-                <option value="E2B">Gemma 4 E2B — lower memory (about 4 GB download)</option>
-                <option value="E4B">Gemma 4 E4B — stronger, needs more memory (about 6 GB download)</option>
+                <option value="E2B">Gemma 4 E2B — lower memory (about 3.9 GB download)</option>
+                <option value="E4B">Gemma 4 E4B — stronger, needs more memory (about 5.7 GB download)</option>
               </select>
               <p id="ai-setup-desc" style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.4;">
                 Downloads start only when you click the button. Files are fetched from Hugging Face and saved locally; once installed, inference runs on this computer.
@@ -809,7 +809,7 @@
           <div id="model-modal-progress-box" style="background: rgba(79, 70, 229, 0.1); border: 1px solid rgba(79, 70, 229, 0.3); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
               <span id="model-modal-status-badge" class="badge badge-blue">Ready to Download</span>
-              <span id="model-modal-bytes-text" style="font-size: 11px; color: var(--text-muted);">Model not installed</span>
+              <span id="model-modal-bytes-text" style="font-size: 11px; color: var(--text-muted);">0 MB / ~1680 MB</span>
             </div>
 
             <div id="model-modal-status-text" style="font-size: 12px; color: #cbd5e1; margin-bottom: 8px;">
@@ -828,7 +828,7 @@
 
           <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
             <button id="btn-modal-start-download" class="btn btn-primary" style="background: #4f46e5; padding: 6px 14px;">
-              Choose a model in Model Settings
+              Download and set up (1.65 GB)
             </button>
             <button class="btn btn-secondary modal-close-btn">Close</button>
           </div>
