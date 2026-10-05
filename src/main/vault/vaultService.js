@@ -390,10 +390,11 @@ class VaultService {
           analysis = await this._llmService.extractDocumentMetadata({
             text,
             fileName,
-            knownPersons
+            knownPersons,
+            strictToAddedUsers: true
           });
         } else {
-          analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+          analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons, strictToAddedUsers: true });
         }
 
         dbLayer.saveMetadata(this._db, {
@@ -409,19 +410,24 @@ class VaultService {
           textContent: text,
           rawPayload: {
             ocrWords,
-            method: analysis.method || 'ocr-tesseract'
+            method: analysis.method || 'ocr-tesseract',
+            unmatchedPerson: analysis.unmatchedPerson || null
           }
         });
 
-        // If user left category as 'other', auto-categorize if detected
-        if (category === 'other' && analysis.category && analysis.category !== 'other') {
+        // STRICT CATEGORIZATION & PERSON MATCHING:
+        // If unmatched person is detected, category stays 'other' for review and no rogue person is auto-assigned
+        if (category === 'other' && analysis.category && analysis.category !== 'other' && !analysis.unmatchedPerson) {
           this._db.prepare('UPDATE documents SET category = ? WHERE id = ?').run(analysis.category, doc.id);
         }
 
-        // If user left person blank and a person was detected, auto-assign
-        const effectivePerson = person || analysis.person || null;
-        if (!person && analysis.person) {
-          this._db.prepare('UPDATE documents SET person = ? WHERE id = ?').run(analysis.person, doc.id);
+        // Only auto-assign person if matched to an existing added family member
+        const effectivePerson = person || (analysis.person && !analysis.unmatchedPerson ? analysis.person : null);
+        if (!person && analysis.person && !analysis.unmatchedPerson) {
+          const isKnown = knownPersons.some(kp => kp.toLowerCase() === analysis.person.toLowerCase());
+          if (isKnown) {
+            this._db.prepare('UPDATE documents SET person = ? WHERE id = ?').run(analysis.person, doc.id);
+          }
         }
 
         // Record structured profile facts and upsert user profile
@@ -693,10 +699,11 @@ class VaultService {
       analysis = await this._llmService.extractDocumentMetadata({
         text,
         fileName,
-        knownPersons
+        knownPersons,
+        strictToAddedUsers: true
       });
     } else {
-      analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
+      analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons, strictToAddedUsers: true });
     }
 
     const profileFacts = extractionService.extractProfileFacts(text, analysis.person || null);

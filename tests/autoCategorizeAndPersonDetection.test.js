@@ -242,3 +242,93 @@ test('VaultService: Local AI-powered strict auto-categorization, family member d
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+test('Strict User Categorization: unmatched person in document falls back to category "other" and reviewStatus "needs_review"', () => {
+  const docText = `
+    PASSPORT
+    REPUBLIC OF WONDERLAND
+    Given Names: Sarah Jane
+    Surname: Connor
+    Date of Issue: 2021-04-10
+  `;
+
+  // Case 1: Vault has existing family members, but Sarah Jane Connor is NOT one of them
+  const vaultKnownPersons = ['Alice Smith', 'Bob Johnson'];
+  const analysisUnmatched = analyzeDocumentText(docText, 'passport.pdf', {
+    knownPersons: vaultKnownPersons,
+    strictToAddedUsers: true
+  });
+
+  assert.strictEqual(analysisUnmatched.person, null, 'Unmatched person must NOT be auto-assigned to document');
+  assert.strictEqual(analysisUnmatched.unmatchedPerson, 'Sarah Jane Connor', 'Unmatched person must be captured for user review');
+  assert.strictEqual(analysisUnmatched.category, 'other', 'Document category must strictly be "other" when user is unmatched');
+  assert.strictEqual(analysisUnmatched.docType, 'other', 'DocType must strictly be "other" when user is unmatched');
+  assert.strictEqual(analysisUnmatched.reviewStatus, 'needs_review', 'Review status must be needs_review');
+
+  // Case 2: Once the family member has been added to knownPersons, matching succeeds and normal category applies
+  const vaultWithSarah = ['Alice Smith', 'Bob Johnson', 'Sarah Jane Connor'];
+  const analysisMatched = analyzeDocumentText(docText, 'passport.pdf', {
+    knownPersons: vaultWithSarah,
+    strictToAddedUsers: true
+  });
+
+  assert.strictEqual(analysisMatched.person, 'Sarah Jane Connor', 'Matched added family member must be assigned');
+  assert.strictEqual(analysisMatched.unmatchedPerson, null, 'No unmatched person when member is registered');
+  assert.strictEqual(analysisMatched.category, 'identity', 'Category must be recognized as identity');
+  assert.strictEqual(analysisMatched.docType, 'passport', 'DocType must be recognized as passport');
+});
+
+test('VaultService: Import with unmatched person strictly keeps category "other" and creates no rogue profile', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-unmatched-test-'));
+  const vaultPath = path.join(tmpDir, 'UnmatchedVault.vault');
+  const service = new VaultService();
+
+  await service.createVault({
+    vaultPath,
+    password: 'MasterPassword123!',
+    kdfParams: { memory: 4096, iterations: 1, parallelism: 1 }
+  });
+
+  // Seed with an existing registered family member "Alice Smith"
+  const seedFile = path.join(tmpDir, 'seed.pdf');
+  fs.writeFileSync(seedFile, 'Existing ID for Alice Smith');
+  await service.importDocument({
+    filePath: seedFile,
+    title: 'ID - Alice Smith',
+    category: 'identity',
+    person: 'Alice Smith'
+  });
+
+  // Now analyze and import a document belonging to unregistered person "Dr. Robert Langdon"
+  const docFile = path.join(tmpDir, 'hospital_report.pdf');
+  fs.writeFileSync(docFile, `
+    ST JUDE MEDICAL CENTER
+    Patient Name: Robert Langdon
+    Diagnosis: Acute Bronchitis
+    Date of Issue: 2026-05-10
+  `);
+
+  const preAnalysis = await service.preAnalyzeDocument(docFile);
+  assert.strictEqual(preAnalysis.person, null, 'Unmatched person must be null');
+  assert.strictEqual(preAnalysis.unmatchedPerson, 'Robert Langdon', 'Unmatched person should be Robert Langdon');
+  assert.strictEqual(preAnalysis.category, 'other', 'Category must be forced to other');
+
+  // Import document without specifying person
+  const imported = await service.importDocument({
+    filePath: docFile,
+    category: 'other',
+    person: null
+  });
+
+  assert.strictEqual(imported.category, 'other');
+  assert.strictEqual(imported.person, null);
+
+  // Verify that Robert Langdon was NOT added as a user profile automatically
+  const profiles = service.listUserProfiles();
+  const robertProfile = profiles.find(p => p.name === 'Robert Langdon');
+  assert.strictEqual(robertProfile, undefined, 'Unmatched user must NOT generate an automatic user profile');
+
+  service.lockVault();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+

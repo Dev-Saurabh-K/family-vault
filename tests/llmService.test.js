@@ -365,3 +365,45 @@ test('LlmService: processImageWithVision throws on failure for graceful Tesserac
   );
 });
 
+test('LlmService: parseAndValidateAiMetadata enforces strict category "other" and review needed for unmatched persons', () => {
+  const text = 'Life Insurance Policy document for John Doe. Policy issue 2024-01-01.';
+  const knownPersons = ['Alice Smith', 'Bob Smith']; // John Doe is NOT an added family member!
+
+  // 1. Unmatched candidate person in document
+  const aiJson = JSON.stringify({
+    category: 'insurance',
+    docType: 'insurance_policy',
+    person: 'John Doe'
+  });
+
+  const res = parseAndValidateAiMetadata(aiJson, text, 'policy.pdf', knownPersons);
+  assert.strictEqual(res.person, null, 'Unmatched person must NOT be auto-assigned');
+  assert.strictEqual(res.unmatchedPerson, 'John Doe', 'Unmatched person name must be flagged for review');
+  assert.strictEqual(res.category, 'other', 'Document category must be strictly overridden to "other"');
+  assert.strictEqual(res.docType, 'other', 'DocType must be overridden to "other"');
+  assert.strictEqual(res.isUserMatched, false);
+
+  // 2. Verified added family member correctly assigns category and person
+  const aiJsonMatched = JSON.stringify({
+    category: 'insurance',
+    docType: 'insurance_policy',
+    person: 'Alice Smith'
+  });
+  const resMatched = parseAndValidateAiMetadata(aiJsonMatched, text, 'policy.pdf', knownPersons);
+  assert.strictEqual(resMatched.person, 'Alice Smith');
+  assert.strictEqual(resMatched.unmatchedPerson, null);
+  assert.strictEqual(resMatched.category, 'insurance');
+  assert.strictEqual(resMatched.isUserMatched, true);
+});
+
+test('LlmService: _buildExtractionPrompt enforces strict zero-temperature guidelines and category constraints', () => {
+  const service = new LlmService();
+  const prompt = service._buildExtractionPrompt('Passport document for John Doe', 'passport.pdf', ['Alice']);
+
+  assert.ok(prompt.includes('Existing family members in vault: "Alice"'));
+  assert.ok(prompt.includes('CRITICAL USER CATEGORIZATION RULES'));
+  assert.ok(prompt.includes('category" field MUST be EXACTLY one of: "identity", "insurance", "medical", "tax", "property", "other"'));
+  assert.ok(prompt.includes('unmatchedPerson'));
+});
+
+

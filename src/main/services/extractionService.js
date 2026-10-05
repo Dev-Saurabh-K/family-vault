@@ -742,9 +742,43 @@ function analyzeDocumentText(text, fileName = '', options = {}) {
     issuer = lines[0];
   }
 
-  // Detect Family Member / Person
+  // Detect Family Member / Person with strict matching to added users
   const knownPersons = (options && options.knownPersons) ? options.knownPersons : [];
-  const person = detectPerson(text, knownPersons);
+  const strictToAddedUsers = options && options.strictToAddedUsers !== undefined
+    ? options.strictToAddedUsers
+    : (Array.isArray(knownPersons) && knownPersons.length > 0);
+
+  const detectedCandidate = detectPerson(text, knownPersons);
+  let person = null;
+  let unmatchedPerson = null;
+
+  if (detectedCandidate) {
+    if (Array.isArray(knownPersons) && knownPersons.length > 0) {
+      const matched = knownPersons.find(kp => 
+        kp.toLowerCase() === detectedCandidate.toLowerCase() ||
+        detectedCandidate.toLowerCase() === kp.toLowerCase()
+      );
+      if (matched) {
+        person = matched;
+      } else {
+        unmatchedPerson = detectedCandidate;
+      }
+    } else if (strictToAddedUsers) {
+      // Vault has 0 added family members, so any detected person is unmatched
+      unmatchedPerson = detectedCandidate;
+    } else {
+      // Fallback for standalone helper calls without knownPersons
+      person = detectedCandidate;
+    }
+  }
+
+  // STRICT RULE: If an unmatched person is detected:
+  // "unmatched user will be categorised to any other category which user need to review and add new user"
+  if (unmatchedPerson && !person) {
+    category = 'other';
+    docType = 'other';
+    confidence = Math.min(confidence, 0.65);
+  }
 
   // Generate Auto-Tags
   const tags = generateAutoTags(text, category, docType, person, issueDate, expiryDate);
@@ -759,10 +793,19 @@ function analyzeDocumentText(text, fileName = '', options = {}) {
   if (issuer) noteParts.push(`Issuer: ${issuer}`);
   const notesSummary = noteParts.length > 0 ? noteParts.join('. ') + '.' : '';
 
+  let reviewStatus = 'proposed';
+  if (unmatchedPerson && !person) {
+    reviewStatus = 'needs_review';
+  } else if (confidence < 0.85) {
+    reviewStatus = 'needs_review';
+  }
+
   return {
     docType,
     category,
     person,
+    unmatchedPerson,
+    isUserMatched: Boolean(person),
     tags,
     suggestedTitle,
     notesSummary,
@@ -772,7 +815,7 @@ function analyzeDocumentText(text, fileName = '', options = {}) {
     expiryDate,
     expirySnippet,
     confidence,
-    reviewStatus: confidence >= 0.85 ? 'proposed' : 'needs_review'
+    reviewStatus
   };
 }
 

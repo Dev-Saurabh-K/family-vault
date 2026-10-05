@@ -632,7 +632,7 @@ function renderSidebarFamilyMembers(profiles) {
     emptyLi.className = 'sidebar-empty-members';
     emptyLi.innerHTML = `
       <span>No family members yet</span>
-      <button type="button" class="btn btn-secondary" id="btn-sidebar-add-first-member" style="font-size: 11px; padding: 3px 8px; border-color: rgba(16, 163, 127, 0.3); color: #6ee7b7; cursor: pointer;">
+      <button type="button" class="btn btn-sidebar-add" id="btn-sidebar-add-first-member" style="font-size: 11px; padding: 4px 10px; cursor: pointer; justify-content: center;">
         + Add Member
       </button>
     `;
@@ -1469,6 +1469,9 @@ btnOpenImport.addEventListener('click', async () => {
   importCategorySelect.value = 'identity';
   preAnalyzedDocData = null;
 
+  const importUnmatchedBox = document.getElementById('import-unmatched-user-box');
+  if (importUnmatchedBox) importUnmatchedBox.classList.add('hidden');
+
   if (importAnalysisLoader) importAnalysisLoader.classList.add('hidden');
   if (importAnalysisBanner) importAnalysisBanner.classList.add('hidden');
 
@@ -1486,6 +1489,9 @@ importBrowseBtn.addEventListener('click', async () => {
   const fileName = filePath.split(/[\\/]/).pop() || '';
   const defaultTitle = fileName.replace(/\.[^/.]+$/, '');
   importTitleInput.value = defaultTitle;
+
+  const importUnmatchedBox = document.getElementById('import-unmatched-user-box');
+  if (importUnmatchedBox) importUnmatchedBox.classList.add('hidden');
 
   // Show progress loader inside import modal
   if (importAnalysisLoader) {
@@ -1521,12 +1527,26 @@ importBrowseBtn.addEventListener('click', async () => {
     if (analysis.suggestedTitle) {
       importTitleInput.value = analysis.suggestedTitle;
     }
-    if (analysis.category && analysis.category !== 'other') {
-      importCategorySelect.value = analysis.category;
+
+    // STRICT USER MATCHING RULE: Unmatched persons are flagged for user review and category forced to other
+    const importUnmatchedName = document.getElementById('import-unmatched-user-name');
+    if (analysis.unmatchedPerson) {
+      if (importUnmatchedBox && importUnmatchedName) {
+        importUnmatchedName.textContent = analysis.unmatchedPerson;
+        importUnmatchedBox.classList.remove('hidden');
+      }
+      importCategorySelect.value = 'other';
+      importPersonInput.value = '';
+    } else {
+      if (importUnmatchedBox) importUnmatchedBox.classList.add('hidden');
+      if (analysis.category && analysis.category !== 'other') {
+        importCategorySelect.value = analysis.category;
+      }
+      if (analysis.person) {
+        importPersonInput.value = analysis.person;
+      }
     }
-    if (analysis.person) {
-      importPersonInput.value = analysis.person;
-    }
+
     if (analysis.tags && analysis.tags.length > 0) {
       importTagsInput.value = analysis.tags.join(', ');
     }
@@ -1541,6 +1561,8 @@ importBrowseBtn.addEventListener('click', async () => {
       summaryParts.push(`Category: <strong>${escapeHtml(catLabel)}</strong>`);
       if (analysis.person) {
         summaryParts.push(`Family Member: <strong>${escapeHtml(analysis.person)}</strong>`);
+      } else if (analysis.unmatchedPerson) {
+        summaryParts.push(`Unmatched Name: <strong style="color: #fb923c;">${escapeHtml(analysis.unmatchedPerson)}</strong> (Review needed)`);
       }
       if (analysis.expiryDate) {
         summaryParts.push(`Expiry: <strong>${escapeHtml(analysis.expiryDate)}</strong>`);
@@ -2834,10 +2856,10 @@ const btnFirstRunAddMember = document.getElementById('btn-first-run-add-member')
 const btnFirstRunImportDoc = document.getElementById('btn-first-run-import-doc');
 const btnFirstRunSkip = document.getElementById('btn-first-run-skip');
 
-function openQuickAddMemberModal() {
+function openQuickAddMemberModal(defaultName = '') {
   clearInlineError('quick-add-error-banner');
   if (modalQuickAddMember && quickAddMemberName) {
-    quickAddMemberName.value = '';
+    quickAddMemberName.value = defaultName || '';
     modalQuickAddMember.classList.remove('hidden');
     quickAddMemberName.focus();
   }
@@ -2871,12 +2893,39 @@ async function submitQuickAddMember(nameToSave, callerModal = 'quick-add') {
     await refreshFamilyMembersDatalist();
     await refreshUserProfilesUI(name);
     await loadDocuments();
+
+    // If Import modal is active and has an unmatched user matching this name, autofill person & hide warning
+    if (importPersonInput) {
+      const importUnmatchedName = document.getElementById('import-unmatched-user-name');
+      const importUnmatchedBox = document.getElementById('import-unmatched-user-box');
+      if (importUnmatchedName && importUnmatchedName.textContent.trim().toLowerCase() === name.toLowerCase()) {
+        importPersonInput.value = name;
+        if (importUnmatchedBox) importUnmatchedBox.classList.add('hidden');
+        if (preAnalyzedDocData) {
+          preAnalyzedDocData.unmatchedPerson = null;
+          preAnalyzedDocData.person = name;
+        }
+      }
+    }
+
     return true;
   } catch (err) {
     showInlineError(bannerId, 'Failed to add family member: ' + err.message);
     showToast('Failed to add family member: ' + err.message, 'error');
     return false;
   }
+}
+
+const btnImportAddUnmatchedUser = document.getElementById('btn-import-add-unmatched-user');
+if (btnImportAddUnmatchedUser) {
+  btnImportAddUnmatchedUser.addEventListener('click', () => {
+    const unmatchedName = document.getElementById('import-unmatched-user-name')?.textContent || '';
+    if (unmatchedName && unmatchedName !== '-') {
+      openQuickAddMemberModal(unmatchedName);
+    } else {
+      openQuickAddMemberModal();
+    }
+  });
 }
 
 if (quickAddMemberName) {

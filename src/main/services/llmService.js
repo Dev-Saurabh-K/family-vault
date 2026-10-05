@@ -66,7 +66,7 @@ function extractJsonFromText(rawText) {
   return null;
 }
 
-function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = []) {
+function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = [], options = {}) {
   if (!rawContent || typeof rawContent !== 'string') {
     return null;
   }
@@ -94,28 +94,67 @@ function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = [
     }
   }
 
-  // 3. Person detection: match known family members or validated individual name
+  // 3. Strict Person detection: must strictly match added users in knownPersons
+  // Unmatched users must not be auto-assigned; they get flagged for review and category becomes 'other'
   let person = null;
+  let unmatchedPerson = null;
+
+  let candidatePerson = null;
   if (typeof parsed.person === 'string' && parsed.person.trim()) {
-    const rawPerson = parsed.person.trim().replace(/^(?:Name|Patient|Cardholder|Policyholder|Insured|Citizen|MR|MRS|MS|DR)\s*[:.-]?\s*/i, '').trim();
-    if (rawPerson.length >= 2 && rawPerson.length <= 80) {
-      if (Array.isArray(knownPersons) && knownPersons.length > 0) {
-        const matched = knownPersons.find(kp => 
-          kp.toLowerCase() === rawPerson.toLowerCase() ||
-          rawPerson.toLowerCase().includes(kp.toLowerCase()) ||
-          kp.toLowerCase().includes(rawPerson.toLowerCase())
-        );
-        if (matched) {
-          person = matched;
-        }
+    candidatePerson = parsed.person.trim().replace(/^(?:Name|Patient|Cardholder|Policyholder|Insured|Citizen|MR|MRS|MS|DR)\s*[:.-]?\s*/i, '').trim();
+  } else if (typeof parsed.unmatchedPerson === 'string' && parsed.unmatchedPerson.trim()) {
+    candidatePerson = parsed.unmatchedPerson.trim().replace(/^(?:Name|Patient|Cardholder|Policyholder|Insured|Citizen|MR|MRS|MS|DR)\s*[:.-]?\s*/i, '').trim();
+  }
+
+  const blacklist = /\b(?:government|republic|passport|department|authority|insurance|hospital|clinic|bank|ministry|embassy|official|unknown|none|n\/a|null|undefined|sample|test|validity)\b/i;
+  if (candidatePerson && (candidatePerson.length < 2 || candidatePerson.length > 80 || blacklist.test(candidatePerson))) {
+    candidatePerson = null;
+  }
+
+  const strictToAddedUsers = options && options.strictToAddedUsers !== undefined
+    ? options.strictToAddedUsers
+    : (Array.isArray(knownPersons) && knownPersons.length > 0);
+
+  if (candidatePerson) {
+    if (Array.isArray(knownPersons) && knownPersons.length > 0) {
+      const matched = knownPersons.find(kp => 
+        kp.toLowerCase() === candidatePerson.toLowerCase() ||
+        candidatePerson.toLowerCase() === kp.toLowerCase()
+      );
+      if (matched) {
+        person = matched;
+      } else {
+        // Candidate person is NOT an added family member in the vault!
+        unmatchedPerson = candidatePerson;
       }
-      if (!person) {
-        const blacklist = /\b(?:government|republic|passport|department|authority|insurance|hospital|clinic|bank|ministry|embassy|official|unknown|none|n\/a|null|undefined|sample|test|validity)\b/i;
-        if (!blacklist.test(rawPerson)) {
-          person = rawPerson;
-        }
+    } else if (strictToAddedUsers) {
+      // Vault has 0 added family members, so any detected person is unmatched
+      unmatchedPerson = candidatePerson;
+    } else {
+      // Fallback when knownPersons is empty and strictToAddedUsers is false
+      person = candidatePerson;
+    }
+  }
+
+  // Also check text directly for known persons if candidatePerson wasn't matched
+  if (!person && Array.isArray(knownPersons) && knownPersons.length > 0) {
+    for (const kp of knownPersons) {
+      if (!kp || typeof kp !== 'string' || kp.trim().length < 2) continue;
+      const escaped = kp.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+      if (regex.test(text || '')) {
+        person = kp.trim();
+        unmatchedPerson = null;
+        break;
       }
     }
+  }
+
+  // STRICT RULE: If an unmatched person is detected:
+  // "unmatched user will be categorised to any other category which user need to review and add new user"
+  if (unmatchedPerson && !person) {
+    category = 'other';
+    docType = 'other';
   }
 
   // 4. Grounded Expiry Date: strictly YYYY-MM-DD and grounded in text
@@ -171,10 +210,16 @@ function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = [
     ? Math.max(0, Math.min(1, parsed.confidence))
     : 0.92;
 
+  if (unmatchedPerson && !person) {
+    confidence = Math.min(confidence, 0.65);
+  }
+
   return {
     category,
     docType,
     person,
+    unmatchedPerson,
+    isUserMatched: Boolean(person),
     expiryDate,
     expirySnippet,
     issueDate,
@@ -671,10 +716,12 @@ class LlmService {
       }
 
       // Merge AI extraction with deterministic validation
-      // STRICT RULE: If AI produced an invalid or unsupported category, fallback to deterministic category
-      const category = validatedAi.category || deterministic.category;
-      const docType = validatedAi.docType || deterministic.docType;
-      const person = validatedAi.person || deterministic.person;
+      // STRICT RULE: If an unmatched person is detected or if AI produced an invalid or unsupported category
+      const isUnmatched = Boolean(validatedAi.unmatchedPerson && !validatedAi.person) || Boolean(deterministic.unmatchedPerson && !deterministic.person);
+      const unmatchedPerson = validatedAi.unmatchedPerson || deterministic.unmatchedPerson || null;
+      const category = isUnmatched ? 'other' : (validatedAi.category || deterministic.category);
+      const docType = isUnmatched ? 'other' : (validatedAi.docType || deterministic.docType);
+      const person = isUnmatched ? null : (validatedAi.person || (deterministic.unmatchedPerson ? null : deterministic.person));
       const expiryDate = validatedAi.expiryDate || deterministic.expiryDate;
       const expirySnippet = validatedAi.expirySnippet || deterministic.expirySnippet;
       const issueDate = validatedAi.issueDate || deterministic.issueDate;
@@ -706,6 +753,7 @@ class LlmService {
         docType,
         category,
         person,
+        unmatchedPerson,
         tags: combinedTags,
         suggestedTitle,
         notesSummary,
@@ -714,8 +762,8 @@ class LlmService {
         issueSnippet,
         expiryDate,
         expirySnippet,
-        confidence: Math.max(validatedAi.confidence, deterministic.confidence),
-        reviewStatus: 'proposed',
+        confidence: isUnmatched ? Math.min(validatedAi.confidence, 0.65) : Math.max(validatedAi.confidence, deterministic.confidence),
+        reviewStatus: isUnmatched ? 'needs_review' : 'proposed',
         method: 'local-ai-gemma4'
       };
     } catch (err) {
@@ -1000,25 +1048,34 @@ Question: ${query}<end_of_turn>
 
   _buildExtractionPrompt(text, fileName, knownPersons = []) {
     const truncatedText = (text || '').slice(0, 3500).trim();
-    const knownPersonsHint = (Array.isArray(knownPersons) && knownPersons.length > 0)
-      ? `Existing family members in vault: ${knownPersons.map(p => `"${p}"`).join(', ')}. If the document belongs to one of these family members, strictly match and output their exact name.\n`
-      : '';
+    const hasKnown = Array.isArray(knownPersons) && knownPersons.length > 0;
+    const knownPersonsHint = hasKnown
+      ? `Existing family members in vault: ${knownPersons.map(p => `"${p}"`).join(', ')}.
+CRITICAL USER CATEGORIZATION RULES:
+- If this document belongs to one of these known family members, match and output their exact name in "person".
+- If this document belongs to a person NOT in the above list, you MUST set "person": null and set "unmatchedPerson": "<detected person name>".
+- If "unmatchedPerson" is set (unmatched user), you MUST set "category": "other" and "docType": "other" so the user can review and add the new member.\n`
+      : `Vault has NO added family members yet.
+CRITICAL USER CATEGORIZATION RULES:
+- If any person name is found in the document, you MUST set "person": null and set "unmatchedPerson": "<detected person name>".
+- You MUST set "category": "other" and "docType": "other" so the user can review and add the new member.\n`;
 
     return `<start_of_turn>user
-You are a strict document analysis AI for FamilyVault. Extract metadata from the document text and filename.
+You are a strict offline document analysis AI for FamilyVault. Extract metadata from the document text and filename.
 
-STRICT REQUIREMENTS:
-1. You MUST respond with ONLY a single valid JSON object. Do not include markdown code block fences (\`\`\`), preamble, or explanations.
-2. The "category" field MUST be EXACTLY one of: "identity", "insurance", "medical", "tax", "property", "other".
+STRICT CONSTRAINTS & REQUIREMENTS:
+1. You MUST respond with ONLY a single valid JSON object. Do not include markdown code block fences (\`\`\`), conversational preamble, or explanations.
+2. The "category" field MUST be EXACTLY one of: "identity", "insurance", "medical", "tax", "property", "other". Be strict; if uncertain or unmatched person, output "other".
 3. The "docType" field MUST be EXACTLY one of: "passport", "driving_license", "identity_card", "insurance_policy", "tax_document", "medical_record", "property_document", "other".
 4. "person": The primary person, family member, policyholder, patient, or cardholder named on this document.
-${knownPersonsHint}If no individual person's name is identified, set "person" to null.
-5. "expiryDate": The official expiration date, validity end date, or renewal deadline formatted strictly as "YYYY-MM-DD". If there is no expiration date in the document, set to null.
-6. "expirySnippet": The exact short text snippet from the document where the expiration date was found, or null.
-7. "issueDate": The issuance, effective, or start date formatted as "YYYY-MM-DD", or null.
-8. "issuer": The organization, agency, hospital, or company that issued the document, or null.
-9. "tags": An array of 1 to 5 short keyword strings describing the document (e.g. ["health", "policy", "dental"]).
-10. "confidence": A float between 0.0 and 1.0 indicating confidence.
+${knownPersonsHint}
+5. "unmatchedPerson": String name of detected individual if not in the known members list, or null.
+6. "expiryDate": The official expiration date, validity end date, or renewal deadline formatted strictly as "YYYY-MM-DD". If there is no expiration date in the document, set to null.
+7. "expirySnippet": The exact short text snippet from the document where the expiration date was found, or null.
+8. "issueDate": The issuance, effective, or start date formatted as "YYYY-MM-DD", or null.
+9. "issuer": The organization, agency, hospital, or company that issued the document, or null.
+10. "tags": An array of 1 to 5 short keyword strings describing the document (e.g. ["health", "policy", "dental"]).
+11. "confidence": A float between 0.0 and 1.0 indicating confidence.
 
 Filename: ${fileName}
 Document Text:
@@ -1031,7 +1088,7 @@ ${truncatedText}<end_of_turn>
     return new Promise((resolve, reject) => {
       const data = JSON.stringify({
         prompt,
-        temperature: 0.1,
+        temperature: 0.0,
         n_predict: 256,
         stop: ['<end_of_turn>', '<eos>', '<start_of_turn>']
       });
