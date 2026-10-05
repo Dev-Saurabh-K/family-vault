@@ -1,0 +1,47 @@
+name: Build and Sync Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-sync:
+    name: Build & Sync to Distribution Server
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Tests
+        run: npm test
+
+      - name: Build Release Artifacts (Forge Make)
+        run: npm run make
+
+      - name: Configure SSH Deploy Key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.RELEASE_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/family_vault_deploy_key
+          chmod 600 ~/.ssh/family_vault_deploy_key
+
+      - name: Sync Release to Server
+        env:
+          RELEASE_SSH_HOST: ${{ secrets.RELEASE_SSH_HOST || '139.84.144.90' }}
+          RELEASE_SSH_USER: ${{ secrets.RELEASE_SSH_USER || 'root' }}
+          RELEASE_DOMAIN: ${{ secrets.RELEASE_DOMAIN || 'family-vault-download.duckdns.org' }}
+        run: npm run sync:release
