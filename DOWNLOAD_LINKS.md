@@ -7,12 +7,13 @@
 ---
 
 ### 1. Portable ZIP (x64)
-- **URL:** https://family-vault-download.duckdns.org/family-vault-win32-x64-1.0.0.zip
-- **SHA-256:** `c682ca8768142d6c85bb93bc37474cf1babf238892e05a54d15bc62534299834`
+- **URL:** https://family-vault-download.duckdns.org/family-vault-win32-x64-2.0.0.zip
+- **SHA-256:** `dc0134ba553ed385d5482391f17444ccd850646c929ccf0393ed920ba1ee653d`
+- **Latest Evergreen URL:** https://family-vault-download.duckdns.org/family-vault-win32-x64-latest.zip
 
 ### 2. Windows Installer (Versioned EXE)
-- **URL:** https://family-vault-download.duckdns.org/family-vault-1.0.0-Setup.exe
-- **SHA-256:** `b9c5398235e17bc5d5134702b2b602deab5114a0439b4f2a01c5dd7030451614`
+- **URL:** https://family-vault-download.duckdns.org/family-vault-2.0.0-Setup.exe
+- **SHA-256:** `7f8f966e71873fdb1c699230c6e1efa2c7b99082a66196e5de83fda6a31098ea`
 
 ### 3. Windows Installer (Evergreen EXE)
 - **URL:** https://family-vault-download.duckdns.org/family-vault-setup.exe
