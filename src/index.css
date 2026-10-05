@@ -99,7 +99,7 @@ button, input, textarea, select { font: inherit; }
 .btn:hover { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .08); }
 .btn:active { transform: translateY(1px); }
 .btn:focus-visible, .tab-btn:focus-visible, .sidebar-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.input-field:focus-visible { outline: 2px solid #f4f1e8; outline-offset: 2px; }
+.input-field:focus-visible { outline: 1px solid #f4f1e8; outline-offset: 1px; }
 .btn-primary { background: var(--button-bg) !important; border-color: var(--button-bg) !important; box-shadow: 0 1px 2px rgba(0, 0, 0, .22); color: var(--button-text) !important; }
 .btn-primary:hover { background: #fff !important; border-color: #fff !important; }
 .btn-danger,
@@ -155,10 +155,10 @@ button, input, textarea, select { font: inherit; }
   transform: translateY(1px);
 }
 
-.input-field { appearance: none; background: rgba(0, 0, 0, .18); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 16px; line-height: 24px; min-height: 42px; outline: none; padding: 8px 12px; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; width: 100%; }
+.input-field { appearance: none; background: rgba(0, 0, 0, .18); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 16px; line-height: 22px; min-height: 38px; outline: none; padding: 7px 11px; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; width: 100%; }
 .input-field::placeholder { color: var(--text-muted); }
 .input-field:hover { border-color: #5a5a5a; }
-.input-field:focus { background: rgba(0, 0, 0, .27); border-color: #f4f1e8; box-shadow: 0 0 0 3px rgba(244, 241, 232, .12); }
+.input-field:focus { background: rgba(0, 0, 0, .27); border-color: #f4f1e8; box-shadow: 0 0 0 1px rgba(244, 241, 232, .1); }
 textarea.input-field { resize: vertical; }
 select.input-field { color-scheme: dark; }
 label { color: var(--text-secondary); display: block; font-size: 13px; font-weight: 400; line-height: 18px; margin-bottom: 7px; }
@@ -337,6 +337,8 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
   transform: translateY(1px);
 }
 .sidebar-nav { list-style: none; }
+.sidebar-heading-row { align-items: center; display: flex; justify-content: space-between; }
+.sidebar-heading-row .btn-sidebar-add { margin-left: auto; }
 .sidebar-item { align-items: center; border-radius: 7px; color: var(--text-secondary); cursor: pointer; display: flex; font-size: 14px; justify-content: space-between; line-height: 20px; margin: 1px 0; padding: 8px 10px; transition: background .16s ease, color .16s ease; }
 .sidebar-item:hover { background: var(--sidebar-hover); color: var(--text-primary); }
 .sidebar-item.active { background: var(--sidebar-active); color: var(--text-primary); font-weight: 500; }
@@ -538,6 +540,32 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
 #drawer-detail .drawer-category-row select.input-field {
   flex: 0 1 220px;
   width: auto;
+}
+#import-analysis-loader {
+  background: rgba(255, 255, 255, .025) !important;
+  border-color: rgba(255, 255, 255, .09) !important;
+}
+#import-analysis-status-text {
+  animation: import-status-blink 1.2s ease-in-out infinite;
+  color: #e7e5df;
+}
+#import-analysis-badge {
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(255, 255, 255, .12);
+  color: #d0d0cb;
+}
+#import-analysis-loader > div:last-child {
+  background: rgba(255, 255, 255, .08) !important;
+}
+#import-analysis-progress-bar {
+  background: linear-gradient(90deg, #c8cbc8, #f4f1e8) !important;
+}
+@keyframes import-status-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #import-analysis-status-text { animation: none; }
 }
 #ai-settings-panel { background: rgba(0, 0, 0, .15) !important; border-color: var(--border-subtle) !important; }
 #ai-quick-setup-box { background: rgba(16, 163, 127, .08) !important; border-color: rgba(16, 163, 127, .25) !important; }
