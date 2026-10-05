@@ -786,13 +786,13 @@ function renderDocuments() {
       ? `<span class="badge" style="background: rgba(16, 163, 127, 0.12); color: #8dd8c3; border: 1px solid rgba(16, 163, 127, 0.25);">${doc._semanticScore}% match</span>`
       : '';
     const semanticSnippetHtml = doc._semanticSnippet
-      ? `<div style="font-size: 11px; color: #cbd5e1; font-style: italic; margin-top: 6px; border-left: 2px solid #6366f1; padding-left: 6px; background: rgba(99, 102, 241, 0.08); padding-top: 2px; padding-bottom: 2px; border-radius: 2px;">"${escapeHtml(doc._semanticSnippet.length > 110 ? doc._semanticSnippet.substring(0, 110) + '...' : doc._semanticSnippet)}"</div>`
+      ? `<div class="doc-card-snippet">"${escapeHtml(doc._semanticSnippet.length > 110 ? doc._semanticSnippet.substring(0, 110) + '...' : doc._semanticSnippet)}"</div>`
       : '';
 
     card.innerHTML = `
       <div class="doc-card-header">
-        <div class="doc-card-title">${escapeHtml(doc.title)}</div>
-        <div style="display: flex; gap: 4px; align-items: center;">
+        <div class="doc-card-title" title="${escapeHtml(doc.title)}">${escapeHtml(doc.title)}</div>
+        <div class="doc-card-actions">
           ${semanticBadgeHtml}
           ${expiryBadgeHtml}
           <span class="badge badge-green">${vNum}</span>
@@ -807,11 +807,11 @@ function renderDocuments() {
         ${doc.person ? `
           <div class="meta-row">
             <span>Person</span>
-            <strong>${escapeHtml(doc.person)}</strong>
+            <strong class="doc-card-person" title="${escapeHtml(doc.person)}">${escapeHtml(doc.person)}</strong>
           </div>
         ` : ''}
         ${doc.tags && doc.tags.length ? `
-          <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;">
+          <div class="doc-card-tags">
             ${doc.tags.map(t => `<span class="badge badge-gray doc-tag-badge" data-tag="${escapeHtml(t)}" style="cursor: pointer; transition: background 0.15s;" title="Filter by tag: ${escapeHtml(t)}">${escapeHtml(t)}</span>`).join('')}
           </div>
         ` : ''}
@@ -2116,7 +2116,7 @@ async function checkAiModelStatus() {
     if (!btnTopbarDownloadModel) return;
 
     if (status.isModelDownloaded && status.isBinaryAvailable) {
-      if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '⚡';
+      if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
       if (btnTopbarDownloadText) {
         btnTopbarDownloadText.textContent = status.modelName || 'Gemma-4-E2B';
         btnTopbarDownloadText.classList.add('ai-model-blinking-text');
