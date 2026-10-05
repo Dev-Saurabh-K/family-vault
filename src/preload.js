@@ -60,5 +60,7 @@ contextBridge.exposeInMainWorld('familyVault', {
   // User profiles & contradiction detection
   listUserProfiles: () => ipcRenderer.invoke('profile:list'),
   getUserProfile: (personName) => ipcRenderer.invoke('profile:get', { personName }),
-  saveUserProfile: (profile) => ipcRenderer.invoke('profile:save', profile)
+  saveUserProfile: (profile) => ipcRenderer.invoke('profile:save', profile),
+  addFamilyMember: (profile) => ipcRenderer.invoke('profile:add', profile),
+  removeFamilyMember: (personName) => ipcRenderer.invoke('profile:remove', { personName })
 });

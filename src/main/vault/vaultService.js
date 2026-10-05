@@ -913,6 +913,34 @@ class VaultService {
     return dbLayer.upsertUserProfile(this._db, profile);
   }
 
+  /**
+   * Adds a new family member profile to the vault.
+   */
+  addFamilyMember(profile) {
+    this._assertUnlocked();
+    if (!profile || !profile.name || !profile.name.trim()) {
+      throw new Error('Family member name is required');
+    }
+    const saved = dbLayer.upsertUserProfile(this._db, profile);
+    dbLayer.recordAuditEvent(this._db, 'FAMILY_MEMBER_ADDED', {
+      name: saved.name,
+      dob: saved.dob,
+      gender: saved.gender
+    });
+    return saved;
+  }
+
+  /**
+   * Removes a family member profile and unlinks person field from documents.
+   */
+  removeFamilyMember(name) {
+    this._assertUnlocked();
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      throw new Error('Family member name is required');
+    }
+    return dbLayer.deleteUserProfile(this._db, name);
+  }
+
   getAiStatus() {
     return llmService.getStatus();
   }

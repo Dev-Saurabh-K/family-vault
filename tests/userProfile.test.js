@@ -177,3 +177,81 @@ test('VaultService: User profile aggregation and cross-document contradiction de
   service.lockVault();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('VaultService: Add family member, list in dropdowns, and remove family member unlinking documents cleanly', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-add-remove-member-'));
+  const vaultPath = path.join(tmpDir, 'FamilyMemberTest.fvault');
+
+  const service = new VaultService();
+  await service.createVault({
+    vaultPath,
+    password: 'MasterPassword123!',
+    kdfParams: { memoryCost: 4096, timeCost: 1, parallelism: 1 }
+  });
+
+  // 1. Add family member directly without any documents
+  const added = service.addFamilyMember({
+    name: 'Priya Sharma',
+    dob: '1995-08-20',
+    gender: 'Female',
+    fathersName: 'Ramesh Sharma',
+    address: 'Sector 62, Noida'
+  });
+
+  assert.strictEqual(added.name, 'Priya Sharma');
+  assert.strictEqual(added.gender, 'Female');
+
+  // 2. Member must appear in listFamilyMembers and listUserProfiles immediately
+  const members = service.listFamilyMembers();
+  assert.ok(members.includes('Priya Sharma'), 'Priya Sharma should be included in listFamilyMembers');
+
+  const profiles = service.listUserProfiles();
+  assert.strictEqual(profiles.length, 1);
+  assert.strictEqual(profiles[0].name, 'Priya Sharma');
+  assert.strictEqual(profiles[0].documentsCount, 0);
+
+  // 3. Import a document assigned to this member
+  const sampleDoc = path.join(tmpDir, 'tax_doc.pdf');
+  fs.writeFileSync(sampleDoc, 'Form 16 Tax Certificate for Priya Sharma');
+
+  const doc = await service.importDocument({
+    filePath: sampleDoc,
+    title: 'Priya Tax Certificate',
+    category: 'tax',
+    person: 'Priya Sharma'
+  });
+
+  assert.strictEqual(doc.person, 'Priya Sharma');
+
+  const profileWithDoc = service.getUserProfile('Priya Sharma');
+  assert.strictEqual(profileWithDoc.documentsCount, 1);
+
+  // 4. Remove family member
+  const removalResult = service.removeFamilyMember('Priya Sharma');
+  assert.strictEqual(removalResult.success, true);
+  assert.strictEqual(removalResult.name, 'Priya Sharma');
+  assert.strictEqual(removalResult.profileRemoved, true);
+  assert.strictEqual(removalResult.unlinkedDocumentsCount, 1);
+
+  // 5. Verify member is removed from family members & profiles
+  const membersAfter = service.listFamilyMembers();
+  assert.strictEqual(membersAfter.includes('Priya Sharma'), false);
+
+  const profilesAfter = service.listUserProfiles();
+  assert.strictEqual(profilesAfter.length, 0);
+
+  // 6. Verify original document is preserved in the vault, but person is unlinked (null)
+  const docsAfter = service.listDocuments();
+  assert.strictEqual(docsAfter.length, 1);
+  assert.strictEqual(docsAfter[0].id, doc.id);
+  assert.strictEqual(docsAfter[0].person, null);
+
+  // 7. Verify audit logs recorded addition and removal events
+  const auditLogs = service.listAuditLogs(10);
+  const eventTypes = auditLogs.map(l => l.eventType);
+  assert.ok(eventTypes.includes('FAMILY_MEMBER_ADDED'));
+  assert.ok(eventTypes.includes('FAMILY_MEMBER_REMOVED'));
+
+  service.lockVault();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});

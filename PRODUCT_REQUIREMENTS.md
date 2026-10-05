@@ -26,7 +26,7 @@ A person or family responsible for documents such as insurance policies, identit
 ### 3. Useful local extraction and review
 
 - FamilyVault extracts text locally from digital documents or scanned/image documents.
-- It uses the local Gemma-4-E2B multimodal model as its primary document understanding and OCR engine to process images, reconstruct tables, and extract text with spatial coordinates, falling back strictly to local Tesseract.js if the multimodal model fails.
+- It uses **PaddleOCR (PP-OCRv5 via `onnxruntime-node`)** as its primary document OCR engine to process images, reconstruct tables, and extract text with spatial coordinates, falling back strictly to local **Tesseract.js** if PaddleOCR is unavailable or fails. Local **Gemma-4-E2B** provides high-level AI document reasoning, metadata extraction, and grounded Q&A.
 - It proposes metadata such as document type, owner/person, issuer, tags, issue date, and expiry date where available.
 - The user can review and correct extracted metadata.
 - Unknown, ambiguous, or low-confidence details are shown as needing review rather than silently presented as fact.
@@ -56,7 +56,7 @@ A person or family responsible for documents such as insurance policies, identit
 Versioning belongs in the foundation, not a later enhancement. It protects history from the first import onward and avoids an unsafe migration from mutable files later.
 
 1. Vault lifecycle, encryption, encrypted object storage, import, and immutable versions.
-2. Text extraction/multimodal OCR (Gemma-4-E2B primary, Tesseract fallback), metadata review, and expiry-date display.
+2. Text extraction/OCR (PaddleOCR primary via onnxruntime-node, Tesseract.js fallback), local AI reasoning (Gemma-4-E2B), metadata review, and expiry-date display.
 3. Metadata/full-text search and expiry overview.
 4. Grounded local document Q&A with citations.
 5. Encrypted backup and restore.

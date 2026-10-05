@@ -701,11 +701,14 @@ function searchVectorEmbeddings(db, queryVector, { limit = 5, minScore = 0.05 } 
 function listDistinctPersons(db) {
   ensureIsDeletedColumn(db);
   const rows = db.prepare(`
-    SELECT DISTINCT person FROM documents
+    SELECT DISTINCT person as name FROM documents
     WHERE (is_deleted IS NULL OR is_deleted = 0) AND person IS NOT NULL AND TRIM(person) != ''
-    ORDER BY person ASC
+    UNION
+    SELECT DISTINCT name FROM user_profiles
+    WHERE name IS NOT NULL AND TRIM(name) != ''
+    ORDER BY name ASC
   `).all();
-  return rows.map(r => r.person.trim()).filter(Boolean);
+  return rows.map(r => r.name.trim()).filter(Boolean);
 }
 
 /**
@@ -851,6 +854,63 @@ function getUserProfile(db, name) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+/**
+ * Deletes a family member / user profile, associated facts, and clears person field from linked documents.
+ * Preserves the actual documents themselves as unassigned.
+ */
+function deleteUserProfile(db, name) {
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    throw new Error('Valid person name is required to remove family member');
+  }
+  const trimmedName = name.trim();
+
+  const deleteTx = db.transaction(() => {
+    // 1. Delete canonical user profile record
+    const profileRes = db.prepare('DELETE FROM user_profiles WHERE name = ? COLLATE NOCASE').run(trimmedName);
+
+    // 2. Delete atomic extracted profile facts
+    const factsRes = db.prepare('DELETE FROM profile_facts WHERE person_name = ? COLLATE NOCASE').run(trimmedName);
+
+    // 3. Clear person field from documents, re-indexing FTS
+    const affectedDocs = db.prepare(`
+      SELECT d.id, d.title, d.category, d.tags, d.notes, m.text_content
+      FROM documents d
+      LEFT JOIN document_versions v ON d.current_version_id = v.id
+      LEFT JOIN extracted_metadata m ON v.id = m.version_id
+      WHERE (d.is_deleted IS NULL OR d.is_deleted = 0) AND d.person = ? COLLATE NOCASE
+    `).all(trimmedName);
+
+    const now = new Date().toISOString();
+    db.prepare('UPDATE documents SET person = NULL, updated_at = ? WHERE person = ? COLLATE NOCASE').run(now, trimmedName);
+
+    for (const doc of affectedDocs) {
+      try {
+        db.prepare('DELETE FROM document_fts WHERE document_id = ?').run(doc.id);
+        db.prepare(`
+          INSERT INTO document_fts (document_id, title, category, person, tags, notes, text_content)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(doc.id, doc.title, doc.category, '', doc.tags || '[]', doc.notes || '', doc.text_content || '');
+      } catch (e) {}
+    }
+
+    recordAuditEvent(db, 'FAMILY_MEMBER_REMOVED', {
+      name: trimmedName,
+      affectedDocumentsCount: affectedDocs.length,
+      deletedProfile: profileRes.changes > 0,
+      deletedFactsCount: factsRes.changes
+    });
+
+    return {
+      success: true,
+      name: trimmedName,
+      profileRemoved: profileRes.changes > 0,
+      unlinkedDocumentsCount: affectedDocs.length
+    };
+  });
+
+  return deleteTx();
 }
 
 /**
@@ -1066,6 +1126,7 @@ module.exports = {
   searchVectorEmbeddings,
   upsertUserProfile,
   getUserProfile,
+  deleteUserProfile,
   saveProfileFactsBatch,
   getUserProfileWithContradictions,
   listUserProfilesWithSummaries,

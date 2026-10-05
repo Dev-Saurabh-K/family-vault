@@ -203,6 +203,35 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
+// Inline Form Error & Warning Helpers
+function showInlineError(bannerElOrId, message) {
+  const el = typeof bannerElOrId === 'string' ? document.getElementById(bannerElOrId) : bannerElOrId;
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+
+function clearInlineError(bannerElOrId) {
+  const el = typeof bannerElOrId === 'string' ? document.getElementById(bannerElOrId) : bannerElOrId;
+  if (!el) return;
+  el.textContent = '';
+  el.classList.add('hidden');
+}
+
+function showInlineWarning(bannerElOrId, message) {
+  const el = typeof bannerElOrId === 'string' ? document.getElementById(bannerElOrId) : bannerElOrId;
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+
+function clearInlineWarning(bannerElOrId) {
+  const el = typeof bannerElOrId === 'string' ? document.getElementById(bannerElOrId) : bannerElOrId;
+  if (!el) return;
+  el.textContent = '';
+  el.classList.add('hidden');
+}
+
 // Format byte size
 function formatBytes(bytes) {
   if (bytes === 0) return '0 Bytes';
@@ -245,6 +274,7 @@ function showWorkspace(vaultPath) {
   activeVaultName.textContent = vaultPath.split(/[\\/]/).pop() || 'FamilyVault';
   loadDocuments();
   checkAiModelStatus();
+  checkFirstRunOnboarding(vaultPath);
 }
 
 // Tab Switching
@@ -273,14 +303,17 @@ restoreTargetBrowseBtn.addEventListener('click', async () => {
 });
 
 submitRestoreBtn.addEventListener('click', async () => {
+  clearInlineError('restore-error-banner');
   const backupFilePath = restoreFileInput.value.trim();
   const targetVaultPath = restoreTargetInput.value.trim();
 
   if (!backupFilePath) {
+    showInlineError('restore-error-banner', 'Please select a backup file (.fvbackup).');
     showToast('Please select a backup file (.fvbackup)', 'error');
     return;
   }
   if (!targetVaultPath) {
+    showInlineError('restore-error-banner', 'Please select a restore destination directory.');
     showToast('Please select a restore destination directory', 'error');
     return;
   }
@@ -290,10 +323,12 @@ submitRestoreBtn.addEventListener('click', async () => {
 
   try {
     await window.familyVault.restoreBackup({ backupFilePath, targetVaultPath });
+    clearInlineError('restore-error-banner');
     showToast('Vault restored successfully. Please enter your password to unlock.', 'success');
     unlockPathInput.value = targetVaultPath;
     activateTab('unlock');
   } catch (err) {
+    showInlineError('restore-error-banner', 'Restore error: ' + err.message);
     showToast('Restore error: ' + err.message, 'error');
   } finally {
     submitRestoreBtn.disabled = false;
@@ -301,27 +336,39 @@ submitRestoreBtn.addEventListener('click', async () => {
   }
 });
 
+restoreFileInput.addEventListener('input', () => clearInlineError('restore-error-banner'));
+restoreTargetInput.addEventListener('input', () => clearInlineError('restore-error-banner'));
+
 // File / Folder Browsers
 unlockBrowseBtn.addEventListener('click', async () => {
   const dir = await window.familyVault.selectDirectory();
-  if (dir) unlockPathInput.value = dir;
+  if (dir) {
+    unlockPathInput.value = dir;
+    clearInlineError('unlock-error-banner');
+  }
 });
 
 createBrowseBtn.addEventListener('click', async () => {
   const dir = await window.familyVault.selectDirectory();
-  if (dir) createPathInput.value = dir;
+  if (dir) {
+    createPathInput.value = dir;
+    clearInlineError('create-error-banner');
+  }
 });
 
 // Unlock Vault
 submitUnlockBtn.addEventListener('click', async () => {
+  clearInlineError('unlock-error-banner');
   const vaultPath = unlockPathInput.value.trim();
   const password = unlockPasswordInput.value;
 
   if (!vaultPath) {
+    showInlineError('unlock-error-banner', 'Please select a vault folder.');
     showToast('Please select a vault folder', 'error');
     return;
   }
   if (!password) {
+    showInlineError('unlock-error-banner', 'Please enter your master password.');
     showToast('Please enter your master password', 'error');
     return;
   }
@@ -332,9 +379,11 @@ submitUnlockBtn.addEventListener('click', async () => {
   try {
     await window.familyVault.unlockVault({ vaultPath, password });
     unlockPasswordInput.value = '';
+    clearInlineError('unlock-error-banner');
     showToast('Vault unlocked successfully', 'success');
     showWorkspace(vaultPath);
   } catch (err) {
+    showInlineError('unlock-error-banner', err.message || 'Failed to unlock vault. Incorrect password or corrupt vault metadata.');
     showToast(err.message, 'error');
   } finally {
     submitUnlockBtn.disabled = false;
@@ -342,21 +391,28 @@ submitUnlockBtn.addEventListener('click', async () => {
   }
 });
 
+unlockPasswordInput.addEventListener('input', () => clearInlineError('unlock-error-banner'));
+unlockPathInput.addEventListener('input', () => clearInlineError('unlock-error-banner'));
+
 // Create Vault
 submitCreateBtn.addEventListener('click', async () => {
+  clearInlineError('create-error-banner');
   const vaultPath = createPathInput.value.trim();
   const password = createPasswordInput.value;
   const confirmPassword = createPasswordConfirmInput.value;
 
   if (!vaultPath) {
+    showInlineError('create-error-banner', 'Please select a location for the new vault.');
     showToast('Please select a location for the new vault', 'error');
     return;
   }
   if (password.length < 8) {
+    showInlineError('create-error-banner', 'Password must be at least 8 characters long.');
     showToast('Password must be at least 8 characters long', 'error');
     return;
   }
   if (password !== confirmPassword) {
+    showInlineError('create-error-banner', 'Passwords do not match. Please verify both fields.');
     showToast('Passwords do not match', 'error');
     return;
   }
@@ -368,15 +424,21 @@ submitCreateBtn.addEventListener('click', async () => {
     await window.familyVault.createVault({ vaultPath, password });
     createPasswordInput.value = '';
     createPasswordConfirmInput.value = '';
+    clearInlineError('create-error-banner');
     showToast('Vault created and secured successfully', 'success');
     showWorkspace(vaultPath);
   } catch (err) {
+    showInlineError('create-error-banner', err.message || 'Failed to initialize vault.');
     showToast(err.message, 'error');
   } finally {
     submitCreateBtn.disabled = false;
     submitCreateBtn.textContent = 'Create & Secure Vault';
   }
 });
+
+createPasswordInput.addEventListener('input', () => clearInlineError('create-error-banner'));
+createPasswordConfirmInput.addEventListener('input', () => clearInlineError('create-error-banner'));
+createPathInput.addEventListener('input', () => clearInlineError('create-error-banner'));
 
 // Lock Vault
 btnLockVault.addEventListener('click', async () => {
@@ -405,31 +467,36 @@ function updateTagBar() {
 async function loadDocuments() {
   try {
     if (searchMode === 'semantic' && currentSearch) {
-      const semanticMatches = await window.familyVault.searchSemantic({ query: currentSearch, limit: 15 });
-      if (semanticMatches && semanticMatches.length > 0) {
-        const docMap = new Map();
-        for (const m of semanticMatches) {
-          if (!docMap.has(m.documentId)) {
-            const doc = await window.familyVault.getDocument(m.documentId);
-            if (doc) {
-              doc._semanticScore = Math.round(m.similarity * 100);
-              doc._semanticSnippet = m.chunkText;
-              docMap.set(m.documentId, doc);
+      try {
+        const semanticMatches = await window.familyVault.searchSemantic({ query: currentSearch, limit: 15 });
+        if (semanticMatches && semanticMatches.length > 0) {
+          const docMap = new Map();
+          for (const m of semanticMatches) {
+            if (!docMap.has(m.documentId)) {
+              const doc = await window.familyVault.getDocument(m.documentId);
+              if (doc) {
+                doc._semanticScore = Math.round(m.similarity * 100);
+                doc._semanticSnippet = m.chunkText;
+                docMap.set(m.documentId, doc);
+              }
             }
           }
+          let results = Array.from(docMap.values());
+          if (currentTag) {
+            results = results.filter(d => Array.isArray(d.tags) && d.tags.includes(currentTag));
+          }
+          documents = results;
+        } else {
+          documents = [];
         }
-        let results = Array.from(docMap.values());
-        if (currentTag) {
-          results = results.filter(d => Array.isArray(d.tags) && d.tags.includes(currentTag));
-        }
-        documents = results;
-      } else {
-        documents = [];
+        renderDocuments();
+        updateCounts();
+        updateTagBar();
+        return;
+      } catch (semErr) {
+        console.warn('Semantic search unavailable or failed; falling back to keyword search:', semErr);
+        showToast('Semantic search failed; switched to keyword search fallback.', 'warning');
       }
-      renderDocuments();
-      updateCounts();
-      updateTagBar();
-      return;
     }
 
     const filters = {};
@@ -463,9 +530,14 @@ async function updateCounts() {
     const filterPersonSelect = document.getElementById('filter-person-select');
     if (filterPersonSelect) {
       const currentSelected = filterPersonSelect.value;
-      const persons = [...new Set(allDocs.map(d => d.person).filter(Boolean))].sort();
+      let persons = [];
+      try {
+        persons = await window.familyVault.listFamilyMembers();
+      } catch (e) {
+        persons = [...new Set(allDocs.map(d => d.person).filter(Boolean))].sort();
+      }
       filterPersonSelect.innerHTML = '<option value="">👤 All Family Members</option>';
-      persons.forEach(p => {
+      (persons || []).forEach(p => {
         const opt = document.createElement('option');
         opt.value = p;
         opt.textContent = `👤 ${p}`;
@@ -510,21 +582,182 @@ async function updateCounts() {
       }
     }
 
-    // Update Users & Profiles Count Badge
+    // Update Users & Profiles Count Badge & Sidebar Members List
     try {
       const usersList = await window.familyVault.listUserProfiles();
       const countUsersBadge = document.getElementById('count-users');
       if (countUsersBadge) {
         countUsersBadge.textContent = usersList.length;
       }
+      renderSidebarFamilyMembers(usersList);
     } catch (e) {}
   } catch (e) {}
+}
+
+const AVATAR_COLORS = [
+  'linear-gradient(135deg, #3b82f6, #1d4ed8)', // Blue
+  'linear-gradient(135deg, #10b981, #047857)', // Green
+  'linear-gradient(135deg, #8b5cf6, #6d28d9)', // Purple
+  'linear-gradient(135deg, #ec4899, #be185d)', // Pink
+  'linear-gradient(135deg, #f59e0b, #b45309)', // Amber
+  'linear-gradient(135deg, #06b6d4, #0e7490)', // Cyan
+  'linear-gradient(135deg, #6366f1, #4338ca)', // Indigo
+  'linear-gradient(135deg, #14b8a6, #0f766e)'  // Teal
+];
+
+function getAvatarColor(name) {
+  let hash = 0;
+  for (let i = 0; i < (name || '').length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[index];
+}
+
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function renderSidebarFamilyMembers(profiles) {
+  const sidebarFamilyMembersList = document.getElementById('sidebar-family-members-list');
+  if (!sidebarFamilyMembersList) return;
+
+  sidebarFamilyMembersList.innerHTML = '';
+
+  if (!profiles || profiles.length === 0) {
+    const emptyLi = document.createElement('li');
+    emptyLi.className = 'sidebar-empty-members';
+    emptyLi.innerHTML = `
+      <span>No family members yet</span>
+      <button type="button" class="btn btn-secondary" id="btn-sidebar-add-first-member" style="font-size: 11px; padding: 3px 8px; border-color: rgba(16, 163, 127, 0.3); color: #6ee7b7; cursor: pointer;">
+        + Add Member
+      </button>
+    `;
+    const addFirstBtn = emptyLi.querySelector('#btn-sidebar-add-first-member');
+    if (addFirstBtn) {
+      addFirstBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openQuickAddMemberModal();
+      });
+    }
+    sidebarFamilyMembersList.appendChild(emptyLi);
+    return;
+  }
+
+  const filterPersonSelect = document.getElementById('filter-person-select');
+  const currentSelectedPerson = filterPersonSelect ? (filterPersonSelect.value || '').trim().toLowerCase() : '';
+
+  profiles.forEach(profile => {
+    const li = document.createElement('li');
+    li.className = 'sidebar-member-item';
+    li.setAttribute('data-person', profile.name);
+    if (currentSelectedPerson && currentSelectedPerson === profile.name.trim().toLowerCase()) {
+      li.classList.add('active');
+    }
+
+    const conflictBadge = profile.hasContradictions
+      ? `<span class="badge" title="${profile.contradictionCount} Discrepancies" style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-size: 9px; padding: 1px 4px; border: 1px solid rgba(239, 68, 68, 0.35);">⚠️</span>`
+      : '';
+
+    const avatarColor = getAvatarColor(profile.name);
+    const initials = getInitials(profile.name);
+
+    li.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+        <div class="member-avatar" style="background: ${avatarColor};">${escapeHtml(initials)}</div>
+        <span class="member-name" title="${escapeHtml(profile.name)}">${escapeHtml(profile.name)}</span>
+      </div>
+      <div class="member-badges">
+        ${conflictBadge}
+        <span class="badge badge-gray" style="font-size: 10px; padding: 1px 5px;">${profile.documentsCount || 0}</span>
+        <button type="button" class="btn-member-profile" title="View Full Profile">ℹ️</button>
+      </div>
+    `;
+
+    // Clicking the item filters documents by this person
+    li.addEventListener('click', () => {
+      const isAlreadyActive = li.classList.contains('active');
+      const allCategoryItems = document.querySelectorAll('.sidebar-item');
+      allCategoryItems.forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.sidebar-member-item').forEach(i => i.classList.remove('active'));
+
+      if (isAlreadyActive) {
+        // Toggle off: back to All Documents
+        if (filterPersonSelect) filterPersonSelect.value = '';
+        const allDocsItem = document.querySelector('.sidebar-item[data-category=""]');
+        if (allDocsItem) allDocsItem.classList.add('active');
+      } else {
+        // Select this person
+        li.classList.add('active');
+        if (filterPersonSelect) filterPersonSelect.value = profile.name;
+      }
+      loadDocuments();
+    });
+
+    // Clicking the profile info button opens full profile modal
+    const profileBtn = li.querySelector('.btn-member-profile');
+    if (profileBtn) {
+      profileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const modalUsersProfiles = document.getElementById('modal-users-profiles');
+        if (modalUsersProfiles) {
+          modalUsersProfiles.classList.remove('hidden');
+          refreshUserProfilesUI(profile.name);
+        }
+      });
+    }
+
+    sidebarFamilyMembersList.appendChild(li);
+  });
 }
 
 function renderDocuments() {
   docGrid.innerHTML = '';
   if (documents.length === 0) {
     emptyState.classList.remove('hidden');
+    const emptyTitle = document.getElementById('empty-state-title');
+    const emptyDesc = document.getElementById('empty-state-desc');
+    const emptyIcon = document.getElementById('empty-state-icon');
+    const resetBtn = document.getElementById('btn-empty-reset');
+
+    const filterPersonSelect = document.getElementById('filter-person-select');
+    const selectedPerson = filterPersonSelect ? filterPersonSelect.value : '';
+
+    if (currentSearch) {
+      if (emptyIcon) emptyIcon.textContent = '🔍';
+      if (emptyTitle) emptyTitle.textContent = 'No matching documents found';
+      if (emptyDesc) emptyDesc.textContent = `No documents found matching "${escapeHtml(currentSearch)}". Check your query or reset filters.`;
+      if (resetBtn) resetBtn.classList.remove('hidden');
+    } else if (selectedPerson) {
+      if (emptyIcon) emptyIcon.textContent = '👤';
+      if (emptyTitle) emptyTitle.textContent = `No documents for ${selectedPerson}`;
+      if (emptyDesc) emptyDesc.textContent = `No documents in the vault are associated with ${escapeHtml(selectedPerson)} yet.`;
+      if (resetBtn) resetBtn.classList.remove('hidden');
+    } else if (currentCategory) {
+      const catCapitalized = currentCategory.charAt(0).toUpperCase() + currentCategory.slice(1);
+      if (emptyIcon) emptyIcon.textContent = '📁';
+      if (emptyTitle) emptyTitle.textContent = `No documents in ${catCapitalized}`;
+      if (emptyDesc) emptyDesc.textContent = `There are no documents filed under this category yet.`;
+      if (resetBtn) resetBtn.classList.remove('hidden');
+    } else if (currentExpiryFilter) {
+      if (emptyIcon) emptyIcon.textContent = '⏳';
+      if (emptyTitle) emptyTitle.textContent = currentExpiryFilter === 'expired' ? 'No expired documents' : 'No upcoming expiries';
+      if (emptyDesc) emptyDesc.textContent = currentExpiryFilter === 'expired' ? 'None of your vault documents are expired.' : 'No documents in your vault expire within the next 30 days.';
+      if (resetBtn) resetBtn.classList.remove('hidden');
+    } else if (currentTag) {
+      if (emptyIcon) emptyIcon.textContent = '🏷️';
+      if (emptyTitle) emptyTitle.textContent = `No documents tagged "${currentTag}"`;
+      if (emptyDesc) emptyDesc.textContent = 'Try clearing the tag filter or adding this tag to documents.';
+      if (resetBtn) resetBtn.classList.remove('hidden');
+    } else {
+      if (emptyIcon) emptyIcon.textContent = '📂';
+      if (emptyTitle) emptyTitle.textContent = 'Your Vault is Empty';
+      if (emptyDesc) emptyDesc.textContent = 'Get started by importing your first family document or adding a family member.';
+      if (resetBtn) resetBtn.classList.add('hidden');
+    }
     return;
   }
   emptyState.classList.add('hidden');
@@ -621,6 +854,34 @@ if (btnClearTagFilter) {
   });
 }
 
+// Empty state action buttons
+const btnEmptyImport = document.getElementById('btn-empty-import');
+const btnEmptyReset = document.getElementById('btn-empty-reset');
+
+if (btnEmptyImport) {
+  btnEmptyImport.addEventListener('click', () => {
+    if (btnOpenImport) btnOpenImport.click();
+  });
+}
+
+if (btnEmptyReset) {
+  btnEmptyReset.addEventListener('click', () => {
+    currentSearch = '';
+    if (searchInput) searchInput.value = '';
+    currentCategory = '';
+    currentTag = '';
+    currentExpiryFilter = '';
+    const filterPersonSelect = document.getElementById('filter-person-select');
+    if (filterPersonSelect) filterPersonSelect.value = '';
+    updateTagBar();
+    document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.sidebar-member-item').forEach(i => i.classList.remove('active'));
+    const allDocsItem = document.querySelector('.sidebar-item[data-category=""]');
+    if (allDocsItem) allDocsItem.classList.add('active');
+    loadDocuments();
+  });
+}
+
 // Dismiss Expiry Alert Banner for current session
 if (btnBannerDismiss) {
   btnBannerDismiss.addEventListener('click', () => {
@@ -651,6 +912,12 @@ sidebarItems.forEach(item => {
 
     const cat = item.getAttribute('data-category');
     const exp = item.getAttribute('data-expiry');
+
+    if (cat === '') {
+      const filterPersonSelect = document.getElementById('filter-person-select');
+      if (filterPersonSelect) filterPersonSelect.value = '';
+      document.querySelectorAll('.sidebar-member-item').forEach(m => m.classList.remove('active'));
+    }
 
     if (exp) {
       currentCategory = '';
@@ -837,7 +1104,21 @@ async function loadVersionPreview(versionId, mimeType, fileName, fileSize) {
       `;
     }
   } catch (err) {
-    drawerPreviewBox.innerHTML = `<div style="color: #f87171; font-size: 12px; padding: 16px;">Failed to decrypt preview: ${err.message}</div>`;
+    drawerPreviewBox.innerHTML = `
+      <div class="preview-error-fallback">
+        <div class="fallback-icon">⚠️</div>
+        <h4>Failed to Decrypt Preview</h4>
+        <p>${escapeHtml(err.message || 'Decryption key error or corrupt preview block.')}</p>
+        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">The encrypted raw file remains safely intact in your vault.</div>
+        <button type="button" class="btn btn-secondary" id="btn-preview-fallback-export" style="font-size: 11px; padding: 4px 10px;">Export Raw File</button>
+      </div>
+    `;
+    const fallbackExportBtn = drawerPreviewBox.querySelector('#btn-preview-fallback-export');
+    if (fallbackExportBtn) {
+      fallbackExportBtn.addEventListener('click', () => {
+        exportVersion(versionId, fileName);
+      });
+    }
   }
 }
 
@@ -1178,6 +1459,8 @@ async function refreshFamilyMembersDatalist() {
 
 // Import Document Modal
 btnOpenImport.addEventListener('click', async () => {
+  clearInlineError('import-error-banner');
+  clearInlineWarning('import-fallback-warning');
   importFilepathInput.value = '';
   importTitleInput.value = '';
   importPersonInput.value = '';
@@ -1194,6 +1477,8 @@ btnOpenImport.addEventListener('click', async () => {
 });
 
 importBrowseBtn.addEventListener('click', async () => {
+  clearInlineError('import-error-banner');
+  clearInlineWarning('import-fallback-warning');
   const filePath = await window.familyVault.selectFile();
   if (!filePath) return;
 
@@ -1272,9 +1557,10 @@ importBrowseBtn.addEventListener('click', async () => {
   } catch (err) {
     clearTimeout(timer1);
     clearTimeout(timer2);
-    // If analysis fails (e.g. non-text file or scanner format), don't block import
+    // If analysis fails (e.g. non-text file or scanner format), don't block import, show warning fallback
+    showInlineWarning('import-fallback-warning', 'Automated OCR extraction was skipped or partially failed. You can proceed and enter details manually.');
     if (importAnalysisBanner && importAnalysisBannerDetails) {
-      importAnalysisBannerDetails.textContent = 'Standard file selected. You can enter metadata manually.';
+      importAnalysisBannerDetails.textContent = 'File selected. You can enter metadata manually.';
       importAnalysisBanner.classList.remove('hidden');
     }
   } finally {
@@ -1285,7 +1571,14 @@ importBrowseBtn.addEventListener('click', async () => {
   }
 });
 
+importTitleInput.addEventListener('input', () => clearInlineError('import-error-banner'));
+importFilepathInput.addEventListener('input', () => {
+  clearInlineError('import-error-banner');
+  clearInlineWarning('import-fallback-warning');
+});
+
 submitImportBtn.addEventListener('click', async () => {
+  clearInlineError('import-error-banner');
   const filePath = importFilepathInput.value.trim();
   const title = importTitleInput.value.trim();
   const category = importCategorySelect.value;
@@ -1294,6 +1587,7 @@ submitImportBtn.addEventListener('click', async () => {
   const notes = importNotesInput.value.trim();
 
   if (!filePath) {
+    showInlineError('import-error-banner', 'Please select a file to import.');
     showToast('Please select a file to import', 'error');
     return;
   }
@@ -1315,9 +1609,12 @@ submitImportBtn.addEventListener('click', async () => {
 
     modalImport.classList.add('hidden');
     preAnalyzedDocData = null;
+    clearInlineError('import-error-banner');
+    clearInlineWarning('import-fallback-warning');
     showToast('Document encrypted and saved in vault', 'success');
     await loadDocuments();
   } catch (err) {
+    showInlineError('import-error-banner', 'Import error: ' + err.message);
     showToast('Import error: ' + err.message, 'error');
   } finally {
     submitImportBtn.disabled = false;
@@ -1327,23 +1624,30 @@ submitImportBtn.addEventListener('click', async () => {
 
 // Upload New Version Modal
 btnOpenAddVersion.addEventListener('click', () => {
+  clearInlineError('new-version-error-banner');
   newVersionFilepathInput.value = '';
   newVersionNotesInput.value = '';
   modalNewVersion.classList.remove('hidden');
 });
 
 newVersionBrowseBtn.addEventListener('click', async () => {
+  clearInlineError('new-version-error-banner');
   const filePath = await window.familyVault.selectFile();
   if (filePath) {
     newVersionFilepathInput.value = filePath;
   }
 });
 
+newVersionFilepathInput.addEventListener('input', () => clearInlineError('new-version-error-banner'));
+newVersionNotesInput.addEventListener('input', () => clearInlineError('new-version-error-banner'));
+
 submitNewVersionBtn.addEventListener('click', async () => {
+  clearInlineError('new-version-error-banner');
   const filePath = newVersionFilepathInput.value.trim();
   const notes = newVersionNotesInput.value.trim();
 
   if (!filePath) {
+    showInlineError('new-version-error-banner', 'Please select an updated document file.');
     showToast('Please select an updated document file', 'error');
     return;
   }
@@ -1360,10 +1664,12 @@ submitNewVersionBtn.addEventListener('click', async () => {
     });
 
     modalNewVersion.classList.add('hidden');
+    clearInlineError('new-version-error-banner');
     showToast('New version added; previous versions preserved', 'success');
     loadDocuments();
     openDocumentDrawer(selectedDocumentId);
   } catch (err) {
+    showInlineError('new-version-error-banner', 'Add version error: ' + err.message);
     showToast('Add version error: ' + err.message, 'error');
   } finally {
     submitNewVersionBtn.disabled = false;
@@ -1422,26 +1728,35 @@ submitReviewMetadataBtn.addEventListener('click', async () => {
 
 // Change Password Modal
 btnChangePasswordModal.addEventListener('click', () => {
+  clearInlineError('change-pass-error-banner');
   changePassCurrent.value = '';
   changePassNew.value = '';
   changePassConfirm.value = '';
   modalChangePassword.classList.remove('hidden');
 });
 
+changePassCurrent.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
+changePassNew.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
+changePassConfirm.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
+
 submitChangePasswordBtn.addEventListener('click', async () => {
+  clearInlineError('change-pass-error-banner');
   const oldPassword = changePassCurrent.value;
   const newPassword = changePassNew.value;
   const confirmPassword = changePassConfirm.value;
 
   if (!oldPassword) {
+    showInlineError('change-pass-error-banner', 'Please enter your current password.');
     showToast('Please enter your current password', 'error');
     return;
   }
   if (newPassword.length < 8) {
+    showInlineError('change-pass-error-banner', 'New password must be at least 8 characters long.');
     showToast('New password must be at least 8 characters long', 'error');
     return;
   }
   if (newPassword !== confirmPassword) {
+    showInlineError('change-pass-error-banner', 'New passwords do not match. Please verify.');
     showToast('New passwords do not match', 'error');
     return;
   }
@@ -1451,9 +1766,11 @@ submitChangePasswordBtn.addEventListener('click', async () => {
 
   try {
     await window.familyVault.changePassword({ oldPassword, newPassword });
+    clearInlineError('change-pass-error-banner');
     modalChangePassword.classList.add('hidden');
     showToast('Master password updated successfully', 'success');
   } catch (err) {
+    showInlineError('change-pass-error-banner', 'Password change error: ' + err.message);
     showToast('Password change error: ' + err.message, 'error');
   } finally {
     submitChangePasswordBtn.disabled = false;
@@ -1974,6 +2291,15 @@ if (btnDownloadSetupGemma) {
 const filterPersonSelect = document.getElementById('filter-person-select');
 if (filterPersonSelect) {
   filterPersonSelect.addEventListener('change', () => {
+    const val = (filterPersonSelect.value || '').trim().toLowerCase();
+    document.querySelectorAll('.sidebar-member-item').forEach(item => {
+      const p = (item.getAttribute('data-person') || '').trim().toLowerCase();
+      if (val && p === val) {
+        item.classList.add('active');
+      } else {
+        item.classList.remove('active');
+      }
+    });
     loadDocuments();
   });
 }
@@ -2120,6 +2446,25 @@ const editUser12th = document.getElementById('edit-user-12th');
 const editUserEducation = document.getElementById('edit-user-education');
 const editUserNotes = document.getElementById('edit-user-notes');
 const btnSaveUserProfileSubmit = document.getElementById('btn-save-user-profile-submit');
+
+const btnOpenAddFamilyMember = document.getElementById('btn-open-add-family-member');
+const modalAddFamilyMember = document.getElementById('modal-add-family-member');
+const addUserName = document.getElementById('add-user-name');
+const addUserDob = document.getElementById('add-user-dob');
+const addUserGender = document.getElementById('add-user-gender');
+const addUserFather = document.getElementById('add-user-father');
+const addUserMother = document.getElementById('add-user-mother');
+const addUserAddress = document.getElementById('add-user-address');
+const addUser10th = document.getElementById('add-user-10th');
+const addUser12th = document.getElementById('add-user-12th');
+const addUserEducation = document.getElementById('add-user-education');
+const addUserNotes = document.getElementById('add-user-notes');
+const btnSubmitAddFamilyMember = document.getElementById('btn-submit-add-family-member');
+
+const btnRemoveUserProfile = document.getElementById('btn-remove-user-profile');
+const modalConfirmRemoveUser = document.getElementById('modal-confirm-remove-user');
+const removeUserNameConfirm = document.getElementById('remove-user-name-confirm');
+const btnConfirmRemoveUserAction = document.getElementById('btn-confirm-remove-user-action');
 
 let currentLoadedProfiles = [];
 let selectedProfileName = null;
@@ -2351,6 +2696,8 @@ if (btnSaveUserProfileSubmit) {
       modalEditUserProfile.classList.add('hidden');
       showToast('Profile saved successfully', 'success');
       await refreshUserProfilesUI(name);
+      await refreshFamilyMembersDatalist();
+      await updateCounts();
     } catch (err) {
       showToast('Failed to save profile: ' + err.message, 'error');
     } finally {
@@ -2359,6 +2706,312 @@ if (btnSaveUserProfileSubmit) {
     }
   });
 }
+
+if (btnOpenAddFamilyMember) {
+  btnOpenAddFamilyMember.addEventListener('click', () => {
+    clearInlineError('add-member-error-banner');
+    addUserName.value = '';
+    addUserDob.value = '';
+    addUserGender.value = '';
+    addUserFather.value = '';
+    addUserMother.value = '';
+    addUserAddress.value = '';
+    addUser10th.value = '';
+    addUser12th.value = '';
+    addUserEducation.value = '';
+    addUserNotes.value = '';
+    modalAddFamilyMember.classList.remove('hidden');
+    addUserName.focus();
+  });
+}
+
+if (addUserName) {
+  addUserName.addEventListener('input', () => clearInlineError('add-member-error-banner'));
+}
+
+if (btnSubmitAddFamilyMember) {
+  btnSubmitAddFamilyMember.addEventListener('click', async () => {
+    clearInlineError('add-member-error-banner');
+    const name = addUserName.value.trim();
+    if (!name) {
+      showInlineError('add-member-error-banner', 'Please enter a valid family member name.');
+      showToast('Please enter a valid family member name', 'error');
+      addUserName.focus();
+      return;
+    }
+
+    // Check for duplicate family member
+    try {
+      const existingMembers = await window.familyVault.listFamilyMembers();
+      if (existingMembers && existingMembers.some(m => m.trim().toLowerCase() === name.toLowerCase())) {
+        showInlineError('add-member-error-banner', `A family member named "${name}" already exists in the vault.`);
+        showToast(`A family member named "${name}" already exists`, 'warning');
+        return;
+      }
+    } catch (e) {}
+
+    btnSubmitAddFamilyMember.disabled = true;
+    btnSubmitAddFamilyMember.textContent = 'Adding...';
+
+    try {
+      await window.familyVault.addFamilyMember({
+        name,
+        dob: addUserDob.value.trim() || null,
+        gender: addUserGender.value || null,
+        fathersName: addUserFather.value.trim() || null,
+        mothersName: addUserMother.value.trim() || null,
+        address: addUserAddress.value.trim() || null,
+        marks10th: addUser10th.value.trim() || null,
+        marks12th: addUser12th.value.trim() || null,
+        education: addUserEducation.value.trim() || null,
+        notes: addUserNotes.value.trim() || null
+      });
+
+      modalAddFamilyMember.classList.add('hidden');
+      clearInlineError('add-member-error-banner');
+      showToast(`Family member "${name}" added successfully`, 'success');
+      await refreshUserProfilesUI(name);
+      await refreshFamilyMembersDatalist();
+      await updateCounts();
+    } catch (err) {
+      showInlineError('add-member-error-banner', 'Failed to add family member: ' + err.message);
+      showToast('Failed to add family member: ' + err.message, 'error');
+    } finally {
+      btnSubmitAddFamilyMember.disabled = false;
+      btnSubmitAddFamilyMember.textContent = 'Add Member';
+    }
+  });
+}
+
+if (btnRemoveUserProfile) {
+  btnRemoveUserProfile.addEventListener('click', () => {
+    if (!selectedProfileName) {
+      showToast('No family member selected to remove', 'error');
+      return;
+    }
+    removeUserNameConfirm.textContent = selectedProfileName;
+    modalConfirmRemoveUser.classList.remove('hidden');
+  });
+}
+
+if (btnConfirmRemoveUserAction) {
+  btnConfirmRemoveUserAction.addEventListener('click', async () => {
+    if (!selectedProfileName) return;
+    const personToRemove = selectedProfileName;
+
+    btnConfirmRemoveUserAction.disabled = true;
+    btnConfirmRemoveUserAction.textContent = 'Removing...';
+
+    try {
+      await window.familyVault.removeFamilyMember(personToRemove);
+      modalConfirmRemoveUser.classList.add('hidden');
+      showToast(`Removed family member "${personToRemove}"`, 'success');
+      selectedProfileName = null;
+      await refreshUserProfilesUI();
+      await refreshFamilyMembersDatalist();
+      await updateCounts();
+      await loadDocuments();
+    } catch (err) {
+      showToast('Failed to remove family member: ' + err.message, 'error');
+    } finally {
+      btnConfirmRemoveUserAction.disabled = false;
+      btnConfirmRemoveUserAction.textContent = 'Yes, Remove Member';
+    }
+  });
+}
+
+// --- Quick Add Family Member (Full Name Only) Controller ---
+const btnSidebarAddMember = document.getElementById('btn-sidebar-add-member');
+const modalQuickAddMember = document.getElementById('modal-quick-add-member');
+const formQuickAddMember = document.getElementById('form-quick-add-member');
+const quickAddMemberName = document.getElementById('quick-add-member-name');
+const btnSubmitQuickAddMember = document.getElementById('btn-submit-quick-add-member');
+const btnQuickAddAdvanced = document.getElementById('btn-quick-add-advanced');
+
+const modalFirstRunWelcome = document.getElementById('modal-first-run-welcome');
+const firstRunMemberName = document.getElementById('first-run-member-name');
+const btnFirstRunAddMember = document.getElementById('btn-first-run-add-member');
+const btnFirstRunImportDoc = document.getElementById('btn-first-run-import-doc');
+const btnFirstRunSkip = document.getElementById('btn-first-run-skip');
+
+function openQuickAddMemberModal() {
+  clearInlineError('quick-add-error-banner');
+  if (modalQuickAddMember && quickAddMemberName) {
+    quickAddMemberName.value = '';
+    modalQuickAddMember.classList.remove('hidden');
+    quickAddMemberName.focus();
+  }
+}
+
+async function submitQuickAddMember(nameToSave, callerModal = 'quick-add') {
+  const bannerId = callerModal === 'first-run' ? 'first-run-error-banner' : 'quick-add-error-banner';
+  clearInlineError(bannerId);
+  const name = (nameToSave || '').trim();
+  if (!name) {
+    showInlineError(bannerId, 'Please enter the family member full name.');
+    showToast('Please enter the family member full name', 'error');
+    return false;
+  }
+
+  // Duplicate member check
+  try {
+    const existing = await window.familyVault.listFamilyMembers();
+    if (existing && existing.some(m => m.trim().toLowerCase() === name.toLowerCase())) {
+      showInlineError(bannerId, `A family member named "${name}" already exists.`);
+      showToast(`A family member named "${name}" already exists`, 'warning');
+      return false;
+    }
+  } catch (e) {}
+
+  try {
+    await window.familyVault.addFamilyMember({ name });
+    clearInlineError(bannerId);
+    showToast(`Added family member "${name}"`, 'success');
+    await updateCounts();
+    await refreshFamilyMembersDatalist();
+    await refreshUserProfilesUI(name);
+    await loadDocuments();
+    return true;
+  } catch (err) {
+    showInlineError(bannerId, 'Failed to add family member: ' + err.message);
+    showToast('Failed to add family member: ' + err.message, 'error');
+    return false;
+  }
+}
+
+if (quickAddMemberName) {
+  quickAddMemberName.addEventListener('input', () => clearInlineError('quick-add-error-banner'));
+}
+
+if (firstRunMemberName) {
+  firstRunMemberName.addEventListener('input', () => clearInlineError('first-run-error-banner'));
+}
+
+if (btnSidebarAddMember) {
+  btnSidebarAddMember.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openQuickAddMemberModal();
+  });
+}
+
+if (btnSubmitQuickAddMember) {
+  btnSubmitQuickAddMember.addEventListener('click', async () => {
+    clearInlineError('quick-add-error-banner');
+    const name = quickAddMemberName ? quickAddMemberName.value.trim() : '';
+    if (!name) {
+      showInlineError('quick-add-error-banner', 'Please enter the family member full name.');
+      showToast('Please enter the family member full name', 'error');
+      if (quickAddMemberName) quickAddMemberName.focus();
+      return;
+    }
+    btnSubmitQuickAddMember.disabled = true;
+    btnSubmitQuickAddMember.textContent = 'Adding...';
+    const success = await submitQuickAddMember(name, 'quick-add');
+    btnSubmitQuickAddMember.disabled = false;
+    btnSubmitQuickAddMember.textContent = 'Add Member';
+    if (success && modalQuickAddMember) {
+      modalQuickAddMember.classList.add('hidden');
+    }
+  });
+}
+
+if (formQuickAddMember) {
+  formQuickAddMember.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (btnSubmitQuickAddMember) btnSubmitQuickAddMember.click();
+  });
+}
+
+if (btnQuickAddAdvanced) {
+  btnQuickAddAdvanced.addEventListener('click', () => {
+    if (modalQuickAddMember) modalQuickAddMember.classList.add('hidden');
+    const modalFull = document.getElementById('modal-add-family-member');
+    const addNameInput = document.getElementById('add-user-name');
+    if (modalFull) {
+      modalFull.classList.remove('hidden');
+      clearInlineError('add-member-error-banner');
+      if (addNameInput && quickAddMemberName) {
+        addNameInput.value = quickAddMemberName.value;
+        addNameInput.focus();
+      }
+    }
+  });
+}
+
+async function checkFirstRunOnboarding(vaultPath) {
+  try {
+    const members = await window.familyVault.listFamilyMembers();
+    const allDocs = await window.familyVault.listDocuments({});
+    const storageKey = `fv_welcome_seen_${vaultPath}`;
+    const alreadySeen = localStorage.getItem(storageKey);
+
+    if (!alreadySeen && members.length === 0 && allDocs.length === 0) {
+      localStorage.setItem(storageKey, 'true');
+      if (modalFirstRunWelcome) {
+        clearInlineError('first-run-error-banner');
+        modalFirstRunWelcome.classList.remove('hidden');
+        if (firstRunMemberName) {
+          firstRunMemberName.value = '';
+          firstRunMemberName.focus();
+        }
+      }
+    }
+  } catch (e) {}
+}
+
+if (btnFirstRunAddMember && firstRunMemberName) {
+  const handleFirstRunAdd = async () => {
+    clearInlineError('first-run-error-banner');
+    const name = firstRunMemberName.value.trim();
+    if (!name) {
+      showInlineError('first-run-error-banner', 'Please enter a full name.');
+      showToast('Please enter a full name', 'error');
+      firstRunMemberName.focus();
+      return;
+    }
+    btnFirstRunAddMember.disabled = true;
+    btnFirstRunAddMember.textContent = 'Adding...';
+    const success = await submitQuickAddMember(name, 'first-run');
+    btnFirstRunAddMember.disabled = false;
+    btnFirstRunAddMember.textContent = 'Add Member';
+    if (success && modalFirstRunWelcome) {
+      modalFirstRunWelcome.classList.add('hidden');
+    }
+  };
+
+  btnFirstRunAddMember.addEventListener('click', handleFirstRunAdd);
+  firstRunMemberName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleFirstRunAdd();
+    }
+  });
+}
+
+if (btnFirstRunImportDoc) {
+  btnFirstRunImportDoc.addEventListener('click', () => {
+    if (modalFirstRunWelcome) modalFirstRunWelcome.classList.add('hidden');
+    const btnOpenImport = document.getElementById('btn-open-import');
+    if (btnOpenImport) btnOpenImport.click();
+  });
+}
+
+if (btnFirstRunSkip) {
+  btnFirstRunSkip.addEventListener('click', () => {
+    if (modalFirstRunWelcome) modalFirstRunWelcome.classList.add('hidden');
+  });
+}
+
+// Global UI Error Boundaries
+window.addEventListener('error', (event) => {
+  console.error('Unhandled UI Error:', event.error || event.message);
+  showToast('An unexpected interface error occurred.', 'error');
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled Promise Rejection:', event.reason);
+  showToast('Operation failed: ' + (event.reason?.message || 'Unknown error'), 'error');
+});
 
 // Modal close button handlers
 document.querySelectorAll('.modal-close-btn').forEach(btn => {
@@ -2373,6 +3026,10 @@ document.querySelectorAll('.modal-close-btn').forEach(btn => {
     if (modalConfirmDelete) modalConfirmDelete.classList.add('hidden');
     if (modalUsersProfiles) modalUsersProfiles.classList.add('hidden');
     if (modalEditUserProfile) modalEditUserProfile.classList.add('hidden');
+    if (modalAddFamilyMember) modalAddFamilyMember.classList.add('hidden');
+    if (modalConfirmRemoveUser) modalConfirmRemoveUser.classList.add('hidden');
+    if (modalQuickAddMember) modalQuickAddMember.classList.add('hidden');
+    if (modalFirstRunWelcome) modalFirstRunWelcome.classList.add('hidden');
     documentIdPendingDelete = null;
   });
 });

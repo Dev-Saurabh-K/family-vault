@@ -10,8 +10,8 @@ Electron main process
     ├── Vault core (keys, lifecycle, paths, object storage)
     ├── SQLCipher database and search
     ├── import / processing job system
-    ├── OCR & Document Vision → Gemma-4-E2B (primary) with Tesseract.js fallback
-    ├── LLMService → bundled llama-server.exe → Gemma-4-E2B Multimodal GGUF
+    ├── OCR & Text Extraction → PaddleOCR PP-OCRv5 (primary) via onnxruntime-node with Tesseract.js fallback
+    ├── LLMService → bundled llama-server.exe → Gemma-4-E2B GGUF (grounded Q&A, AI metadata extraction)
     └── optional EmbeddingService + VectorStore
 ```
 
@@ -54,14 +54,16 @@ Do not treat a matching hash as permission to delete, overwrite, or silently hid
 
 ```text
 version → native PDF text extraction when digital/available
-→ Multimodal Vision & OCR (Gemma-4-E2B primary; Tesseract.js on failure)
+→ Primary Document OCR (PaddleOCR PP-OCRv5 via onnxruntime-node; Tesseract.js on failure)
 → normalized text & coordinates → validated extraction/classification
-→ metadata + FTS indexing → optional embeddings/indexing
+→ metadata + FTS indexing → optional local AI enrichment (Gemma-4-E2B) & embeddings
 ```
 
-Document vision and OCR leverages the bundled **Gemma-4-E2B** multimodal model as the primary engine. It directly processes document image buffers for visual layout understanding, extracting text, tabular arrangements, and word-level coordinates (`text`, `x`, `y`, `width`, `height`, `confidence`) without cloud dependencies.
+Document OCR leverages **PaddleOCR PP-OCRv5** running locally via `onnxruntime-node` with prebuilt native binaries as the **primary dedicated OCR engine**. PaddleOCR utilizes deep-learning text detection (DB algorithm), optional text orientation classification, and transformer-based character recognition to extract text, tables, and word-level coordinates (`text`, `x`, `y`, `width`, `height`, `confidence`) with high deterministic accuracy. It handles handwritten text, tables, multilingual content, and phone-captured photos significantly better than Tesseract.js, while remaining fast and lightweight (~15.7 MB mobile models). *(See `docs/OCR_PADDLEOCR_INTEGRATION.md` for the full integration plan.)*
 
-If the multimodal model is unavailable, times out, or fails during processing, `OCRService` automatically falls back to the local `Tesseract.js` pipeline running in the main process, ensuring resilient, 100% offline document understanding.
+If PaddleOCR is unavailable or encounters an unrecoverable runtime error, `OCRService` falls back to the local `Tesseract.js` pipeline running in the main process as an offline fallback, ensuring resilient document text extraction.
+
+High-level document comprehension, semantic metadata extraction (categorization, entity grounding), and conversational Q&A are handled downstream by the bundled **Gemma-4-E2B** model via `llama-server.exe`, which operates on the extracted text and structured layouts.
 
 ### Search and answers
 

@@ -5,6 +5,7 @@ const path = require('node:path');
 const { registerIpcHandlers } = require('./main/ipc');
 const { vaultService } = require('./main/vault/vaultService');
 const { llmService } = require('./main/services/llmService');
+const { paddleOcrService } = require('./main/services/paddleOcrService');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -63,6 +64,7 @@ app.on('before-quit', () => {
   try {
     vaultService.lockVault();
     llmService.stopServer();
+    paddleOcrService.destroy().catch(() => {});
   } catch (e) {}
 });
 

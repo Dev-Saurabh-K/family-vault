@@ -19,7 +19,7 @@ The installed application is replaceable. A user's vault is their data and must 
 
 - Create, unlock, lock, and open portable vaults.
 - Import and retain encrypted document originals and immutable versions.
-- Local text extraction and multimodal document understanding: Gemma-4-E2B multimodal model as the primary engine to process images, perform OCR, and extract detailed word-level coordinate information ({ text, x, y, width, height, confidence }) for structured table and form understanding, with local Tesseract.js retained strictly as a fallback on model failure.
+- Local text extraction and document understanding: **PaddleOCR (PP-OCRv5)** via `onnxruntime-node` as the primary dedicated OCR engine to process images and extract detailed word-level coordinate information ({ text, x, y, width, height, confidence }) for structured table and form understanding, with local **Tesseract.js** retained strictly as an offline fallback on failure; bundled local **Gemma-4-E2B** provides high-level AI document metadata extraction and grounded Q&A.
 - Structured metadata and full-text search/filtering.
 - Optional, separately enabled semantic-search layer later.
 - Bundled local AI inference using `llama-server.exe` and the Gemma-4-E2B multimodal model.

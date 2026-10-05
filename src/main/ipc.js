@@ -228,6 +228,28 @@ function registerIpcHandlers(mainWindow) {
     return vaultService.saveUserProfile(profile);
   });
 
+  ipcMain.handle('profile:add', async (_event, profile) => {
+    if (!profile || !profile.name) throw new Error('Missing profile or profile name');
+    return vaultService.addFamilyMember(profile);
+  });
+
+  ipcMain.handle('profile:remove', async (_event, args) => {
+    const personName = typeof args === 'string' ? args : (args && args.personName);
+    if (!personName) throw new Error('Missing personName');
+    return vaultService.removeFamilyMember(personName);
+  });
+
+  ipcMain.handle('vault:add-family-member', async (_event, profile) => {
+    if (!profile || !profile.name) throw new Error('Missing profile or profile name');
+    return vaultService.addFamilyMember(profile);
+  });
+
+  ipcMain.handle('vault:remove-family-member', async (_event, args) => {
+    const personName = typeof args === 'string' ? args : (args && args.personName);
+    if (!personName) throw new Error('Missing personName');
+    return vaultService.removeFamilyMember(personName);
+  });
+
   // Local AI Grounded Q&A
   ipcMain.handle('ai:ask', async (_event, { query }) => {
     if (!query) throw new Error('Query is required');

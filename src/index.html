@@ -37,6 +37,8 @@
               <input type="password" id="unlock-password-input" class="input-field" placeholder="Enter vault password" />
             </div>
 
+            <div id="unlock-error-banner" class="form-error-banner hidden"></div>
+
             <button id="submit-unlock-btn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
               Unlock Vault
             </button>
@@ -66,6 +68,8 @@
               <input type="password" id="create-password-confirm-input" class="input-field" placeholder="Re-enter master password" />
             </div>
 
+            <div id="create-error-banner" class="form-error-banner hidden"></div>
+
             <button id="submit-create-btn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
               Create &amp; Secure Vault
             </button>
@@ -93,6 +97,8 @@
                 <button id="restore-target-browse-btn" class="btn btn-secondary">Browse</button>
               </div>
             </div>
+
+            <div id="restore-error-banner" class="form-error-banner hidden"></div>
 
             <button id="submit-restore-btn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
               Restore Encrypted Vault
@@ -166,17 +172,29 @@
               </li>
             </ul>
 
-            <div class="sidebar-heading" style="margin-top: 14px;">Family Profiles</div>
-            <ul class="sidebar-nav">
-              <li class="sidebar-item" id="nav-user-profiles-btn" style="cursor: pointer;">
-                <span style="display: flex; align-items: center; gap: 6px;">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <div class="sidebar-heading-row">
+              <span class="sidebar-heading" style="padding: 0; margin: 0;">Family Members</span>
+              <button id="btn-sidebar-add-member" class="btn-sidebar-add" title="Add Family Member">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                <span>+ Add</span>
+              </button>
+            </div>
+            <ul id="sidebar-family-members-list" class="sidebar-nav">
+              <!-- Populated dynamically with family members -->
+            </ul>
+            <ul class="sidebar-nav" style="margin-top: 2px;">
+              <li class="sidebar-item" id="nav-user-profiles-btn" style="cursor: pointer; font-size: 13px;">
+                <span style="display: flex; align-items: center; gap: 7px;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
                     <circle cx="9" cy="7" r="4"></circle>
                     <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
                     <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                   </svg>
-                  Users &amp; Profiles
+                  All Profiles
                 </span>
                 <span id="count-users" class="badge badge-blue">0</span>
               </li>
@@ -240,8 +258,13 @@
             <div class="doc-list-container">
               <div id="doc-grid" class="doc-grid"></div>
               <div id="empty-state" class="empty-state hidden">
-                <h3>No documents in this view</h3>
-                <p>Import a document to add it to your encrypted vault.</p>
+                <div id="empty-state-icon" style="font-size: 36px; margin-bottom: 10px; opacity: 0.75;">📂</div>
+                <h3 id="empty-state-title">No documents in this view</h3>
+                <p id="empty-state-desc">Import a document to add it to your encrypted vault.</p>
+                <div id="empty-state-actions" style="margin-top: 14px; display: flex; gap: 8px; justify-content: center;">
+                  <button id="btn-empty-import" class="btn btn-primary" style="font-size: 12px; padding: 6px 14px;">+ Import Document</button>
+                  <button id="btn-empty-reset" class="btn btn-secondary hidden" style="font-size: 12px; padding: 6px 14px;">Reset Filters</button>
+                </div>
               </div>
             </div>
           </main>
@@ -392,6 +415,9 @@
             <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
           </div>
 
+          <div id="import-error-banner" class="form-error-banner hidden" style="margin-bottom: 12px;"></div>
+          <div id="import-fallback-warning" class="form-warning-banner hidden" style="margin-bottom: 12px;"></div>
+
           <div class="form-group">
             <label>Select File (PDF, PNG, JPG, WEBP, TIFF)</label>
             <div class="file-picker-group">
@@ -474,6 +500,8 @@
           <p style="font-size: 13px; color: var(--text-secondary);">
             The existing version will remain preserved as immutable history.
           </p>
+
+          <div id="new-version-error-banner" class="form-error-banner hidden" style="margin-bottom: 12px;"></div>
 
           <div class="form-group">
             <label>Updated File</label>
@@ -654,6 +682,8 @@
             Rewraps your Master Key with new Argon2id parameters. Stored documents do not need to be re-encrypted.
           </p>
 
+          <div id="change-pass-error-banner" class="form-error-banner hidden" style="margin-bottom: 12px;"></div>
+
           <div class="form-group">
             <label>Current Password</label>
             <input type="password" id="change-pass-current" class="input-field" />
@@ -823,8 +853,9 @@
           <div style="display: flex; flex: 1; min-height: 480px; overflow: hidden;">
             <!-- Left: Users List -->
             <div style="width: 270px; border-right: 1px solid var(--border); background: rgba(15, 23, 42, 0.35); display: flex; flex-direction: column;">
-              <div style="padding: 10px 12px; border-bottom: 1px solid var(--border);">
-                <input type="text" id="users-search-input" class="input-field" placeholder="Search user..." style="font-size: 11px; padding: 5px 8px; width: 100%;" />
+              <div style="padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 8px;">
+                <input type="text" id="users-search-input" class="input-field" placeholder="Search user..." style="font-size: 11px; padding: 5px 8px; flex: 1;" />
+                <button type="button" id="btn-open-add-family-member" class="btn btn-primary" style="font-size: 11px; padding: 5px 10px; white-space: nowrap;" title="Add new family member">+ Add</button>
               </div>
               <div id="users-profile-list" style="flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
                 <!-- Populated dynamically -->
@@ -850,7 +881,10 @@
                       <span id="user-detail-docs-badge" class="badge badge-gray">0 Documents</span>
                     </div>
                   </div>
-                  <button id="btn-edit-user-profile" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;">Edit Profile</button>
+                  <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="btn-edit-user-profile" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;">Edit Profile</button>
+                    <button id="btn-remove-user-profile" class="btn" style="font-size: 11px; padding: 4px 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #fca5a5; cursor: pointer;">Remove Member</button>
+                  </div>
                 </div>
 
                 <!-- Contradiction Alert Box (Dynamic) -->
@@ -999,6 +1033,199 @@
           <div class="modal-footer" style="margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px;">
             <button class="btn btn-secondary modal-close-btn">Cancel</button>
             <button type="button" id="btn-save-user-profile-submit" class="btn btn-primary">Save Profile</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 12. MODAL: ADD FAMILY MEMBER -->
+      <div id="modal-add-family-member" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 520px;">
+          <div class="modal-header">
+            <h3>Add Family Member</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px;">
+            Create a profile for a family member. Extracted facts from their documents will be automatically linked to them.
+          </p>
+          <div id="add-member-error-banner" class="form-error-banner hidden" style="margin-bottom: 12px;"></div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="form-group">
+              <label>Full Name *</label>
+              <input type="text" id="add-user-name" class="input-field" placeholder="e.g. Eleanor Vance" required />
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group">
+                <label>Date of Birth (YYYY-MM-DD)</label>
+                <input type="text" id="add-user-dob" class="input-field" placeholder="YYYY-MM-DD" />
+              </div>
+              <div class="form-group">
+                <label>Gender</label>
+                <select id="add-user-gender" class="input-field">
+                  <option value="">Unspecified</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group">
+                <label>Father's Name</label>
+                <input type="text" id="add-user-father" class="input-field" placeholder="Father's Name" />
+              </div>
+              <div class="form-group">
+                <label>Mother's Name</label>
+                <input type="text" id="add-user-mother" class="input-field" placeholder="Mother's Name" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Residential Address</label>
+              <textarea id="add-user-address" class="input-field" rows="2" placeholder="Full address"></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group">
+                <label>10th Marks / Board</label>
+                <input type="text" id="add-user-10th" class="input-field" placeholder="e.g. 91.4% (CBSE)" />
+              </div>
+              <div class="form-group">
+                <label>12th Marks / Stream</label>
+                <input type="text" id="add-user-12th" class="input-field" placeholder="e.g. 94.6% (Science)" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Higher Education / Degree</label>
+              <input type="text" id="add-user-education" class="input-field" placeholder="e.g. B.Tech Computer Science" />
+            </div>
+            <div class="form-group">
+              <label>Notes</label>
+              <textarea id="add-user-notes" class="input-field" rows="2" placeholder="Biographical details or notes..."></textarea>
+            </div>
+          </div>
+          <div class="modal-footer" style="margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button type="button" id="btn-submit-add-family-member" class="btn btn-primary">Add Member</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 13. MODAL: CONFIRM REMOVE FAMILY MEMBER -->
+      <div id="modal-confirm-remove-user" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 440px;">
+          <div class="modal-header">
+            <h3 style="color: #f87171;">Remove Family Member</h3>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+          <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+            Are you sure you want to remove <strong id="remove-user-name-confirm" style="color: var(--text-primary);">-</strong> from your family members?
+          </p>
+          <div class="security-notice" style="border-left: 3px solid #ef4444; background: rgba(239, 68, 68, 0.1); padding: 8px 12px; font-size: 12px; color: #fca5a5; border-radius: 4px; margin-bottom: 12px;">
+            <span>The profile and its extracted facts will be removed. Any documents previously associated with this member will remain preserved in the vault as unassigned documents.</span>
+          </div>
+          <div class="modal-footer" style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary modal-close-btn">Cancel</button>
+            <button type="button" id="btn-confirm-remove-user-action" class="btn" style="background: #dc2626; color: white;">Yes, Remove Member</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 14. MODAL: QUICK ADD FAMILY MEMBER (FULL NAME ONLY) -->
+      <div id="modal-quick-add-member" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 440px; padding: 22px;">
+          <div class="modal-header" style="margin-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(16, 163, 127, 0.15); border: 1px solid rgba(16, 163, 127, 0.35); display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                👤
+              </div>
+              <div>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 600;">Add Family Member</h3>
+                <span style="font-size: 11px; color: var(--text-muted);">Add an individual to your family vault.</span>
+              </div>
+            </div>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <div id="quick-add-error-banner" class="form-error-banner hidden" style="margin-top: 10px; margin-bottom: 4px;"></div>
+
+          <form id="form-quick-add-member" onsubmit="return false;" style="margin-top: 12px;">
+            <div class="form-group" style="margin-bottom: 14px;">
+              <label for="quick-add-member-name" style="font-weight: 500; font-size: 13px; color: var(--text-primary); margin-bottom: 6px;">
+                Full Name <span style="color: #f87171;">*</span>
+              </label>
+              <input type="text" id="quick-add-member-name" class="input-field" placeholder="e.g. Eleanor Vance" required autocomplete="off" style="font-size: 14px; padding: 10px 12px;" />
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+                Documents matching this name will be automatically grouped and indexed.
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px;">
+              <button type="button" id="btn-quick-add-advanced" style="background: none; border: none; color: #8dd8c3; font-size: 11px; cursor: pointer; padding: 0; text-decoration: underline;">
+                More details (DOB, address...)?
+              </button>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn btn-secondary modal-close-btn">Cancel</button>
+                <button type="submit" id="btn-submit-quick-add-member" class="btn btn-primary" style="padding: 6px 16px; font-weight: 500;">
+                  Add Member
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- 15. MODAL: FIRST-RUN WELCOME & SETUP -->
+      <div id="modal-first-run-welcome" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 500px; padding: 26px;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <div style="width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, rgba(16, 163, 127, 0.22), rgba(59, 130, 246, 0.22)); border: 1px solid rgba(16, 163, 127, 0.35); display: inline-flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.25);">
+              🏠
+            </div>
+            <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 4px; letter-spacing: -0.02em;">Welcome to FamilyVault</h2>
+            <p style="font-size: 13px; color: var(--text-secondary); max-width: 380px; margin: 0 auto; line-height: 1.45;">
+              Your private, encrypted offline vault is ready. How would you like to get started?
+            </p>
+          </div>
+
+          <div id="first-run-error-banner" class="form-error-banner hidden" style="margin-bottom: 12px;"></div>
+
+          <!-- Option 1: Quick Add Family Member Card -->
+          <div style="background: rgba(255, 255, 255, 0.035); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <span style="font-size: 15px;">👤</span>
+              <strong style="font-size: 13px; color: var(--text-primary);">Add Family Member</strong>
+              <span class="badge badge-green" style="font-size: 10px; margin-left: auto;">Quick &amp; Easy</span>
+            </div>
+            <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+              Enter a name to start grouping documents for this family member.
+            </p>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="first-run-member-name" class="input-field" placeholder="Full Name (e.g. John Doe)" style="flex: 1; font-size: 13px; min-height: 38px; padding: 6px 12px;" />
+              <button id="btn-first-run-add-member" class="btn btn-primary" style="white-space: nowrap; min-height: 38px; padding: 6px 14px; font-size: 13px;">
+                Add Member
+              </button>
+            </div>
+          </div>
+
+          <!-- Option 2: Quick Import Document Card -->
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 18px;">📄</span>
+              <div>
+                <strong style="font-size: 12px; color: var(--text-secondary); display: block;">Import a Document First</strong>
+                <span style="font-size: 11px; color: var(--text-muted);">FamilyVault will auto-detect categories and names from OCR.</span>
+              </div>
+            </div>
+            <button id="btn-first-run-import-doc" class="btn btn-secondary" style="font-size: 11px; padding: 5px 11px; white-space: nowrap;">
+              Import Document
+            </button>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+            <span style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 5px;">
+              <span>🔒</span> 100% Offline &bull; Argon2id &bull; AES-256-GCM
+            </span>
+            <button id="btn-first-run-skip" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;">
+              Explore Vault
+            </button>
           </div>
         </div>
       </div>
