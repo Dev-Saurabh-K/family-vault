@@ -11,6 +11,24 @@ const {
   VALID_DOC_TYPES
 } = require('../src/main/services/llmService');
 
+test('LlmService: Reports separate Gemma 4 variants and identifies an active E4B model', () => {
+  const service = new LlmService();
+  service._modelPath = 'C:\\models\\gemma-4-e4b.gguf';
+  service._isReady = true;
+  service.findModelPath = variant => `C:\\models\\gemma-4-${variant.toLowerCase()}.gguf`;
+  service.findProjectorPath = variant => `C:\\models\\mmproj-gemma-4-${variant.toLowerCase()}.gguf`;
+  service.findBinaryPath = () => 'C:\\bin\\llama-server.exe';
+  service.isBinaryAvailable = () => true;
+
+  const status = service.getStatus();
+
+  assert.strictEqual(status.selectedModelVariant, 'E4B');
+  assert.strictEqual(status.modelName, 'Gemma 4 E4B (CPU Multimodal)');
+  assert.strictEqual(status.modelVariants.E2B.label, 'Gemma 4 E2B');
+  assert.strictEqual(status.modelVariants.E4B.label, 'Gemma 4 E4B');
+  assert.strictEqual(status.modelVariants.E4B.isModelDownloaded, true);
+});
+
 test('LlmService: Streams llama-server completion chunks as they arrive', async () => {
   const server = http.createServer((req, res) => {
     let requestBody = '';

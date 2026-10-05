@@ -1959,7 +1959,7 @@ btnOpenAiQa.addEventListener('click', async () => {
     const engineText = document.getElementById('ai-active-engine-text');
     if (engineText) {
       engineText.textContent = status.isServerRunning
-        ? 'Local Gemma-4-E2B (CPU Multimodal 127.0.0.1)'
+        ? `Local ${status.modelName || 'Gemma 4'} (127.0.0.1)`
         : 'Local Extractive & Semantic Retrieval';
     }
 
@@ -1980,22 +1980,15 @@ btnOpenAiQa.addEventListener('click', async () => {
       }
     }
 
-    const setupTitle = document.getElementById('ai-setup-title');
-    const setupDesc = document.getElementById('ai-setup-desc');
-
+    if (aiModelVariantSelect && status.selectedModelVariant && !aiModelVariantUserSelected) {
+      aiModelVariantSelect.value = status.selectedModelVariant;
+    }
     if (aiQuickSetupBox) {
       if (status.isServerRunning) {
         aiQuickSetupBox.classList.add('hidden');
-      } else if (!status.isModelDownloaded) {
-        aiQuickSetupBox.classList.remove('hidden');
-        if (setupTitle) setupTitle.textContent = 'One-Click Setup: Gemma-4-E2B Multimodal Model (CPU)';
-        if (setupDesc) setupDesc.textContent = "Automatically download Gemma-4-E2B multimodal model (~1.6 GB) to run neural questions & vision OCR completely offline on your CPU.";
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Download and enable Gemma-4-E2B';
       } else {
         aiQuickSetupBox.classList.remove('hidden');
-        if (setupTitle) setupTitle.textContent = 'Gemma-4-E2B Model is Ready';
-        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local CPU engine.';
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma-4-E2B engine';
+        updateGemmaSetupCard(status);
       }
     }
   } catch (e) {}
@@ -2126,7 +2119,7 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
     botMsgEl.removeAttribute('role');
     botMsgEl.removeAttribute('aria-live');
 
-    const engineBadgeText = `${res.mode === 'llama-server' ? 'Local Gemma-4-E2B GGUF' : 'Local Extractive Assistant'}${searchAllDocuments ? ' · All Documents' : ''}`;
+    const engineBadgeText = `${res.mode === 'llama-server' ? `Local ${res.modelName || 'Gemma 4'} GGUF` : 'Local Extractive Assistant'}${searchAllDocuments ? ' · All Documents' : ''}`;
     const formattedAnswer = renderSafeMarkdown(res.answer);
 
     let citationsHtml = '';
@@ -2355,6 +2348,31 @@ const aiModelFileInput = document.getElementById('ai-model-file-input');
 const aiModelFileBrowseBtn = document.getElementById('ai-model-file-browse-btn');
 const btnStartAiServer = document.getElementById('btn-start-ai-server');
 const btnStopAiServer = document.getElementById('btn-stop-ai-server');
+const aiModelVariantSelect = document.getElementById('ai-model-variant-select');
+let aiModelVariantUserSelected = false;
+
+function updateGemmaSetupCard(status, modelVariant = aiModelVariantSelect?.value || 'E2B') {
+  const model = status.modelVariants?.[modelVariant];
+  const setupTitle = document.getElementById('ai-setup-title');
+  const setupDesc = document.getElementById('ai-setup-desc');
+  if (!model) return;
+
+  if (setupTitle) setupTitle.textContent = `${model.label} · Local CPU`;
+  if (btnDownloadSetupGemma) {
+    btnDownloadSetupGemma.textContent = model.isModelDownloaded
+      ? `Use ${model.label}`
+      : `Download and use ${model.label}`;
+  }
+  if (setupDesc) {
+    if (model.isModelDownloaded) {
+      setupDesc.textContent = 'This model is already stored locally. Start it using the installed llama-server. Older builds may not support Gemma 4; choose a compatible llama-server above if startup fails.';
+    } else if (modelVariant === 'E4B') {
+      setupDesc.textContent = 'About 6 GB total for model and vision projector. Requires more RAM than E2B (16 GB system RAM recommended). Download starts only after you click; files are fetched from Hugging Face, then inference runs locally.';
+    } else {
+      setupDesc.textContent = 'About 4 GB total for model and vision projector. Download starts only after you click; files are fetched from Hugging Face, then inference runs locally.';
+    }
+  }
+}
 
 if (btnToggleAiSettings) {
   btnToggleAiSettings.addEventListener('click', () => {
@@ -2373,6 +2391,18 @@ if (aiModelFileBrowseBtn) {
   aiModelFileBrowseBtn.addEventListener('click', async () => {
     const file = await window.familyVault.selectModelFile();
     if (file) aiModelFileInput.value = file;
+  });
+}
+
+if (aiModelVariantSelect) {
+  aiModelVariantSelect.addEventListener('change', async () => {
+    aiModelVariantUserSelected = true;
+    try {
+      const status = await window.familyVault.getAiStatus();
+      updateGemmaSetupCard(status);
+    } catch (error) {
+      showToast(`Could not check selected model status: ${error.message}`, 'error');
+    }
   });
 }
 
@@ -2395,8 +2425,9 @@ if (btnStartAiServer) {
     try {
       const ready = await window.familyVault.startAiServer({ binaryPath, modelPath });
       if (ready) {
-        showToast('Local Gemma-4-E2B neural engine started successfully (127.0.0.1:18432)', 'success');
-        document.getElementById('ai-active-engine-text').textContent = 'Local Gemma-4-E2B (CPU Multimodal 127.0.0.1)';
+        const modelLabel = /e4b/i.test(modelPath) ? 'Gemma 4 E4B' : 'Gemma 4 E2B';
+        showToast(`Local ${modelLabel} neural engine started successfully (127.0.0.1:18432)`, 'success');
+        document.getElementById('ai-active-engine-text').textContent = `Local ${modelLabel} (CPU 127.0.0.1)`;
         btnStartAiServer.classList.add('hidden');
         btnStopAiServer.classList.remove('hidden');
         if (aiQuickSetupBox) aiQuickSetupBox.classList.add('hidden');
@@ -2423,11 +2454,8 @@ if (btnStopAiServer) {
       btnStopAiServer.classList.add('hidden');
       if (aiQuickSetupBox) {
         aiQuickSetupBox.classList.remove('hidden');
-        const setupTitle = document.getElementById('ai-setup-title');
-        const setupDesc = document.getElementById('ai-setup-desc');
-        if (setupTitle) setupTitle.textContent = 'Gemma-4-E2B Model is Ready';
-        if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local CPU engine.';
-        if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma-4-E2B engine';
+        const status = await window.familyVault.getAiStatus();
+        updateGemmaSetupCard(status);
       }
     } catch (err) {
       showToast('Failed to stop engine: ' + err.message, 'error');
@@ -2444,7 +2472,7 @@ async function checkAiModelStatus() {
     if (status.isModelDownloaded && status.isBinaryAvailable) {
       if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
       if (btnTopbarDownloadText) {
-        btnTopbarDownloadText.textContent = status.modelName || 'Gemma-4-E2B';
+        btnTopbarDownloadText.textContent = status.modelName || 'Gemma 4';
         btnTopbarDownloadText.classList.add('ai-model-blinking-text');
       }
       btnTopbarDownloadModel.classList.add('btn-acrylic-model-ready');
@@ -2458,10 +2486,10 @@ async function checkAiModelStatus() {
       }
       if (modelModalStatusText) {
         modelModalStatusText.textContent = status.isServerRunning
-          ? 'Local Gemma-4-E2B CPU multimodal engine is running and responding on 127.0.0.1:18432.'
-          : 'Gemma-4-E2B model weights (~1.65 GB) are stored locally. Engine is ready to start.';
+          ? `Local ${status.modelName} engine is running and responding on 127.0.0.1:${status.port}.`
+          : `${status.modelName} weights are stored locally. Engine is ready to start.`;
       }
-      if (modelModalBytesText) modelModalBytesText.textContent = '~1.65 GB (Installed)';
+      if (modelModalBytesText) modelModalBytesText.textContent = 'Installed locally';
       if (modelModalProgressBar) modelModalProgressBar.style.width = '100%';
       if (modelModalPercentText) modelModalPercentText.textContent = '100%';
       if (modelModalStageText) modelModalStageText.textContent = 'Complete';
@@ -2477,7 +2505,7 @@ async function checkAiModelStatus() {
         }
       }
       if (btnDownloadSetupGemma) {
-        btnDownloadSetupGemma.textContent = status.isServerRunning ? 'Local AI engine active' : 'Start Gemma-4-E2B engine';
+        updateGemmaSetupCard(status);
       }
     } else {
       if (btnTopbarDownloadIcon) btnTopbarDownloadIcon.textContent = '';
@@ -2495,19 +2523,19 @@ async function checkAiModelStatus() {
         modelModalStatusBadge.textContent = 'Not Downloaded';
       }
       if (modelModalStatusText) {
-        modelModalStatusText.textContent = 'Click below to download the model weights (~1.65 GB) and runtime engine.';
+        modelModalStatusText.textContent = 'Choose Gemma 4 E2B or E4B in Model Settings to download a model, or use a local GGUF file.';
       }
-      if (modelModalBytesText) modelModalBytesText.textContent = '0 MB / ~1680 MB';
+      if (modelModalBytesText) modelModalBytesText.textContent = 'Model not installed';
       if (modelModalProgressBar) modelModalProgressBar.style.width = '0%';
       if (modelModalPercentText) modelModalPercentText.textContent = '0%';
       if (modelModalStageText) modelModalStageText.textContent = 'Idle';
       if (btnModalStartDownload) {
-        btnModalStartDownload.textContent = 'Download and set up (1.65 GB)';
+        btnModalStartDownload.textContent = 'Choose a model in Model Settings';
         btnModalStartDownload.disabled = false;
         btnModalStartDownload.style.background = '#4f46e5';
       }
       if (btnDownloadSetupGemma) {
-        btnDownloadSetupGemma.textContent = 'Download and enable Gemma-4-E2B';
+        updateGemmaSetupCard(status);
       }
     }
   } catch (e) {}
@@ -2515,7 +2543,7 @@ async function checkAiModelStatus() {
 
 let isDownloadingModel = false;
 
-async function startGemmaDownload() {
+async function startGemmaDownload(modelVariant = aiModelVariantSelect?.value || 'E2B') {
   if (isDownloadingModel) {
     if (modalDownloadModel) modalDownloadModel.classList.remove('hidden');
     return;
@@ -2528,7 +2556,7 @@ async function startGemmaDownload() {
   }
   if (btnDownloadSetupGemma) {
     btnDownloadSetupGemma.disabled = true;
-    btnDownloadSetupGemma.textContent = 'Downloading...';
+    btnDownloadSetupGemma.textContent = `Downloading Gemma 4 ${modelVariant}...`;
   }
   if (btnTopbarDownloadText) {
     btnTopbarDownloadText.textContent = 'Downloading...';
@@ -2549,7 +2577,9 @@ async function startGemmaDownload() {
   if (aiDownloadProgressContainer) aiDownloadProgressContainer.classList.remove('hidden');
 
   const unsubscribe = window.familyVault.onAiDownloadProgress((data) => {
-    const statusMsg = data.message || (data.stage === 'llama-server' ? 'Downloading llama-server runtime...' : 'Downloading Gemma-4-E2B weights (~1.65 GB)...');
+    const statusMsg = data.message || (data.stage === 'llama-server'
+      ? 'Downloading llama-server runtime...'
+      : `Downloading Gemma 4 ${modelVariant} weights...`);
 
     if (modelModalStatusText) modelModalStatusText.textContent = statusMsg;
     if (aiDownloadStatusText) aiDownloadStatusText.textContent = statusMsg;
@@ -2570,12 +2600,13 @@ async function startGemmaDownload() {
   });
 
   try {
-    const res = await window.familyVault.downloadGemmaModel();
+    const res = await window.familyVault.downloadGemmaModel(modelVariant);
     if (res && res.success) {
-      showToast('Gemma-4-E2B model installed & local CPU engine started! (127.0.0.1:18432)', 'success');
+      const modelLabel = modelVariant === 'E4B' ? 'Gemma 4 E4B' : 'Gemma 4 E2B';
+      showToast(`${modelLabel} installed; local engine ${res.isServerRunning ? 'started' : 'is ready to start'} (127.0.0.1:18432)`, res.isServerRunning ? 'success' : 'warning');
       await checkAiModelStatus();
       const engineText = document.getElementById('ai-active-engine-text');
-      if (engineText) engineText.textContent = 'Local Gemma-4-E2B (CPU Multimodal 127.0.0.1)';
+      if (engineText && res.isServerRunning) engineText.textContent = `Local ${modelLabel} (CPU 127.0.0.1)`;
       if (btnStartAiServer) btnStartAiServer.classList.add('hidden');
       if (btnStopAiServer) btnStopAiServer.classList.remove('hidden');
       if (aiQuickSetupBox) aiQuickSetupBox.classList.add('hidden');
@@ -2590,6 +2621,8 @@ async function startGemmaDownload() {
     await checkAiModelStatus();
   } finally {
     isDownloadingModel = false;
+    if (btnModalStartDownload) btnModalStartDownload.disabled = false;
+    if (btnDownloadSetupGemma) btnDownloadSetupGemma.disabled = false;
     if (typeof unsubscribe === 'function') unsubscribe();
   }
 }
@@ -2629,14 +2662,16 @@ if (btnModalStartDownload) {
     }
 
     if (!status.isModelDownloaded) {
-      startGemmaDownload();
+      const modelSettingsToggle = document.getElementById('btn-toggle-ai-settings');
+      if (modelSettingsToggle) modelSettingsToggle.click();
+      showToast('Choose Gemma 4 E2B or E4B from Model Settings to download it.', 'info');
     }
   });
 }
 
 // Hook AI Quick Setup Card Download Button
 if (btnDownloadSetupGemma) {
-  btnDownloadSetupGemma.addEventListener('click', startGemmaDownload);
+  btnDownloadSetupGemma.addEventListener('click', () => startGemmaDownload());
 }
 
 // Family Member Filter listener

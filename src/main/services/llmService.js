@@ -338,6 +338,26 @@ const GEMMA_MODEL_URL = 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/reso
 const GEMMA_MODEL_FILENAME = 'gemma-4-e2b.gguf';
 const GEMMA_MMPROJ_URL = 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf';
 const GEMMA_MMPROJ_FILENAME = 'mmproj-gemma-4-e2b.gguf';
+const GEMMA_MODEL_VARIANTS = {
+  E2B: {
+    modelUrl: GEMMA_MODEL_URL,
+    modelFilename: GEMMA_MODEL_FILENAME,
+    projectorUrl: GEMMA_MMPROJ_URL,
+    projectorFilename: GEMMA_MMPROJ_FILENAME,
+    modelSizeMb: '2960',
+    projectorSizeMb: '940',
+    label: 'Gemma 4 E2B'
+  },
+  E4B: {
+    modelUrl: 'https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf',
+    modelFilename: 'gemma-4-e4b.gguf',
+    projectorUrl: 'https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf',
+    projectorFilename: 'mmproj-gemma-4-e4b-f16.gguf',
+    modelSizeMb: '4747',
+    projectorSizeMb: '944',
+    label: 'Gemma 4 E4B'
+  }
+};
 const LLAMA_WIN_BIN_URL = 'https://github.com/ggml-org/llama.cpp/releases/download/b11384/llama-b11384-bin-win-cpu-x64.zip';
 
 function getUserDataDir() {
@@ -372,6 +392,34 @@ class LlmService {
     this._modelPath = null;
     this._projectorPath = null;
     this._isReady = false;
+  }
+
+  getPreferredModelPath() {
+    const preferencePath = path.join(getUserDataDir(), 'selected-gemma-model.json');
+    try {
+      const preference = JSON.parse(fs.readFileSync(preferencePath, 'utf8'));
+      return typeof preference.modelPath === 'string' && fs.existsSync(preference.modelPath)
+        ? preference.modelPath
+        : null;
+    } catch (error) {
+      if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) {
+        console.warn('[llmService] Could not read preferred model selection:', error.message);
+      }
+      return null;
+    }
+  }
+
+  savePreferredModelPath(modelPath) {
+    const userDataDir = getUserDataDir();
+    fs.mkdirSync(userDataDir, { recursive: true });
+    const preferencePath = path.join(userDataDir, 'selected-gemma-model.json');
+    const temporaryPath = `${preferencePath}.tmp`;
+    fs.writeFileSync(temporaryPath, JSON.stringify({ modelPath }), 'utf8');
+    fs.renameSync(temporaryPath, preferencePath);
+  }
+
+  getModelVariant(modelPath) {
+    return /gemma[-_]?4[-_]?e4b/i.test(path.basename(modelPath || '')) ? 'E4B' : 'E2B';
   }
 
   getModelsDirectory(forDownload = false) {
@@ -426,14 +474,28 @@ class LlmService {
     return dir;
   }
 
-  findModelPath() {
-    const candidateNames = [
+  findModelPath(modelVariant = null) {
+    if (!modelVariant) {
+      const preferredModelPath = this.getPreferredModelPath();
+      if (preferredModelPath) return preferredModelPath;
+    }
+    const candidateNames = modelVariant === 'E2B'
+      ? [
+        GEMMA_MODEL_VARIANTS.E2B.modelFilename,
+        'gemma-4-e2b-it.gguf',
+        'gemma-4-e2b-Q4_K_M.gguf',
+        'gemma-4-e2b-it-Q4_K_M.gguf'
+      ]
+      : modelVariant
+        ? [GEMMA_MODEL_VARIANTS[modelVariant]?.modelFilename].filter(Boolean)
+      : [
       'gemma-4-e2b.gguf',
       'gemma-4-e2b-it.gguf',
       'gemma-4-e2b-Q4_K_M.gguf',
       'gemma-4-e2b-it-Q4_K_M.gguf',
+      GEMMA_MODEL_VARIANTS.E4B.modelFilename,
       GEMMA_MODEL_FILENAME
-    ];
+      ];
 
     const searchDirs = [
       process.resourcesPath ? path.join(process.resourcesPath, 'models') : null,
@@ -450,7 +512,12 @@ class LlmService {
       }
       try {
         const files = fs.readdirSync(dir);
-        const match = files.find(f => /gemma[-_]?4.*\.gguf$/i.test(f) && !f.startsWith('mmproj'));
+        const variantPattern = modelVariant === 'E4B'
+          ? /gemma[-_]?4.*e4b.*\.gguf$/i
+          : modelVariant === 'E2B'
+            ? /gemma[-_]?4.*e2b.*\.gguf$/i
+            : /gemma[-_]?4.*\.gguf$/i;
+        const match = files.find(file => variantPattern.test(file) && !file.startsWith('mmproj'));
         if (match) return path.join(dir, match);
       } catch (e) {}
     }
@@ -458,13 +525,15 @@ class LlmService {
     return null;
   }
 
-  findProjectorPath() {
-    const candidateNames = [
+  findProjectorPath(modelVariant = null) {
+    const candidateNames = modelVariant
+      ? [GEMMA_MODEL_VARIANTS[modelVariant]?.projectorFilename].filter(Boolean)
+      : [
       'mmproj-gemma-4-e2b.gguf',
       'mmproj-gemma-4-e2b-f16.gguf',
       'mmproj-model-f16.gguf',
       GEMMA_MMPROJ_FILENAME
-    ];
+      ];
 
     const searchDirs = [
       process.resourcesPath ? path.join(process.resourcesPath, 'models') : null,
@@ -481,7 +550,12 @@ class LlmService {
       }
       try {
         const files = fs.readdirSync(dir);
-        const match = files.find(f => /mmproj.*\.gguf$/i.test(f));
+        const variantPattern = modelVariant === 'E4B'
+          ? /mmproj.*e4b.*\.gguf$/i
+          : modelVariant === 'E2B'
+            ? /mmproj.*e2b.*\.gguf$/i
+            : /mmproj.*\.gguf$/i;
+        const match = files.find(file => variantPattern.test(file));
         if (match) return path.join(dir, match);
       } catch (e) {}
     }
@@ -508,16 +582,34 @@ class LlmService {
   }
 
   getStatus() {
+    const selectedModelPath = this._modelPath
+      || this.getPreferredModelPath()
+      || this.findModelPath('E2B')
+      || this.findModelPath('E4B');
+    const selectedModelVariant = selectedModelPath ? this.getModelVariant(selectedModelPath) : 'E2B';
+    const modelVariants = Object.fromEntries(Object.entries(GEMMA_MODEL_VARIANTS).map(([variant, config]) => {
+      const modelPath = this.findModelPath(variant);
+      return [variant, {
+        label: config.label,
+        isModelDownloaded: Boolean(modelPath),
+        modelPath,
+        projectorPath: this.findProjectorPath(variant),
+        modelSizeMb: config.modelSizeMb,
+        projectorSizeMb: config.projectorSizeMb
+      }];
+    }));
     return {
       isServerRunning: this._isReady,
-      engine: this._isReady ? 'llama-server-gemma4-e2b (CPU)' : 'local-extractive-qa',
-      modelName: 'Gemma-4-E2B (CPU Multimodal)',
+      engine: this._isReady ? `llama-server-gemma4-${selectedModelVariant.toLowerCase()} (CPU)` : 'local-extractive-qa',
+      modelName: `${GEMMA_MODEL_VARIANTS[selectedModelVariant].label} (CPU Multimodal)`,
       port: this._port,
       modelConfigured: !!this._modelPath,
-      modelPath: this._modelPath || this.findModelPath(),
-      projectorPath: this._projectorPath || this.findProjectorPath(),
+      modelPath: selectedModelPath,
+      projectorPath: this._projectorPath || this.findProjectorPath(selectedModelVariant),
+      selectedModelVariant,
+      modelVariants,
       binaryPath: this.findBinaryPath(),
-      isModelDownloaded: this.isModelDownloaded(),
+      isModelDownloaded: Boolean(selectedModelPath),
       isBinaryAvailable: this.isBinaryAvailable()
     };
   }
@@ -527,30 +619,46 @@ class LlmService {
    * Works in both development and shipped/packaged production environments.
    * @param {function} onProgress
    */
-  async downloadAndSetupGemma(onProgress = () => {}) {
+  async downloadAndSetupGemma(modelVariant = 'E2B', onProgress = () => {}) {
+    if (!Object.prototype.hasOwnProperty.call(GEMMA_MODEL_VARIANTS, modelVariant)) {
+      throw new Error(`Unsupported Gemma model variant: ${modelVariant}`);
+    }
+    const modelConfig = GEMMA_MODEL_VARIANTS[modelVariant];
     const modelsDir = this.getModelsDirectory(true);
     const binDir = this.getBinDirectory(true);
 
-    let targetModelPath = this.findModelPath();
+    let targetModelPath = this.findModelPath(modelVariant);
     if (!targetModelPath) {
-      targetModelPath = path.join(modelsDir, GEMMA_MODEL_FILENAME);
+      targetModelPath = path.join(modelsDir, modelConfig.modelFilename);
     }
 
     // 1. Download model if missing
     if (!fs.existsSync(targetModelPath)) {
-      onProgress({ stage: 'model', message: 'Downloading Gemma-4-E2B Model (~2.9 GB)...', percent: 0, downloadedMb: '0', totalMb: '2960' });
-      await this._downloadFileWithProgress(GEMMA_MODEL_URL, targetModelPath, onProgress, 'model');
+      onProgress({
+        stage: 'model',
+        message: `Downloading ${modelConfig.label} model (~${modelConfig.modelSizeMb} MB)...`,
+        percent: 0,
+        downloadedMb: '0',
+        totalMb: modelConfig.modelSizeMb
+      });
+      await this._downloadFileWithProgress(modelConfig.modelUrl, targetModelPath, onProgress, 'model');
     }
 
     // 2. Download multimodal vision projector if missing
-    let targetProjectorPath = this.findProjectorPath();
+    let targetProjectorPath = this.findProjectorPath(modelVariant);
     if (!targetProjectorPath) {
-      targetProjectorPath = path.join(modelsDir, GEMMA_MMPROJ_FILENAME);
+      targetProjectorPath = path.join(modelsDir, modelConfig.projectorFilename);
     }
     if (!fs.existsSync(targetProjectorPath)) {
-      onProgress({ stage: 'projector', message: 'Downloading Gemma-4-E2B Vision Projector (~940 MB)...', percent: 0, downloadedMb: '0', totalMb: '940' });
+      onProgress({
+        stage: 'projector',
+        message: `Downloading ${modelConfig.label} vision projector (~${modelConfig.projectorSizeMb} MB)...`,
+        percent: 0,
+        downloadedMb: '0',
+        totalMb: modelConfig.projectorSizeMb
+      });
       try {
-        await this._downloadFileWithProgress(GEMMA_MMPROJ_URL, targetProjectorPath, onProgress, 'projector');
+        await this._downloadFileWithProgress(modelConfig.projectorUrl, targetProjectorPath, onProgress, 'projector');
       } catch (projErr) {
         console.warn('[llmService] Vision projector download skipped/failed:', projErr.message);
       }
@@ -571,21 +679,25 @@ class LlmService {
           resolve();
         });
       });
+      targetBinPath = this.findBinaryPath();
     }
 
     // 4. Start engine
-    onProgress({ stage: 'starting', message: 'Starting Gemma-4-E2B CPU local server...', percent: 99 });
-    const started = await this.autoDetectAndStart();
+    onProgress({ stage: 'starting', message: `Starting ${modelConfig.label} CPU local server...`, percent: 99 });
+    const started = targetBinPath
+      ? await this.startServer(targetBinPath, targetModelPath)
+      : false;
 
     onProgress({
       stage: 'ready',
-      message: started ? 'Gemma-4-E2B CPU multimodal engine active and ready!' : 'Model ready (offline fallback active)',
+      message: started ? `${modelConfig.label} CPU multimodal engine active and ready!` : 'Model ready (offline fallback active)',
       percent: 100,
       isServerRunning: started
     });
 
     return {
       success: true,
+      modelVariant,
       modelPath: targetModelPath,
       isServerRunning: this._isReady
     };
@@ -690,6 +802,7 @@ class LlmService {
 
     this._port = port;
     this._modelPath = modelPath;
+    this._projectorPath = null;
 
     // Strict local-only parameters: host 127.0.0.1, no web UI, no remote endpoints
     // CPU version: optimize threads to host CPU core count, enforce 0 GPU offload
@@ -704,7 +817,7 @@ class LlmService {
       '-ngl', '0' // CPU execution: zero GPU offload layers, purely host CPU
     ];
 
-    const projectorPath = this.findProjectorPath();
+    const projectorPath = this.findProjectorPath(this.getModelVariant(modelPath));
     if (projectorPath) {
       this._projectorPath = projectorPath;
       args.push('--mmproj', projectorPath);
@@ -732,6 +845,13 @@ class LlmService {
 
     // Wait for health endpoint
     this._isReady = await this._waitForHealth(port, 45000);
+    if (this._isReady) {
+      try {
+        this.savePreferredModelPath(modelPath);
+      } catch (error) {
+        console.warn('[llmService] Could not persist preferred model selection:', error.message);
+      }
+    }
     return this._isReady;
   }
 
@@ -1428,7 +1548,8 @@ class LlmService {
             })),
             evidenceStrength: this._calculateEvidenceStrength(topSegments, true, query),
             mode: 'llama-server',
-            modelUsed: true
+            modelUsed: true,
+            modelName: GEMMA_MODEL_VARIANTS[this.getModelVariant(this._modelPath)].label
           };
         }
         if (cleanedAnswer && !valueValidation.valid) {

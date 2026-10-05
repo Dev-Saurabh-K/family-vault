@@ -622,7 +622,7 @@
           <div id="ai-settings-panel" class="hidden" style="margin-top: 4px; padding: 12px; border-radius: 6px; background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border); font-size: 12px;">
             <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">Neural Inference Configuration (Optional)</div>
             <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">
-              FamilyVault automatically answers questions using its built-in offline Extractive &amp; Semantic Assistant without any downloads. If you have <code>llama-server.exe</code> and a Gemma-4-E2B GGUF model, you can link them below for neural LLM generation &amp; multimodal vision OCR:
+              FamilyVault automatically answers questions using its built-in offline Extractive &amp; Semantic Assistant without any downloads. Optionally download Gemma 4 E2B or E4B from Hugging Face after selecting it below, or link a compatible local <code>llama-server.exe</code> and GGUF:
             </p>
             <div class="form-group" style="margin-bottom: 6px;">
               <label style="font-size: 11px;">llama-server.exe Executable</label>
@@ -643,14 +643,19 @@
               <button id="btn-stop-ai-server" class="btn btn-danger hidden" style="padding: 4px 10px; font-size: 11px;">Stop Neural Engine</button>
             </div>
 
-            <!-- One-Click Gemma-4-E2B Setup Card (Nested within settings) -->
+            <!-- Optional local Gemma model download -->
             <div id="ai-quick-setup-box" class="hidden" style="margin-top: 8px; padding: 10px; border-radius: 6px; background: rgba(79, 70, 229, 0.12); border: 1px solid rgba(79, 70, 229, 0.35);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <strong id="ai-setup-title" style="color: #a5b4fc; font-size: 12px;">One-Click Setup: Gemma-4-E2B Multimodal Model (CPU)</strong>
+                <strong id="ai-setup-title" style="color: #a5b4fc; font-size: 12px;">Choose a local Gemma model</strong>
                 <span class="badge badge-green" style="font-size: 9px;">Local CPU</span>
               </div>
+              <label for="ai-model-variant-select" style="display: block; font-size: 11px; margin: 7px 0 4px;">Model variant</label>
+              <select id="ai-model-variant-select" class="input-field" style="width: 100%; font-size: 11px; margin-bottom: 6px;">
+                <option value="E2B">Gemma 4 E2B — lower memory (about 4 GB download)</option>
+                <option value="E4B">Gemma 4 E4B — stronger, needs more memory (about 6 GB download)</option>
+              </select>
               <p id="ai-setup-desc" style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.4;">
-                Download Gemma-4-E2B multimodal model (~1.6 GB) to run neural questions and vision OCR offline.
+                Downloads start only when you click the button. Files are fetched from Hugging Face and saved locally; once installed, inference runs on this computer.
               </p>
               <div id="ai-download-progress-container" class="hidden" style="margin-bottom: 8px;">
                 <div style="display: flex; justify-content: space-between; font-size: 10px; color: #cbd5e1; margin-bottom: 3px;">
@@ -662,7 +667,7 @@
                 </div>
               </div>
               <button id="btn-download-setup-gemma" class="btn btn-primary" style="font-size: 11px; padding: 4px 10px;">
-                Download and enable Gemma-4-E2B
+                Download and enable Gemma 4 E2B
               </button>
             </div>
           </div>
@@ -804,7 +809,7 @@
           <div id="model-modal-progress-box" style="background: rgba(79, 70, 229, 0.1); border: 1px solid rgba(79, 70, 229, 0.3); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
               <span id="model-modal-status-badge" class="badge badge-blue">Ready to Download</span>
-              <span id="model-modal-bytes-text" style="font-size: 11px; color: var(--text-muted);">0 MB / ~1680 MB</span>
+              <span id="model-modal-bytes-text" style="font-size: 11px; color: var(--text-muted);">Model not installed</span>
             </div>
 
             <div id="model-modal-status-text" style="font-size: 12px; color: #cbd5e1; margin-bottom: 8px;">
@@ -823,7 +828,7 @@
 
           <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
             <button id="btn-modal-start-download" class="btn btn-primary" style="background: #4f46e5; padding: 6px 14px;">
-              Download and set up (1.65 GB)
+              Choose a model in Model Settings
             </button>
             <button class="btn btn-secondary modal-close-btn">Close</button>
           </div>
