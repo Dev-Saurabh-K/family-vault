@@ -132,6 +132,46 @@ test('LlmService: Grounded extractive QA returns citations and source references
   assert.strictEqual(res5.confidence, 0);
 });
 
+test('LlmService: Blends semantic and lexical relevance and returns one passage per document', async () => {
+  const service = new LlmService();
+  const documents = [
+    {
+      id: 'lexical-match',
+      title: 'Earlier Train Schedule',
+      currentVersion: {
+        fileName: 'earlier-train.txt',
+        metadata: { textContent: 'Train schedule: departure is at 08:10.' }
+      }
+    },
+    {
+      id: 'semantic-match',
+      title: 'Relevant Train Schedule',
+      currentVersion: {
+        fileName: 'relevant-train.txt',
+        metadata: { textContent: 'Train schedule: departure is at 09:25.' }
+      }
+    }
+  ];
+
+  const result = await service.answerQuestion({
+    query: 'tell me train schedule',
+    documents,
+    semanticMatches: [{
+      documentId: 'semantic-match',
+      documentTitle: 'Relevant Train Schedule',
+      fileName: 'relevant-train.txt',
+      chunkText: 'Train schedule: departure is at 09:25.',
+      similarity: 0.95
+    }]
+  });
+
+  assert.strictEqual(result.sources[0].documentId, 'semantic-match');
+  assert.deepStrictEqual(
+    result.sources.map(source => source.documentId),
+    ['semantic-match', 'lexical-match']
+  );
+});
+
 test('LlmService: A named family member question is restricted to that member and their documents', async () => {
   const service = new LlmService();
   const documents = [

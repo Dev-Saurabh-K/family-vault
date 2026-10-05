@@ -17,6 +17,7 @@
     "make": "electron-forge make",
     "release": "electron-forge release",
     "setup:ai": "node scripts/setup-ai.js",
+    "eval:qa": "node scripts/evaluate-gemma-qa.js",
     "test": "node --test \"tests/**/*.test.js\"",
     "lint": "echo \"No linting configured\""
   },

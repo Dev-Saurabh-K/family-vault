@@ -981,10 +981,13 @@ class LlmService {
     }
 
     // 1. Retrieve and score document candidates
+    const scopedNameTokens = personScope.status === 'matched'
+      ? new Set(personScope.personName.toLowerCase().split(/\s+/))
+      : new Set();
     const rawTerms = query.toLowerCase()
       .replace(/[^\w\s]/g, ' ')
       .split(/\s+/)
-      .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+      .filter(w => w.length > 2 && !STOP_WORDS.has(w) && !scopedNameTokens.has(w));
 
     // Travel & document synonym expansion for enhanced retrieval recall
     const SYNONYM_MAP = {
@@ -1010,26 +1013,19 @@ class LlmService {
       }
     }
     const searchTerms = [...expandedTerms];
-
-    const scoredSegments = [];
-
-    // Add semantic vector matches first if available
+    const semanticByPassage = new Map();
     if (Array.isArray(semanticMatches)) {
-      for (const sm of semanticMatches) {
-        const doc = documents.find(d => d.id === sm.documentId);
-        const score = Math.round((sm.similarity || 0) * 35);
-        if (score > 2) {
-          scoredSegments.push({
-            documentId: sm.documentId,
-            documentTitle: sm.documentTitle || (doc && doc.title) || 'Document',
-            fileName: sm.fileName || (doc && doc.currentVersion?.fileName) || 'document',
-            category: sm.category || (doc && doc.category) || 'other',
-            snippet: sm.chunkText,
-            score
-          });
-        }
+      for (const match of semanticMatches) {
+        if (typeof match.chunkText !== 'string' || !match.chunkText.trim()) continue;
+        const key = `${match.documentId}::${match.chunkText.trim()}`;
+        semanticByPassage.set(key, Math.max(
+          semanticByPassage.get(key) || 0,
+          Math.max(0, Math.min(1, Number(match.similarity) || 0))
+        ));
       }
     }
+
+    const scoredSegments = [];
 
     for (const doc of documents) {
       const title = doc.title || '';
@@ -1038,15 +1034,6 @@ class LlmService {
       const docType = doc.currentVersion?.metadata?.docType || '';
       const issuer = doc.currentVersion?.metadata?.issuer || '';
       const expiryDate = doc.currentVersion?.metadata?.expiryDate || '';
-
-      // Check if document title, filename, or person matches raw query terms
-      const docName = `${title} ${doc.currentVersion?.fileName || ''} ${doc.person || ''}`.toLowerCase();
-      let docTitleBonus = 0;
-      for (const term of rawTerms) {
-        if (docName.includes(term)) {
-          docTitleBonus += 15;
-        }
-      }
 
       // Split document into coherent passages
       const passages = [];
@@ -1063,9 +1050,10 @@ class LlmService {
         doc.tags && doc.tags.length ? `Tags: ${Array.isArray(doc.tags) ? doc.tags.join(', ') : doc.tags}` : null,
         notes ? `Notes: ${notes}` : null
       ].filter(Boolean);
+      const metadataPassage = metaParts.join(' | ');
 
-      if (metaParts.length > 0) {
-        passages.push(metaParts.join(' | '));
+      if (metadataPassage) {
+        passages.push(metadataPassage);
       }
 
       if (notes && !passages.includes(notes)) passages.push(notes);
@@ -1106,46 +1094,72 @@ class LlmService {
       }
 
       for (const p of passages) {
-        let distinctRawMatches = 0;
-        let distinctExpandedMatches = 0;
-        let totalMatches = 0;
-        const lowerP = p.toLowerCase();
+        const passageTerms = tokenizeSearchText(p);
+        const matchedRawTerms = rawTerms.filter(term => passageTerms.has(normalizeSearchTerm(term)));
+        const matchedExpandedTerms = searchTerms.filter(term =>
+          !rawTerms.includes(term) && passageTerms.has(normalizeSearchTerm(term))
+        );
+        const rawCoverage = rawTerms.length
+          ? matchedRawTerms.length / rawTerms.length
+          : 0;
+        const expandedCoverage = rawTerms.length
+          ? Math.min(1, matchedExpandedTerms.length / rawTerms.length)
+          : 0;
+        const passageKey = `${doc.id}::${p}`;
+        const semanticScore = semanticByPassage.get(passageKey) || 0;
+        const hasRelatedQueryTerms = hasIdentityExpiryEvidence(p, rawTerms, doc);
+        const isRelevant = !rawTerms.length || (hasRelatedQueryTerms && (
+          rawCoverage >= 0.2
+          || (semanticScore >= 0.42 && matchedRawTerms.length > 0)
+        ));
 
-        for (const term of rawTerms) {
-          const regex = new RegExp(`\\b${term}\\b`, 'i');
-          if (regex.test(p)) {
-            distinctRawMatches += 1;
-            totalMatches += 1;
-          } else if (lowerP.includes(term)) {
-            totalMatches += 0.5;
-          }
-        }
-
-        for (const term of searchTerms) {
-          if (!rawTerms.includes(term)) {
-            const regex = new RegExp(`\\b${term}\\b`, 'i');
-            if (regex.test(p)) {
-              distinctExpandedMatches += 1;
-              totalMatches += 0.5;
-            }
-          }
-        }
-
-        const totalRelevance = (distinctRawMatches * 15) + (distinctExpandedMatches * 5) + (totalMatches * 2) + docTitleBonus;
-        if (totalRelevance > 0) {
+        if (isRelevant) {
+          const baseScore = Math.min(1,
+            (rawCoverage * 0.7)
+            + (expandedCoverage * 0.1)
+            + (semanticScore * 0.2)
+          );
+          const metadataPenalty = p === metadataPassage || p === notes ? 0.3 : 0;
+          const extractedTextBonus = text.trim() && text.trim().includes(p) ? 0.1 : 0;
+          const normalizedScore = Math.max(0, Math.min(1, baseScore - metadataPenalty + extractedTextBonus));
           scoredSegments.push({
             documentId: doc.id,
             documentTitle: title || doc.currentVersion?.fileName || 'Document',
             fileName: doc.currentVersion?.fileName || 'document',
             category: doc.category,
             snippet: p,
-            score: totalRelevance
+            score: normalizedScore,
+            semanticScore
           });
         }
       }
     }
 
-    // Deduplicate passages by documentId + snippet, retaining highest score
+    // Include semantic passages that were not produced by the local chunker.
+    for (const match of semanticMatches || []) {
+      if (typeof match.chunkText !== 'string' || !match.chunkText.trim()) continue;
+      const doc = documents.find(candidate => candidate.id === match.documentId);
+      if (!doc) continue;
+      const snippet = match.chunkText.trim();
+      const passageTerms = tokenizeSearchText(snippet);
+      const matchedRawTerms = rawTerms.filter(term => passageTerms.has(normalizeSearchTerm(term)));
+      const rawCoverage = rawTerms.length ? matchedRawTerms.length / rawTerms.length : 0;
+      const semanticScore = Math.max(0, Math.min(1, Number(match.similarity) || 0));
+      if (!hasIdentityExpiryEvidence(snippet, rawTerms, doc)) continue;
+      if (rawCoverage < 0.2 && (semanticScore < 0.42 || matchedRawTerms.length === 0)) continue;
+
+      scoredSegments.push({
+        documentId: doc.id,
+        documentTitle: match.documentTitle || doc.title || doc.currentVersion?.fileName || 'Document',
+        fileName: match.fileName || doc.currentVersion?.fileName || 'document',
+        category: match.category || doc.category || 'other',
+        snippet,
+        score: Math.min(1, (rawCoverage * 0.7) + (semanticScore * 0.2)),
+        semanticScore
+      });
+    }
+
+    // Deduplicate passages by documentId + snippet, retaining highest score.
     const segmentMap = new Map();
     for (const seg of scoredSegments) {
       const key = `${seg.documentId}::${seg.snippet}`;
@@ -1168,8 +1182,16 @@ class LlmService {
       }
     }
 
+    // Keep the strongest passage per document so repeated chunks do not crowd
+    // out other relevant documents in the limited model context.
+    const bestByDocument = new Map();
+    for (const segment of nonRedundant) {
+      if (!bestByDocument.has(segment.documentId)) {
+        bestByDocument.set(segment.documentId, segment);
+      }
+    }
     const profileSegments = this._buildProfileSegments(query, profiles);
-    const topSegments = [...nonRedundant.slice(0, 3), ...profileSegments];
+    const topSegments = [...bestByDocument.values()].slice(0, 3).concat(profileSegments);
 
     if (topSegments.length === 0) {
       return {
@@ -1607,6 +1629,51 @@ const STOP_WORDS = new Set([
   'what', 'when', 'where', 'who', 'how', 'why', 'can', 'you', 'tell', 'me', 'my', 'does',
   'have', 'has', 'had', 'are', 'was', 'were', 'it', 'with', 'as', 'by', 'from'
 ]);
+
+const SEARCH_TERM_ALIASES = new Map([
+  ['expires', 'expire'],
+  ['expired', 'expire'],
+  ['expiry', 'expire'],
+  ['expiring', 'expire']
+]);
+
+function normalizeSearchTerm(term) {
+  const normalized = String(term || '').toLowerCase();
+  return SEARCH_TERM_ALIASES.get(normalized) || normalized;
+}
+
+function tokenizeSearchText(text) {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .match(/[a-z0-9]+/g)
+      ?.map(normalizeSearchTerm) || []
+  );
+}
+
+function sentenceContainsTerms(text, terms) {
+  return String(text || '')
+    .split(/[.!?;\n]+/)
+    .some(sentence => {
+      const sentenceTerms = tokenizeSearchText(sentence);
+      return terms.every(term => sentenceTerms.has(normalizeSearchTerm(term)));
+    });
+}
+
+function hasIdentityExpiryEvidence(text, terms, document) {
+  const identityTerms = terms
+    .map(normalizeSearchTerm)
+    .filter(term => ['passport', 'visa', 'license'].includes(term));
+  const asksAboutExpiry = terms.some(term => normalizeSearchTerm(term) === 'expire');
+  if (!identityTerms.length || !asksAboutExpiry) return true;
+  if (sentenceContainsTerms(text, terms)) return true;
+
+  const documentType = `${document?.title || ''} ${document?.currentVersion?.metadata?.docType || ''}`;
+  const normalizedDocumentType = tokenizeSearchText(documentType);
+  const passageTerms = tokenizeSearchText(text);
+  return identityTerms.some(term => normalizedDocumentType.has(term))
+    && passageTerms.has('expire');
+}
 
 const llmService = new LlmService();
 
