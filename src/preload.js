@@ -6,6 +6,7 @@
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
+let nextAiRequestId = 0;
 
 contextBridge.exposeInMainWorld('familyVault', {
   // Vault status & lifecycle
@@ -45,6 +46,17 @@ contextBridge.exposeInMainWorld('familyVault', {
 
   // Grounded local AI Q&A
   askQuestion: (query) => ipcRenderer.invoke('ai:ask', { query }),
+  askQuestionStream: (query, onChunk) => {
+    const requestId = `${Date.now()}-${++nextAiRequestId}-${Math.random().toString(36).slice(2)}`;
+    const handler = (_event, payload) => {
+      if (payload.requestId === requestId && typeof payload.chunk === 'string') {
+        onChunk(payload.chunk);
+      }
+    };
+    ipcRenderer.on('ai:answer-chunk', handler);
+    return ipcRenderer.invoke('ai:ask-stream', { query, requestId })
+      .finally(() => ipcRenderer.removeListener('ai:answer-chunk', handler));
+  },
   getAiStatus: () => ipcRenderer.invoke('ai:status'),
   selectModelFile: () => ipcRenderer.invoke('dialog:select-model-file'),
   selectLlamaServer: () => ipcRenderer.invoke('dialog:select-llama-server'),

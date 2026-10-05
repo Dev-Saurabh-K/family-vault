@@ -840,7 +840,7 @@ class VaultService {
   /**
    * Grounded local Q&A over stored documents with citations.
    */
-  async askQuestion(query) {
+  async askQuestion(query, options = {}) {
     this._assertUnlocked();
     await this._ensureDocumentsIndexed();
     const allDocs = dbLayer.listDocuments(this._db, {});
@@ -851,7 +851,12 @@ class VaultService {
         semanticMatches = dbLayer.searchVectorEmbeddings(this._db, queryVector, { limit: 5, minScore: 0.08 });
       }
     } catch (e) {}
-    return await llmService.answerQuestion({ query, documents: allDocs, semanticMatches });
+    return await llmService.answerQuestion({
+      query,
+      documents: allDocs,
+      semanticMatches,
+      onToken: options.onToken
+    });
   }
 
   /**

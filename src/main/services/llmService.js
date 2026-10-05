@@ -797,7 +797,7 @@ class LlmService {
    * Cites source documents and page/text snippets.
    * If answer is not present, explicitly states unknown.
    */
-  async answerQuestion({ query, documents = [], semanticMatches = [] }) {
+  async answerQuestion({ query, documents = [], semanticMatches = [], onToken }) {
     if (!query || typeof query !== 'string' || !query.trim()) {
       throw new Error('Query must be a non-empty string');
     }
@@ -1005,7 +1005,7 @@ class LlmService {
     if (this._isReady) {
       try {
         const prompt = this._buildPrompt(query, topSegments);
-        const completion = await this._queryLlamaServer(prompt);
+        const completion = await this._queryLlamaServer(prompt, onToken);
         return {
           answer: completion.trim(),
           sources: topSegments.map(s => ({
@@ -1102,13 +1102,14 @@ ${truncatedText}<end_of_turn>
 `;
   }
 
-  async _queryLlamaServer(prompt) {
+  async _queryLlamaServer(prompt, onToken) {
     return new Promise((resolve, reject) => {
       const data = JSON.stringify({
         prompt,
         temperature: 0.0,
         n_predict: 256,
-        stop: ['<end_of_turn>', '<eos>', '<start_of_turn>']
+        stop: ['<end_of_turn>', '<eos>', '<start_of_turn>'],
+        ...(typeof onToken === 'function' ? { stream: true } : {})
       });
 
       const req = http.request({
@@ -1122,6 +1123,61 @@ ${truncatedText}<end_of_turn>
         },
         timeout: 60000
       }, (res) => {
+        if (typeof onToken === 'function') {
+          let body = '';
+          let buffer = '';
+          let completion = '';
+
+          const processLine = (line) => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith(':')) return;
+
+            const dataLine = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed;
+            if (!dataLine || dataLine === '[DONE]') return;
+
+            const parsed = JSON.parse(dataLine);
+            const content = parsed.content || parsed.choices?.[0]?.delta?.content || '';
+            if (typeof content === 'string' && content) {
+              completion += content;
+              onToken(content);
+            }
+          };
+
+          res.setEncoding('utf8');
+          res.on('data', chunk => {
+            if (res.statusCode !== 200) {
+              body += chunk;
+              return;
+            }
+
+            buffer += chunk;
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || '';
+            try {
+              lines.forEach(processLine);
+            } catch (err) {
+              req.destroy(err);
+            }
+          });
+          res.on('end', () => {
+            if (res.statusCode !== 200) {
+              reject(new Error(`LLM streaming request returned status ${res.statusCode}: ${body}`));
+              return;
+            }
+            try {
+              if (buffer.trim()) processLine(buffer);
+              if (!completion) {
+                reject(new Error('LLM streaming request returned an empty completion'));
+                return;
+              }
+              resolve(completion);
+            } catch (err) {
+              reject(err);
+            }
+          });
+          return;
+        }
+
         let body = '';
         res.on('data', chunk => body += chunk);
         res.on('end', () => {

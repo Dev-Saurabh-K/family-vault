@@ -1867,12 +1867,12 @@ btnOpenAiQa.addEventListener('click', async () => {
         aiQuickSetupBox.classList.add('hidden');
       } else if (!status.isModelDownloaded) {
         aiQuickSetupBox.classList.remove('hidden');
-        if (setupTitle) setupTitle.textContent = '⚡ One-Click Setup: Gemma-4-E2B Multimodal Model (CPU)';
+        if (setupTitle) setupTitle.textContent = 'One-Click Setup: Gemma-4-E2B Multimodal Model (CPU)';
         if (setupDesc) setupDesc.textContent = "Automatically download Gemma-4-E2B multimodal model (~1.6 GB) to run neural questions & vision OCR completely offline on your CPU.";
         if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Download and enable Gemma-4-E2B';
       } else {
         aiQuickSetupBox.classList.remove('hidden');
-        if (setupTitle) setupTitle.textContent = '⚡ Gemma-4-E2B Model is Ready';
+        if (setupTitle) setupTitle.textContent = 'Gemma-4-E2B Model is Ready';
         if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local CPU engine.';
         if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma-4-E2B engine';
       }
@@ -1904,21 +1904,53 @@ async function runAiQuery() {
 
   // Append loading indicator bubble
   const loadingBubble = document.createElement('div');
-  loadingBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border); border-radius: 12px 12px 12px 2px; padding: 10px 14px; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;';
-  loadingBubble.innerHTML = `<span style="display: inline-block;">⚡</span> Synthesizing grounded answer from stored documents...`;
+  loadingBubble.className = 'ai-response-loading';
+  loadingBubble.setAttribute('role', 'status');
+  loadingBubble.setAttribute('aria-live', 'polite');
+  loadingBubble.innerHTML = `
+    <span class="ai-response-loading-skeleton ai-response-loading-skeleton-title" aria-hidden="true"></span>
+    <span class="ai-response-loading-skeleton ai-response-loading-skeleton-line" aria-hidden="true"></span>
+    <span class="ai-response-loading-skeleton ai-response-loading-skeleton-line ai-response-loading-skeleton-short" aria-hidden="true"></span>
+  `;
   if (aiChatThread) {
     aiChatThread.appendChild(loadingBubble);
     aiChatThread.scrollTop = aiChatThread.scrollHeight;
   }
 
+  let streamedBubble = null;
+  let streamedAnswer = '';
+  const onAnswerChunk = (chunk) => {
+    if (typeof chunk !== 'string' || !chunk) return;
+
+    streamedAnswer += chunk;
+    if (!streamedBubble) {
+      if (loadingBubble && loadingBubble.parentNode) loadingBubble.remove();
+      streamedBubble = document.createElement('div');
+      streamedBubble.className = 'ai-response-bubble';
+      streamedBubble.setAttribute('role', 'status');
+      streamedBubble.setAttribute('aria-live', 'polite');
+      const answerText = document.createElement('div');
+      answerText.className = 'ai-response-body';
+      answerText.style.whiteSpace = 'pre-wrap';
+      streamedBubble.appendChild(answerText);
+      if (aiChatThread) aiChatThread.appendChild(streamedBubble);
+    }
+
+    const answerText = streamedBubble.firstElementChild;
+    if (answerText) answerText.textContent = streamedAnswer;
+    if (aiChatThread) aiChatThread.scrollTop = aiChatThread.scrollHeight;
+  };
+
   try {
-    const res = await window.familyVault.askQuestion(query);
+    const res = await window.familyVault.askQuestionStream(query, onAnswerChunk);
     if (loadingBubble && loadingBubble.parentNode) {
       loadingBubble.remove();
     }
 
-    const botMsgEl = document.createElement('div');
-    botMsgEl.style.cssText = 'align-self: flex-start; max-width: 92%; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border); border-radius: 12px 12px 12px 2px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 1.5; color: var(--text-primary); box-shadow: 0 2px 6px rgba(0,0,0,0.3);';
+    const botMsgEl = streamedBubble || document.createElement('div');
+    botMsgEl.className = 'ai-response-bubble';
+    botMsgEl.removeAttribute('role');
+    botMsgEl.removeAttribute('aria-live');
 
     const engineBadgeText = res.mode === 'llama-server' ? 'Local Gemma-4-E2B GGUF' : 'Local Extractive Assistant';
     const escapedAnswer = escapeHtml(res.answer);
@@ -1926,29 +1958,29 @@ async function runAiQuery() {
     let citationsHtml = '';
     if (res.sources && res.sources.length > 0) {
       citationsHtml = `
-        <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
-          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 6px;">Grounding Sources (${res.sources.length}):</span>
-          <div style="display: flex; flex-direction: column; gap: 6px;">
+        <section class="ai-response-sources">
+          <h4 class="ai-response-sources-heading">Sources <span>${res.sources.length}</span></h4>
+          <div class="ai-response-sources-list">
             ${res.sources.map(src => `
-              <div class="ai-citation-pill" data-doc-id="${escapeHtml(src.documentId)}" style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 6px 10px; font-size: 11px; cursor: pointer; transition: background 0.15s;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                  <strong style="color: #8dd8c3;">${escapeHtml(src.documentTitle)}</strong>
-                  <span style="font-size: 10px; color: var(--text-muted);">${escapeHtml(src.fileName || '')}</span>
+              <div class="ai-citation-pill" data-doc-id="${escapeHtml(src.documentId)}" tabindex="0" role="button">
+                <div class="ai-citation-heading">
+                  <strong>${escapeHtml(src.documentTitle)}</strong>
+                  <span>${escapeHtml(src.fileName || '')}</span>
                 </div>
-                <div style="font-style: italic; color: #cbd5e1; font-size: 11px;">"${escapeHtml(src.snippet)}"</div>
+                <div class="ai-citation-snippet">"${escapeHtml(src.snippet)}"</div>
               </div>
             `).join('')}
           </div>
-        </div>
+        </section>
       `;
     }
 
     botMsgEl.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <span class="badge badge-blue" style="font-size: 10px;">${engineBadgeText}</span>
-        <button class="btn btn-secondary btn-copy-turn-answer" style="padding: 2px 6px; font-size: 10px;">Copy</button>
+      <div class="ai-response-header">
+        <span class="ai-response-engine">${engineBadgeText}</span>
+        <button class="btn btn-secondary btn-copy-turn-answer" type="button">Copy</button>
       </div>
-      <div style="white-space: pre-wrap;">${escapedAnswer}</div>
+      <div class="ai-response-body">${escapedAnswer}</div>
       ${citationsHtml}
     `;
 
@@ -1966,17 +1998,24 @@ async function runAiQuery() {
 
     // Hook citations to open drawer
     botMsgEl.querySelectorAll('.ai-citation-pill').forEach(pill => {
-      pill.addEventListener('click', () => {
+      const openCitation = () => {
         const docId = pill.getAttribute('data-doc-id');
         if (docId) {
           modalAiQa.classList.add('hidden');
           openDocumentDrawer(docId);
         }
+      };
+      pill.addEventListener('click', openCitation);
+      pill.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openCitation();
+        }
       });
     });
 
     if (aiChatThread) {
-      aiChatThread.appendChild(botMsgEl);
+      if (!botMsgEl.parentNode) aiChatThread.appendChild(botMsgEl);
       aiChatThread.scrollTop = aiChatThread.scrollHeight;
     }
 
@@ -1984,6 +2023,9 @@ async function runAiQuery() {
   } catch (err) {
     if (loadingBubble && loadingBubble.parentNode) {
       loadingBubble.remove();
+    }
+    if (streamedBubble && streamedBubble.parentNode) {
+      streamedBubble.remove();
     }
     const errorBubble = document.createElement('div');
     errorBubble.style.cssText = 'align-self: flex-start; max-width: 85%; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #f87171;';
@@ -2099,7 +2141,7 @@ if (btnStopAiServer) {
         aiQuickSetupBox.classList.remove('hidden');
         const setupTitle = document.getElementById('ai-setup-title');
         const setupDesc = document.getElementById('ai-setup-desc');
-        if (setupTitle) setupTitle.textContent = '⚡ Gemma-4-E2B Model is Ready';
+        if (setupTitle) setupTitle.textContent = 'Gemma-4-E2B Model is Ready';
         if (setupDesc) setupDesc.textContent = 'Model weights are installed on your computer. Click below to start the local CPU engine.';
         if (btnDownloadSetupGemma) btnDownloadSetupGemma.textContent = 'Start Gemma-4-E2B engine';
       }

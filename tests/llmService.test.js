@@ -2,12 +2,43 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const http = require('node:http');
 const {
   LlmService,
   parseAndValidateAiMetadata,
   VALID_CATEGORIES,
   VALID_DOC_TYPES
 } = require('../src/main/services/llmService');
+
+test('LlmService: Streams llama-server completion chunks as they arrive', async () => {
+  const server = http.createServer((req, res) => {
+    let requestBody = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => requestBody += chunk);
+    req.on('end', () => {
+      assert.strictEqual(JSON.parse(requestBody).stream, true);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: {"content":"Hello"}\n\n');
+      setImmediate(() => {
+        res.write('data: {"content":" world"}\n\n');
+        res.end('data: [DONE]\n\n');
+      });
+    });
+  });
+
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const service = new LlmService();
+  service._port = server.address().port;
+  const chunks = [];
+
+  try {
+    const answer = await service._queryLlamaServer('test prompt', chunk => chunks.push(chunk));
+    assert.strictEqual(answer, 'Hello world');
+    assert.deepStrictEqual(chunks, ['Hello', ' world']);
+  } finally {
+    await new Promise((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+  }
+});
 
 test('LlmService: Grounded extractive QA returns citations and source references', async () => {
   const service = new LlmService();
@@ -451,6 +482,5 @@ test('LlmService: parseAndValidateAiMetadata and extractDocumentMetadata priorit
   assert.strictEqual(extracted.suggestedTitle, 'Electricity Utility Bill (March 2026)');
   assert.strictEqual(extracted.title, 'Electricity Utility Bill (March 2026)');
 });
-
 
 
