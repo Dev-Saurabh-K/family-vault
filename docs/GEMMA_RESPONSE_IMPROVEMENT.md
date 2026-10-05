@@ -43,7 +43,11 @@ metadata (including document type, issuer, issue/expiry dates and evidence,
 review state, and extraction confidence), along with the semantic index.
 It includes other family members' documents and omits profile records. The
 broader scope is opt-in per retry; normal named-person restrictions remain
-unchanged.
+unchanged. When the local Gemma server is available, the retry uses it for the
+answer; otherwise the deterministic extractive response is used. Responses
+with sources display a bottom-of-answer caution that another family member's
+documents may be included and OCR/AI interpretations can be wrong, advising
+users to verify the cited originals.
 
 ## Recommended implementation sequence
 
@@ -79,6 +83,30 @@ started.
 
 Compare case-level results before and after each change; do not treat the
 aggregate pass count as a calibrated quality score.
+
+The local extractive baseline is `npm run eval:qa`. To evaluate generated
+Gemma answers, first start the model from FamilyVault's Model Settings, then
+run `npm run eval:qa:model`. This opt-in command checks the existing server's
+health at `127.0.0.1` and sends only the synthetic fixture prompts to that
+loopback address. It never starts a server or downloads a model. The report
+includes answer-fact coverage, source precision/recall, passed cases, answer
+latency, validated model-response count, and model-to-extractive fallbacks.
+Abstention cases that have no retrieved evidence are not counted as generated
+answer failures because the Q&A service intentionally returns before
+generation. A nonzero exit indicates an answerable case did not return a
+validated model answer. No fixture data is read from the vault or sent over
+the internet. Model-generated answers are checked against the existing
+conservative `0.65` evidence-strength cap; fixture-specific confidence ranking
+thresholds apply only to the deterministic extractive baseline.
+
+On 2026-10-06, the model-enabled run returned validated Gemma answers for all
+8 answerable synthetic cases and abstained on the 2 cases with no retrieved
+answer. It scored 10/10 overall, with 1.00 answer-fact coverage, 1.00 source
+precision, 1.00 source recall, no extractive fallbacks, and mean latency of
+3.88 seconds per generated answer (3.10 seconds across all cases). This is one
+run against synthetic fixtures on the current local machine—not a general
+quality or performance guarantee. The lexical evaluation cannot prove full
+semantic entailment or replace human review.
 
 Before retrieval reranking, the local-extractive baseline passed **5 of 7
 cases**. The multi-document case
@@ -173,6 +201,11 @@ Implemented in `src/main/services/extractionService.js`:
     rotated result is not discarded for a small score difference. This handles
     rotation baked into a scan without changing the stored source image or PDF;
     ordinary, readable pages skip the extra orientation passes.
+12. Right-angle correction is also triggered when OCR word boxes show a
+    predominantly vertical text flow (at least six boxes, with most boxes
+    taller than wide). This catches rotated pages whose initial OCR happens to
+    produce plausible-looking words and would not meet the text-fragment
+    heuristic alone.
 
 Strict extraction regressions cover line ending/whitespace normalization,
 preservation of exact IDs and amounts, corrupted-native-text replacement,
@@ -183,7 +216,8 @@ fallback after unusable PaddleOCR output, and the case where neither engine
 returns usable text. Deskew regressions cover skew estimation, skipping aligned
 text, and enabling automatic gradient correction for skewed PDF OCR. Rotation
 regressions cover suspicious-text detection, selecting a better right-angle
-OCR result, and skipping orientation checks for readable text.
+OCR result, checking vertical word-box geometry, and skipping orientation
+checks for readable text in normal horizontal layouts.
 
 ### 4. Make the answer contract explicit
 
@@ -275,7 +309,25 @@ the right label when that same value appears elsewhere in the context. The
 harder evaluation checks those literal regressions; the local-extractive
 baseline remains **10/10** and does not start Gemma.
 
-### 9. Compare low-confidence OCR and ground generated metadata
+### 9. Screen generated prose for unsupported claims
+
+Implemented in `_validateAnswerClaims()` in
+`src/main/services/llmService.js`. After cleanup and literal-value checking,
+each generated sentence is compared with normalized content words from the
+selected source titles and snippets. A sentence is rejected if it contains
+unsupported terms accounting for more than 20% of its content words; a
+single-content-word sentence must be directly present in the evidence. Rejected
+answers fall back to deterministic extraction, and no model text is streamed
+before validation.
+
+This is a conservative lexical screen, **not semantic entailment**: a true
+paraphrase that uses unsupported synonyms can be rejected, and shared terms
+cannot prove that a relationship or label is correct. Numeric values and
+identifiers still use the separate exact-value validator. Regression cases
+verify an ordinary grounded answer passes while an invented account status
+forces the extractive fallback without exposing model text.
+
+### 10. Compare low-confidence OCR and ground generated metadata
 
 Implemented across `src/main/services/extractionService.js` and
 `src/main/services/llmService.js`.
@@ -346,6 +398,8 @@ responsibilities can change as the code evolves.
 - [ ] Every generated semantic claim is checked against returned sources.
 - [x] Generated numbers and identifiers are checked against retrieved text
   before the answer is exposed.
+- [x] Generated answer sentences receive a conservative source-term grounding
+  check before the answer is exposed.
 - [x] Low-confidence OCR is compared with the existing secondary engine and
   AI metadata fields are grounded against extracted source text.
 - [ ] OCR accuracy is benchmarked on a representative, user-reviewed corpus
@@ -365,9 +419,14 @@ Run from the application directory:
 
 ```powershell
 npm run eval:qa
+npm run eval:qa:model
 npm test -- --test-name-pattern="LlmService|VaultService"
 npm test
 ```
+
+`npm run eval:qa:model` requires an already-running, healthy local Gemma server
+on port `18432`; optionally set `FAMILYVAULT_LLM_PORT` to a different local
+port. It will fail fast if the loopback health check fails.
 
 The first command runs the existing test runner with a focused name filter;
 if the Node.js version or test-runner options do not apply that filter, run the

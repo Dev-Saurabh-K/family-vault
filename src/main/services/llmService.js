@@ -1020,6 +1020,38 @@ class LlmService {
     };
   }
 
+  _validateAnswerClaims(answer, segments) {
+    const sourceTerms = tokenizeSearchText(
+      (segments || [])
+        .map(segment => `${segment.documentTitle || ''}\n${segment.snippet || ''}`)
+        .join('\n')
+    );
+    const unsupportedTerms = new Set();
+    const statements = String(answer || '')
+      .split(/(?<=[.!?])\s+|[\n;]+/)
+      .map(statement => statement.replace(/^\s*(?:[-*•]\s*)/, '').trim())
+      .filter(Boolean);
+
+    for (const statement of statements) {
+      const terms = [...tokenizeSearchText(statement)]
+        .filter(term => term.length > 2
+          && !STOP_WORDS.has(term)
+          && !CLAIM_NONFACTUAL_TERMS.has(term)
+          && !/\d/.test(term));
+      if (!terms.length) continue;
+
+      const unsupported = terms.filter(term => !sourceTerms.has(term));
+      if (unsupported.length && (terms.length === 1 || unsupported.length / terms.length > 0.2)) {
+        for (const term of unsupported) unsupportedTerms.add(term);
+      }
+    }
+
+    return {
+      valid: unsupportedTerms.size === 0,
+      unsupportedTerms: [...unsupportedTerms]
+    };
+  }
+
   _calculateEvidenceStrength(segments, generatedAnswer = false, query = '') {
     if (!segments.length) return 0;
 
@@ -1381,7 +1413,8 @@ class LlmService {
         const completion = await this._queryLlamaServer(prompt, undefined, maxAnswerTokens);
         const cleanedAnswer = this._cleanAnswer(completion);
         const valueValidation = this._validateAnswerValues(cleanedAnswer, topSegments);
-        if (cleanedAnswer && valueValidation.valid) {
+        const claimValidation = this._validateAnswerClaims(cleanedAnswer, topSegments);
+        if (cleanedAnswer && valueValidation.valid && claimValidation.valid) {
           // Do not expose generated text to the renderer until its exact values pass validation.
           if (typeof onToken === 'function') onToken(cleanedAnswer);
           return {
@@ -1394,11 +1427,15 @@ class LlmService {
               snippet: s.snippet.length > 500 ? `${s.snippet.slice(0, 497).trimEnd()}...` : s.snippet
             })),
             evidenceStrength: this._calculateEvidenceStrength(topSegments, true, query),
-            mode: 'llama-server'
+            mode: 'llama-server',
+            modelUsed: true
           };
         }
         if (cleanedAnswer && !valueValidation.valid) {
           console.warn('[llmService] Llama answer contained values absent from its sources; using local extractive fallback', valueValidation.unsupportedValues);
+        }
+        if (cleanedAnswer && !claimValidation.valid) {
+          console.warn('[llmService] Llama answer contained unsupported terms; using local extractive fallback', claimValidation.unsupportedTerms);
         }
         console.warn('[llmService] Llama server returned no usable answer; using local extractive fallback');
       } catch (err) {
@@ -1828,6 +1865,10 @@ const STOP_WORDS = new Set([
   'the', 'is', 'at', 'which', 'on', 'a', 'an', 'and', 'or', 'to', 'in', 'for', 'of',
   'what', 'when', 'where', 'who', 'how', 'why', 'can', 'you', 'tell', 'me', 'my', 'does',
   'have', 'has', 'had', 'are', 'was', 'were', 'it', 'with', 'as', 'by', 'from'
+]);
+
+const CLAIM_NONFACTUAL_TERMS = new Set([
+  'answer', 'answers', 'source', 'sources', 'based', 'provided', 'information'
 ]);
 
 const SEARCH_TERM_ALIASES = new Map([

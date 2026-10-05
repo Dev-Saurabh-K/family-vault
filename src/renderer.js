@@ -2182,6 +2182,12 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
            <button class="btn btn-secondary btn-search-all-documents" type="button">Search all documents anyway</button>
          </div>`
       : '';
+    const searchAllWarningHtml = searchAllDocuments && res.sources?.length
+      ? `<aside class="ai-search-all-warning" role="note" aria-label="Caution: all-documents search">
+           <strong>Search-all result — verify before relying on it.</strong>
+           <span>This may include another family member’s documents. OCR and AI can misread or interpret details incorrectly; check the cited original documents.</span>
+         </aside>`
+      : '';
 
     botMsgEl.innerHTML = `
       <div class="ai-response-header">
@@ -2192,6 +2198,7 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
       ${actionChipsHtml}
       ${citationsHtml}
       ${searchAllPromptHtml}
+      ${searchAllWarningHtml}
     `;
 
     // Hook copy button

@@ -271,6 +271,7 @@ test('LlmService: Caps evidence strength for generated answers without claim ver
   });
 
   assert.equal(result.mode, 'llama-server');
+  assert.equal(result.modelUsed, true);
   assert.ok(result.evidenceStrength <= 0.65);
 });
 
@@ -297,6 +298,53 @@ test('LlmService: Rejects generated identifiers and numbers not present in sourc
     service._validateAnswerValues('Account AC-774201 is due 1,870.00.', segments),
     { valid: false, unsupportedValues: ['1,870.00'] }
   );
+});
+
+test('LlmService: Rejects generated sentences with unsupported factual terms', () => {
+  const service = new LlmService();
+  const segments = [{
+    documentTitle: 'Utility Account',
+    snippet: 'Account number: AC-774201. Amount due: $1,870.00.'
+  }];
+
+  assert.deepStrictEqual(
+    service._validateAnswerClaims(
+      'The utility account number is AC-774201.',
+      segments
+    ),
+    { valid: true, unsupportedTerms: [] }
+  );
+  assert.deepStrictEqual(
+    service._validateAnswerClaims(
+      'The utility account is permanently frozen.',
+      segments
+    ),
+    { valid: false, unsupportedTerms: ['permanently', 'frozen'] }
+  );
+});
+
+test('LlmService: Falls back without streaming when generated prose is not source-grounded', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+  service._queryLlamaServer = async () =>
+    'The utility account number is AC-774201. The account is permanently frozen.';
+  const streamed = [];
+  const result = await service.answerQuestion({
+    query: 'What is the utility account number?',
+    onToken: chunk => streamed.push(chunk),
+    documents: [{
+      id: 'account',
+      title: 'Utility Account',
+      currentVersion: {
+        fileName: 'account.txt',
+        metadata: { textContent: 'Account number: AC-774201. Amount due: $1,870.00.' }
+      }
+    }]
+  });
+
+  assert.equal(result.mode, 'local-extractive');
+  assert.ok(result.answer.includes('AC-774201'));
+  assert.deepStrictEqual(streamed, []);
 });
 
 test('LlmService: Falls back and withholds streamed claims when model values are unsupported', async () => {
@@ -478,6 +526,35 @@ test('LlmService: Explicit all-document search can find OCR text outside a named
   });
   assert.ok(broadResult.sources.some(source => source.documentId === 'priya-passport'));
   assert.ok(broadResult.answer.includes('P12345'));
+});
+
+test('LlmService: Uses the available local model for all-document search answers', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+  let modelCalls = 0;
+  service._queryLlamaServer = async prompt => {
+    modelCalls += 1;
+    assert.ok(prompt.includes('Priya Sharma Passport'));
+    return 'The passport number is P12345.';
+  };
+  const result = await service.answerQuestion({
+    query: "What is Saurabh's passport number?",
+    documents: [{
+      id: 'priya-passport',
+      title: 'Priya Sharma Passport',
+      person: 'Priya Sharma',
+      currentVersion: {
+        fileName: 'priya-passport.pdf',
+        metadata: { textContent: 'Passport number: P12345.' }
+      }
+    }],
+    searchAllDocuments: true
+  });
+
+  assert.equal(modelCalls, 1);
+  assert.equal(result.mode, 'llama-server');
+  assert.equal(result.modelUsed, true);
+  assert.ok(result.answer.includes('P12345'));
 });
 
 test('LlmService: All-document search includes OCR word data and extracted metadata evidence', async () => {

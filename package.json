@@ -18,6 +18,7 @@
     "release": "electron-forge release",
     "setup:ai": "node scripts/setup-ai.js",
     "eval:qa": "node scripts/evaluate-gemma-qa.js",
+    "eval:qa:model": "node scripts/evaluate-gemma-qa.js --model",
     "test": "node --test \"tests/**/*.test.js\"",
     "lint": "echo \"No linting configured\""
   },
