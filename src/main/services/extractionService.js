@@ -142,6 +142,47 @@ function reconstructStructuredTableLayout(ocrWords, lineThreshold = 12, columnGa
   };
 }
 
+function normalizeExtractedText(text) {
+  return String(text || '')
+    .replace(/\u0000/g, '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.replace(/[\t ]+$/g, '').replace(/^[\t ]+/g, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function hasUsableExtractedText(text) {
+  return /[\p{L}\p{N}]/u.test(normalizeExtractedText(text));
+}
+
+function meanOcrConfidence(ocrWords) {
+  const confidences = (Array.isArray(ocrWords) ? ocrWords : [])
+    .map(word => Number(word?.confidence))
+    .filter(value => Number.isFinite(value) && value >= 0);
+  if (!confidences.length) return null;
+  return confidences.reduce((sum, value) => sum + Math.min(value, 100), 0) / confidences.length;
+}
+
+function shouldTrySecondaryOcr(text, ocrWords) {
+  if (!hasUsableExtractedText(text)) return true;
+  const confidence = meanOcrConfidence(ocrWords);
+  return confidence !== null && confidence < 65;
+}
+
+function chooseOcrCandidate(primary, secondary) {
+  if (!primary || !hasUsableExtractedText(primary.text)) {
+    return secondary && hasUsableExtractedText(secondary.text) ? secondary : null;
+  }
+  if (!secondary || !hasUsableExtractedText(secondary.text)) return primary;
+
+  const primaryConfidence = meanOcrConfidence(primary.ocrWords);
+  const secondaryConfidence = meanOcrConfidence(secondary.ocrWords);
+  if (primaryConfidence === null || secondaryConfidence === null) return primary;
+  return secondaryConfidence > primaryConfidence ? secondary : primary;
+}
+
 /**
  * Extracts plain text and detailed OCR coordinates from document buffers.
  * @param {Buffer} buffer 
@@ -162,25 +203,28 @@ async function extractTextFromBuffer(buffer, mimeType) {
         let text = textResult && typeof textResult.text === 'string'
           ? textResult.text.trim()
           : (typeof textResult === 'string' ? textResult.trim() : '');
+        text = normalizeExtractedText(text);
 
         // If native PDF text is absent or insufficient (e.g. scanned ticket or photo PDF),
         // automatically perform OCR on rendered page screenshots
-        const cleanedText = text.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, '').trim();
+        const cleanedText = normalizeExtractedText(text.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, ''));
         let method = 'native-pdf';
 
         if (cleanedText.length < 40) {
           try {
             const pagesToOcr = Math.min(pageCount, 3);
-            let combinedOcr = '';
+            const ocrPages = [];
+            let combinedOcrLength = 0;
             const allWords = [];
-            let ocrMethod = 'pdf-ocr-tesseract-fallback';
+            let usedPaddle = false;
+            let usedTesseract = false;
 
             for (let p = 1; p <= pagesToOcr; p++) {
               const shot = await parser.getScreenshot({ page: p });
               if (shot && shot.pages && shot.pages[0] && shot.pages[0].dataUrl) {
                 const dataUrl = shot.pages[0].dataUrl;
                 const imgBuf = Buffer.from(dataUrl.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-                let pageExtracted = false;
+                let pageCandidate = null;
 
                 // 1. Primary: Local PaddleOCR PP-OCRv5 via onnxruntime-node
                 try {
@@ -191,15 +235,20 @@ async function extractTextFromBuffer(buffer, mimeType) {
                     }
                     if (paddleOcrService.isReady()) {
                       const paddleRes = await paddleOcrService.extractText(imgBuf);
-                      if (paddleRes && typeof paddleRes.text === 'string' && (paddleRes.text.trim().length > 0 || (Array.isArray(paddleRes.ocrWords) && paddleRes.ocrWords.length > 0))) {
-                        if (Array.isArray(paddleRes.ocrWords) && paddleRes.ocrWords.length > 0) {
-                          allWords.push(...paddleRes.ocrWords);
+                      if (paddleRes) {
+                        const paddleText = normalizeExtractedText(paddleRes.text);
+                        pageWords = Array.isArray(paddleRes.ocrWords) ? paddleRes.ocrWords : [];
+                        const structuredPage = reconstructStructuredTableLayout(pageWords).structuredText;
+                        const candidateText = structuredPage.length >= paddleText.length
+                          ? structuredPage
+                          : paddleText;
+                        if (hasUsableExtractedText(candidateText)) {
+                          pageCandidate = {
+                            text: candidateText,
+                            ocrWords: pageWords,
+                            method: 'paddle'
+                          };
                         }
-                        if (paddleRes.text.trim()) {
-                          combinedOcr += (combinedOcr ? '\n\n' : '') + paddleRes.text.trim();
-                        }
-                        ocrMethod = 'pdf-ocr-paddleocr-primary';
-                        pageExtracted = true;
                       }
                     }
                   }
@@ -208,29 +257,45 @@ async function extractTextFromBuffer(buffer, mimeType) {
                 }
 
                 // 2. Fallback: Local Tesseract.js upon PaddleOCR failure or unavailability
-                if (!pageExtracted) {
+                if (shouldTrySecondaryOcr(pageCandidate?.text, pageCandidate?.ocrWords)) {
                   try {
                     const Tesseract = require('tesseract.js');
                     const ocrResult = await Tesseract.recognize(dataUrl, 'eng');
-                    const pageWords = extractOcrWordCoordinates(ocrResult?.data);
-                    if (pageWords.length > 0) {
-                      allWords.push(...pageWords);
-                    }
-                    const pageText = ocrResult?.data?.text?.trim() || '';
-                    if (pageText) {
-                      combinedOcr += (combinedOcr ? '\n\n' : '') + pageText;
+                    const tessWords = extractOcrWordCoordinates(ocrResult?.data);
+                    const tessText = normalizeExtractedText(ocrResult?.data?.text);
+                    const structuredPage = reconstructStructuredTableLayout(tessWords).structuredText;
+                    const candidateText = structuredPage.length >= tessText.length
+                      ? structuredPage
+                      : tessText;
+                    if (hasUsableExtractedText(candidateText)) {
+                      pageCandidate = chooseOcrCandidate(pageCandidate, {
+                        text: candidateText,
+                        ocrWords: tessWords,
+                        method: 'tesseract'
+                      });
                     }
                   } catch (tessErr) {}
                 }
+
+                const pageText = pageCandidate?.text || '';
+                const pageWords = pageCandidate?.ocrWords || [];
+                if (pageText) {
+                  if (pageCandidate.method === 'paddle') usedPaddle = true;
+                  if (pageCandidate.method === 'tesseract') usedTesseract = true;
+                  ocrPages.push(`Page ${p}\n${pageText}`);
+                  combinedOcrLength += pageText.length;
+                  allWords.push(...pageWords);
+                }
               }
             }
-            if (combinedOcr.length > cleanedText.length) {
+            if (combinedOcrLength > cleanedText.length) {
               ocrWords = allWords;
-              const structured = reconstructStructuredTableLayout(ocrWords);
-              text = structured.structuredText && structured.structuredText.length >= combinedOcr.length
-                ? structured.structuredText
-                : combinedOcr;
-              method = ocrMethod;
+              text = normalizeExtractedText(ocrPages.join('\n\n'));
+              method = usedPaddle && usedTesseract
+                ? 'pdf-ocr-mixed'
+                : usedPaddle
+                  ? 'pdf-ocr-paddleocr-primary'
+                  : 'pdf-ocr-tesseract-fallback';
             }
           } catch (ocrErr) {}
         }
@@ -244,7 +309,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
         };
       } else if (typeof pdfParseModule === 'function') {
         const data = await pdfParseModule(buffer);
-        const text = data.text ? data.text.trim() : '';
+        const text = normalizeExtractedText(data.text);
         return {
           text,
           pageCount: data.numpages || 1,
@@ -265,6 +330,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
 
   // For images, use PaddleOCR (PP-OCRv5) first and Tesseract.js as its local fallback.
   if (mimeType.startsWith('image/')) {
+    let paddleCandidate = null;
     // 1. Primary: Local PaddleOCR PP-OCRv5 via onnxruntime-node
     try {
       const { paddleOcrService } = require('./paddleOcrService');
@@ -275,18 +341,23 @@ async function extractTextFromBuffer(buffer, mimeType) {
         if (paddleOcrService.isReady()) {
           const paddleRes = await paddleOcrService.extractText(buffer);
           if (paddleRes && typeof paddleRes.text === 'string' && (paddleRes.text.trim().length > 0 || (Array.isArray(paddleRes.ocrWords) && paddleRes.ocrWords.length > 0))) {
-            const rawText = paddleRes.text.trim();
+            const rawText = normalizeExtractedText(paddleRes.text);
             const ocrWords = Array.isArray(paddleRes.ocrWords) ? paddleRes.ocrWords : [];
             const structured = reconstructStructuredTableLayout(ocrWords);
-            const text = structured.structuredText && structured.structuredText.length >= rawText.length
+            const text = normalizeExtractedText(structured.structuredText && structured.structuredText.length >= rawText.length
               ? structured.structuredText
-              : rawText;
-            return {
+              : rawText);
+            if (!hasUsableExtractedText(text)) {
+              throw new Error('PaddleOCR returned no usable text');
+            }
+            paddleCandidate = {
               text,
-              pageCount: 1,
-              method: paddleRes.method || 'ocr-paddleocr-primary',
-              ocrWords
+              ocrWords,
+              method: paddleRes.method || 'ocr-paddleocr-primary'
             };
+            if (!shouldTrySecondaryOcr(text, ocrWords)) {
+              return { ...paddleCandidate, pageCount: 1 };
+            }
           }
         }
       }
@@ -294,28 +365,40 @@ async function extractTextFromBuffer(buffer, mimeType) {
       // Fall through to the local Tesseract fallback
     }
 
-    // 2. Fallback: Local Tesseract.js OCR with detailed word coordinates
+    // 2. Use Tesseract when PaddleOCR fails or reports low word confidence.
     try {
       const Tesseract = require('tesseract.js');
       const res = await Tesseract.recognize(buffer, 'eng').catch(() => null);
       if (!res || !res.data) {
-        return { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
+        return paddleCandidate
+          ? { ...paddleCandidate, pageCount: 1 }
+          : { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
       }
-      const rawText = res.data.text ? res.data.text.trim() : '';
+      const rawText = normalizeExtractedText(res.data.text);
       ocrWords = extractOcrWordCoordinates(res.data);
       const structured = reconstructStructuredTableLayout(ocrWords);
-      const text = structured.structuredText && structured.structuredText.length >= rawText.length
+      const text = normalizeExtractedText(structured.structuredText && structured.structuredText.length >= rawText.length
         ? structured.structuredText
-        : rawText;
+        : rawText);
+      if (!hasUsableExtractedText(text)) {
+        return paddleCandidate
+          ? { ...paddleCandidate, pageCount: 1 }
+          : { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
+      }
 
-      return {
+      const tesseractCandidate = {
         text,
-        pageCount: 1,
         method: 'ocr-tesseract-fallback',
         ocrWords
       };
+      const selected = chooseOcrCandidate(paddleCandidate, tesseractCandidate);
+      return selected
+        ? { ...selected, pageCount: 1 }
+        : { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
     } catch (e) {
-      return { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
+      return paddleCandidate
+        ? { ...paddleCandidate, pageCount: 1 }
+        : { text: '', pageCount: 1, method: 'ocr-unavailable', ocrWords: [] };
     }
   }
 
@@ -691,11 +774,13 @@ function analyzeDocumentText(text, fileName = '', options = {}) {
     }
   }
 
-  // Guess issuer from text lines
+  // Only assign an issuer when the document explicitly labels it.
   let issuer = null;
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 3 && l.length < 50);
-  if (lines.length > 0) {
-    issuer = lines[0];
+  const issuerMatch = String(text || '').match(
+    /^\s*(?:issuer|issued\s+by|issuing\s+authority|authority|provider|insurer|bank|hospital)\s*[:\-]\s*(.{3,80}?)\s*$/im
+  );
+  if (issuerMatch) {
+    issuer = issuerMatch[1].trim();
   }
 
   // Detect Family Member / Person with strict matching to added users
@@ -992,6 +1077,11 @@ module.exports = {
   extractTextFromBuffer,
   extractOcrWordCoordinates,
   reconstructStructuredTableLayout,
+  normalizeExtractedText,
+  hasUsableExtractedText,
+  meanOcrConfidence,
+  shouldTrySecondaryOcr,
+  chooseOcrCandidate,
   findDateCandidates,
   analyzeDocumentText,
   computeExpiryStatus,

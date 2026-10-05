@@ -102,6 +102,23 @@ button, input, textarea, select { font: inherit; }
 .input-field:focus-visible { outline: 1px solid #f4f1e8; outline-offset: 1px; }
 .btn-primary { background: var(--button-bg) !important; border-color: var(--button-bg) !important; box-shadow: 0 1px 2px rgba(0, 0, 0, .22); color: var(--button-text) !important; }
 .btn-primary:hover { background: #fff !important; border-color: #fff !important; }
+.btn:disabled { cursor: not-allowed; opacity: .58; }
+.btn-primary:disabled:hover { background: var(--button-bg) !important; border-color: var(--button-bg) !important; }
+.ai-search-all-prompt {
+  align-items: flex-start;
+  background: rgba(234, 179, 8, .07);
+  border: 1px solid rgba(234, 179, 8, .22);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  gap: 8px;
+  line-height: 1.5;
+  margin-top: 10px;
+  padding: 10px;
+}
+.ai-search-all-prompt .btn { font-size: 11px; min-height: 30px; padding: 4px 9px; }
 .btn-danger,
 .btn-danger-subtle,
 #btn-delete-document-header,
@@ -1252,3 +1269,175 @@ select.input-field:disabled {
     animation: none;
   }
 }
+
+/* Chat with AI UI Design System Enhancements */
+.modal-ai-content {
+  max-width: 680px !important;
+  width: 100%;
+  max-height: min(88vh, 800px) !important;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-engine-banner {
+  font-size: 11px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(16, 163, 127, 0.08);
+  border: 1px solid rgba(16, 163, 127, 0.22);
+  color: #a9dacc;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-chat-thread-container {
+  flex: 1;
+  min-height: 280px;
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  scroll-behavior: smooth;
+}
+
+.ai-thread-welcome-box {
+  text-align: center;
+  padding: 28px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-user-bubble {
+  align-self: flex-end;
+  max-width: 82%;
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.22), rgba(16, 163, 127, 0.12));
+  border: 1px solid rgba(16, 163, 127, 0.32);
+  color: #f4f1e8;
+  padding: 10px 14px;
+  border-radius: 14px 14px 3px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
+.ai-error-bubble {
+  align-self: flex-start;
+  max-width: 88%;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 12px;
+  color: #fca5a5;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-action-chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  color: #e5e9e7;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ai-action-chip:hover {
+  background: rgba(16, 163, 127, 0.18);
+  border-color: rgba(16, 163, 127, 0.4);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.ai-input-area {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.ai-query-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.ai-query-textarea {
+  flex: 1;
+  resize: none;
+  min-height: 38px;
+  max-height: 120px;
+  line-height: 1.45;
+  padding: 8px 12px;
+  overflow-y: auto;
+  font-family: inherit;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+
+.ai-submit-btn {
+  min-height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-response-body p {
+  margin: 0 0 8px 0;
+}
+
+.ai-response-body p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-response-body ul,
+.ai-response-body ol {
+  margin: 4px 0 8px 18px;
+  padding: 0;
+}
+
+.ai-response-body li {
+  margin-bottom: 3px;
+}
+
+.ai-response-body code {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #a9dacc;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ai-response-body strong {
+  color: #fff;
+  font-weight: 600;
+}
+

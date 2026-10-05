@@ -52,8 +52,11 @@ contextBridge.exposeInMainWorld('familyVault', {
   searchSemantic: (args) => ipcRenderer.invoke('search:semantic', args),
 
   // Grounded local AI Q&A
-  askQuestion: (query) => ipcRenderer.invoke('ai:ask', { query }),
-  askQuestionStream: (query, onChunk) => {
+  askQuestion: (query, options = {}) => ipcRenderer.invoke('ai:ask', {
+    query,
+    searchAllDocuments: options.searchAllDocuments === true
+  }),
+  askQuestionStream: (query, onChunk, options = {}) => {
     const requestId = `${Date.now()}-${++nextAiRequestId}-${Math.random().toString(36).slice(2)}`;
     const handler = (_event, payload) => {
       if (payload.requestId === requestId && typeof payload.chunk === 'string') {
@@ -61,7 +64,11 @@ contextBridge.exposeInMainWorld('familyVault', {
       }
     };
     ipcRenderer.on('ai:answer-chunk', handler);
-    return ipcRenderer.invoke('ai:ask-stream', { query, requestId })
+    return ipcRenderer.invoke('ai:ask-stream', {
+      query,
+      requestId,
+      searchAllDocuments: options.searchAllDocuments === true
+    })
       .finally(() => ipcRenderer.removeListener('ai:answer-chunk', handler));
   },
   getAiStatus: () => ipcRenderer.invoke('ai:status'),

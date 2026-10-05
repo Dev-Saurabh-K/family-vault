@@ -16,6 +16,8 @@ let selectedDocumentId = null;
 let activeDocumentRecord = null;
 let documentIdPendingDelete = null;
 let preAnalyzedDocData = null;
+let importAnalysisRequestId = 0;
+let isImportAnalysisInProgress = false;
 
 // DOM Elements - Views
 const viewLauncher = document.getElementById('view-launcher');
@@ -83,11 +85,8 @@ const aiThreadWelcome = document.getElementById('ai-thread-welcome');
 const btnClearAiHistory = document.getElementById('btn-clear-ai-history');
 const aiQueryInput = document.getElementById('ai-query-input');
 const aiSubmitQueryBtn = document.getElementById('ai-submit-query-btn');
-const aiLoading = document.getElementById('ai-loading');
-const aiResultBox = document.getElementById('ai-result-box');
-const aiAnswerText = document.getElementById('ai-answer-text');
-const aiModeBadge = document.getElementById('ai-mode-badge');
-const aiCitationsList = document.getElementById('ai-citations-list');
+const btnReturnToChat = document.getElementById('btn-return-to-chat');
+const btnOpenModelSetup = document.getElementById('btn-open-model-setup');
 const aiQuickSetupBox = document.getElementById('ai-quick-setup-box');
 const btnDownloadSetupGemma = document.getElementById('btn-download-setup-gemma');
 const aiDownloadProgressContainer = document.getElementById('ai-download-progress-container');
@@ -1523,7 +1522,15 @@ async function refreshFamilyMembersDatalist() {
 }
 
 // Import Document Modal
+function setImportAnalysisInProgress(inProgress) {
+  isImportAnalysisInProgress = inProgress;
+  submitImportBtn.disabled = inProgress || !importFilepathInput.value.trim();
+  importBrowseBtn.disabled = inProgress;
+  submitImportBtn.textContent = inProgress ? 'Analyzing Document...' : 'Encrypt & Save';
+}
+
 btnOpenImport.addEventListener('click', async () => {
+  importAnalysisRequestId += 1;
   clearInlineError('import-error-banner');
   clearInlineWarning('import-fallback-warning');
   importFilepathInput.value = '';
@@ -1539,16 +1546,21 @@ btnOpenImport.addEventListener('click', async () => {
 
   if (importAnalysisLoader) importAnalysisLoader.classList.add('hidden');
   if (importAnalysisBanner) importAnalysisBanner.classList.add('hidden');
+  setImportAnalysisInProgress(false);
 
   await refreshFamilyMembersDatalist();
   modalImport.classList.remove('hidden');
 });
 
 importBrowseBtn.addEventListener('click', async () => {
+  const requestId = ++importAnalysisRequestId;
   clearInlineError('import-error-banner');
   clearInlineWarning('import-fallback-warning');
   const filePath = await window.familyVault.selectFile();
-  if (!filePath) return;
+  if (requestId !== importAnalysisRequestId || !filePath) return;
+
+  setImportAnalysisInProgress(true);
+  preAnalyzedDocData = null;
 
   importFilepathInput.value = filePath;
   const fileName = filePath.split(/[\\/]/).pop() || '';
@@ -1662,9 +1674,14 @@ importBrowseBtn.addEventListener('click', async () => {
       importAnalysisBanner.classList.remove('hidden');
     }
   } finally {
+    if (requestId === importAnalysisRequestId) {
+      setImportAnalysisInProgress(false);
+    }
     // Hide progress loader after a brief confirmation moment
     setTimeout(() => {
-      if (importAnalysisLoader) importAnalysisLoader.classList.add('hidden');
+      if (requestId === importAnalysisRequestId && importAnalysisLoader) {
+        importAnalysisLoader.classList.add('hidden');
+      }
     }, 500);
   }
 });
@@ -1676,6 +1693,7 @@ importFilepathInput.addEventListener('input', () => {
 });
 
 submitImportBtn.addEventListener('click', async () => {
+  if (isImportAnalysisInProgress || submitImportBtn.disabled) return;
   clearInlineError('import-error-banner');
   const filePath = importFilepathInput.value.trim();
   const title = importTitleInput.value.trim();
@@ -1715,8 +1733,7 @@ submitImportBtn.addEventListener('click', async () => {
     showInlineError('import-error-banner', 'Import error: ' + err.message);
     showToast('Import error: ' + err.message, 'error');
   } finally {
-    submitImportBtn.disabled = false;
-    submitImportBtn.textContent = 'Encrypt & Save';
+    setImportAnalysisInProgress(false);
   }
 });
 
@@ -1954,11 +1971,13 @@ btnOpenAiQa.addEventListener('click', async () => {
 
 let aiHistory = [];
 
-async function runAiQuery() {
-  const query = aiQueryInput.value.trim();
+async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
+  const query = typeof queryOverride === 'string' ? queryOverride : aiQueryInput.value.trim();
   if (!query) return;
 
-  aiQueryInput.value = '';
+  if (queryOverride === null) {
+    aiQueryInput.value = '';
+  }
   aiSubmitQueryBtn.disabled = true;
   aiSubmitQueryBtn.textContent = 'Searching...';
 
@@ -1966,12 +1985,13 @@ async function runAiQuery() {
     aiThreadWelcome.classList.add('hidden');
   }
 
-  // Append user query message bubble
-  const userMsgEl = document.createElement('div');
-  userMsgEl.style.cssText = 'align-self: flex-end; max-width: 82%; background: #4338ca; color: #fff; padding: 10px 14px; border-radius: 12px 12px 2px 12px; font-size: 13px; line-height: 1.4; word-break: break-word; box-shadow: 0 1px 3px rgba(0,0,0,0.2);';
-  userMsgEl.textContent = query;
-  if (aiChatThread) {
-    aiChatThread.appendChild(userMsgEl);
+  if (queryOverride === null) {
+    const userMsgEl = document.createElement('div');
+    userMsgEl.style.cssText = 'align-self: flex-end; max-width: 82%; background: #4338ca; color: #fff; padding: 10px 14px; border-radius: 12px 12px 2px 12px; font-size: 13px; line-height: 1.4; word-break: break-word; box-shadow: 0 1px 3px rgba(0,0,0,0.2);';
+    userMsgEl.textContent = query;
+    if (aiChatThread) {
+      aiChatThread.appendChild(userMsgEl);
+    }
   }
 
   // Append loading indicator bubble
@@ -2014,7 +2034,7 @@ async function runAiQuery() {
   };
 
   try {
-    const res = await window.familyVault.askQuestionStream(query, onAnswerChunk);
+    const res = await window.familyVault.askQuestionStream(query, onAnswerChunk, { searchAllDocuments });
     if (loadingBubble && loadingBubble.parentNode) {
       loadingBubble.remove();
     }
@@ -2024,7 +2044,7 @@ async function runAiQuery() {
     botMsgEl.removeAttribute('role');
     botMsgEl.removeAttribute('aria-live');
 
-    const engineBadgeText = res.mode === 'llama-server' ? 'Local Gemma-4-E2B GGUF' : 'Local Extractive Assistant';
+    const engineBadgeText = `${res.mode === 'llama-server' ? 'Local Gemma-4-E2B GGUF' : 'Local Extractive Assistant'}${searchAllDocuments ? ' · All Documents' : ''}`;
     const escapedAnswer = escapeHtml(res.answer);
 
     let citationsHtml = '';
@@ -2057,6 +2077,12 @@ async function runAiQuery() {
       </div>
       <div class="ai-response-body">${escapedAnswer}</div>
       ${citationsHtml}
+      ${!searchAllDocuments && /could not find information regarding this in your stored documents or family profiles\./i.test(res.answer)
+        ? `<div class="ai-search-all-prompt">
+             <span>No answer was found in the current search. Search OCR and extracted text across every document? This may include other family members’ documents.</span>
+             <button class="btn btn-secondary btn-search-all-documents" type="button">Search all documents anyway</button>
+           </div>`
+        : ''}
     `;
 
     // Hook copy button for this answer turn
@@ -2068,6 +2094,15 @@ async function runAiQuery() {
         }).catch(() => {
           showToast('Failed to copy', 'error');
         });
+      });
+    }
+
+    const searchAllButton = botMsgEl.querySelector('.btn-search-all-documents');
+    if (searchAllButton) {
+      searchAllButton.addEventListener('click', () => {
+        searchAllButton.disabled = true;
+        searchAllButton.textContent = 'Searching all documents...';
+        runAiQuery(query, true);
       });
     }
 

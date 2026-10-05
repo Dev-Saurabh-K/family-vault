@@ -842,18 +842,23 @@ class VaultService {
    */
   async askQuestion(query, options = {}) {
     this._assertUnlocked();
-    const profiles = dbLayer.listUserProfilesWithSummaries(this._db).map(({ name }) => {
+    const searchAllDocuments = options.searchAllDocuments === true;
+    const profiles = searchAllDocuments ? [] : dbLayer.listUserProfilesWithSummaries(this._db).map(({ name }) => {
       const { profile, contradictions } = dbLayer.getUserProfileWithContradictions(this._db, name);
       return { profile, contradictions };
     });
     const initialDocuments = dbLayer.listDocuments(this._db, {});
-    const personScope = resolvePersonScope(query, profiles, initialDocuments);
+    const personScope = searchAllDocuments
+      ? { status: 'none' }
+      : resolvePersonScope(query, profiles, initialDocuments);
     if (personScope.status === 'not_found') {
       return {
         answer: `"${personScope.personName}" is not in the saved family profiles. Add them to the vault before asking about their documents.`,
         sources: [],
         confidence: 0,
-        mode: 'local-extractive'
+        mode: 'local-extractive',
+        hasResults: false,
+        personScope: { status: 'not_found', personName: personScope.personName }
       };
     }
     if (personScope.status === 'ambiguous') {
@@ -861,7 +866,9 @@ class VaultService {
         answer: `I found multiple family members matching that name: ${personScope.candidates.join(', ')}. Please ask using a more specific name.`,
         sources: [],
         confidence: 0,
-        mode: 'local-extractive'
+        mode: 'local-extractive',
+        hasResults: false,
+        personScope: { status: 'ambiguous', candidates: personScope.candidates }
       };
     }
 
@@ -894,6 +901,7 @@ class VaultService {
       documents: allDocs,
       semanticMatches,
       profiles: relevantProfiles,
+      searchAllDocuments,
       onToken: options.onToken
     });
   }

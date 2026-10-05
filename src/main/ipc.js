@@ -53,7 +53,8 @@ const DocumentFilterSchema = z.object({
 
 const AiAskStreamSchema = z.object({
   query: z.string().trim().min(1),
-  requestId: z.string().min(1).max(128)
+  requestId: z.string().min(1).max(128),
+  searchAllDocuments: z.boolean().optional().default(false)
 });
 
 function registerIpcHandlers(mainWindow) {
@@ -279,14 +280,18 @@ function registerIpcHandlers(mainWindow) {
   });
 
   // Local AI Grounded Q&A
-  ipcMain.handle('ai:ask', async (_event, { query }) => {
-    if (!query) throw new Error('Query is required');
-    return await vaultService.askQuestion(query);
+  ipcMain.handle('ai:ask', async (_event, rawArgs) => {
+    const { query, searchAllDocuments } = z.object({
+      query: z.string().trim().min(1),
+      searchAllDocuments: z.boolean().optional().default(false)
+    }).parse(rawArgs);
+    return await vaultService.askQuestion(query, { searchAllDocuments });
   });
 
   ipcMain.handle('ai:ask-stream', async (event, rawArgs) => {
-    const { query, requestId } = AiAskStreamSchema.parse(rawArgs);
+    const { query, requestId, searchAllDocuments } = AiAskStreamSchema.parse(rawArgs);
     return await vaultService.askQuestion(query, {
+      searchAllDocuments,
       onToken: (chunk) => {
         if (!event.sender.isDestroyed()) {
           event.sender.send('ai:answer-chunk', { requestId, chunk });

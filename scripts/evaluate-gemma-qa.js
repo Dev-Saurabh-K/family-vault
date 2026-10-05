@@ -41,7 +41,11 @@ function scoreCase(evaluationCase, result, documents) {
     ) ? 1 : 0,
     forbiddenFacts: (evaluationCase.forbiddenAnswerTerms || []).every(term =>
       !answer.includes(term.toLowerCase())
-    ) ? 1 : 0
+    ) ? 1 : 0,
+    evidenceStrength: result.evidenceStrength >= (evaluationCase.minEvidenceStrength || 0)
+      && result.evidenceStrength <= (evaluationCase.maxEvidenceStrength ?? 1)
+      ? 1
+      : 0
   };
 
   return {
@@ -50,6 +54,7 @@ function scoreCase(evaluationCase, result, documents) {
     passed: Object.values(checks).every(score => score === 1),
     checks,
     answer: result.answer,
+    evidenceStrength: result.evidenceStrength,
     sourceIds,
     sourceTypes,
     elapsedMs: Number(result.elapsedMs.toFixed(2))

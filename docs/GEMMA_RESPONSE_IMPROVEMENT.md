@@ -18,16 +18,32 @@ The current Q&A path in `src/main/services/llmService.js`:
 - Asks Gemma to answer from the supplied sources, lead with a concise answer,
   handle conflicting profile facts cautiously, and avoid printing source
   markers.
-- Calls the local llama-server with temperature `0.0` and a 256-token
-  generation limit, then removes common Gemma control tokens and source
-  markers.
+- Calls the local llama-server with temperature `0.0` and a 256-token limit
+  for single-source answers or 512 tokens for multi-source answers, then
+  removes common Gemma control tokens and source markers.
 - Falls back to a deterministic extractive answer if Gemma is unavailable or
   the model call fails.
+- Returns a heuristic `evidenceStrength` based on retrieval relevance,
+  extraction quality, review state, and detectable conflicts. It is not
+  calibrated or currently displayed in the UI.
+- Checks generated numeric values and alphanumeric identifiers against the
+  retrieved source text. If a value is unsupported, it returns the local
+  extractive answer instead; generated text is withheld from the chat until
+  validation passes.
 
 OCR quality also affects answer quality. Documents are processed with
-PaddleOCR first and Tesseract.js when PaddleOCR fails, is unavailable, or
-returns no usable text. Incorrect OCR text can therefore produce incorrect
-answers regardless of prompt quality.
+PaddleOCR first and Tesseract.js when PaddleOCR fails, is unavailable, returns
+no usable text, or reports low word-level confidence. Incorrect OCR text can
+therefore produce incorrect answers regardless of prompt quality.
+
+When a normal search finds no answer, the chat offers an explicit **Search all
+documents anyway** action. It retries the same question across all documents'
+stored OCR/extracted text, OCR word coordinates, and extracted document
+metadata (including document type, issuer, issue/expiry dates and evidence,
+review state, and extraction confidence), along with the semantic index.
+It includes other family members' documents and omits profile records. The
+broader scope is opt-in per retry; normal named-person restrictions remain
+unchanged.
 
 ## Recommended implementation sequence
 
@@ -39,7 +55,8 @@ offline processing, and source references throughout.
 Run `npm run eval:qa` from the application directory for the committed
 synthetic evaluation set in `tests/fixtures/gemmaQaEvaluation.js`. It reports
 answer-fact coverage, source precision/recall, person-scope compliance,
-abstention, required source types, forbidden facts, and latency for each case.
+abstention, required source types, forbidden facts, evidence strength, and
+latency for each case.
 The fixture contains:
 
 - A direct fact lookup, such as a document number, date, amount, or address.
@@ -49,6 +66,7 @@ The fixture contains:
 - A question where documents disagree.
 - An OCR-heavy scan with a known extracted-text result.
 - A question that could match a tempting but irrelevant document.
+- Conflicting values from separate documents and uncertain OCR evidence.
 
 Each case records expected answer facts, acceptable/required source document
 IDs, whether the answer should abstain, and whether person scope must apply.
@@ -94,82 +112,170 @@ Implemented in `answerQuestion()` in `src/main/services/llmService.js`:
 7. Person filtering remains in place before retrieval and model context
    assembly.
 
-The synthetic local-extractive evaluation improved from **5/7 to 7/7** cases.
+The initial synthetic local-extractive evaluation improved from **5/7 to 7/7**
+cases after retrieval reranking.
 It now includes both facts in the multi-document answer and abstains when a
 travel-insurance document mentions passport replacement but does not state a
-passport expiry. The same seven checks run in `npm run eval:qa`; an additional
-unit test verifies that stronger semantic similarity reranks a lexical tie
-and that each document contributes only one passage. This measures retrieval
-and fallback behavior, not generated Gemma answer quality.
+passport expiry. The evaluation originally contained seven cases; it now
+contains ten, including conflicting document values, low-confidence OCR, and
+verified direct evidence. An additional unit test verifies that stronger
+semantic similarity reranks a lexical tie and that each document contributes
+only one passage. This measures retrieval and fallback behavior, not generated
+Gemma answer quality.
 
 ### 3. Improve extracted-text quality
 
-Use the stored OCR and extraction results as evidence, not as unquestioned
-truth.
+Implemented in `src/main/services/extractionService.js`:
 
-1. Normalize whitespace and repeated OCR artifacts while preserving table
-   rows, labels, dates, amounts, and identifiers.
-2. Keep page boundaries and source provenance when combining multi-page
-   documents.
-3. Detect empty or clearly unusable extraction results and expose them for
-   reprocessing or user review instead of treating them as reliable evidence.
-4. Add fixtures for common scan errors and verify that cleanup does not alter
-   meaningful values.
-5. Do not silently "correct" ambiguous names, dates, or numbers in the
-   extraction layer. If a value cannot be reliably interpreted, keep the
-   original text and let the answer abstain or explain the uncertainty.
+1. `normalizeExtractedText()` normalizes line endings, removes null bytes,
+   trims line-edge whitespace, and collapses excessive blank lines without
+   rewriting identifiers, amounts, or table columns.
+2. Native PDF text and image/PDF OCR outputs use the same normalization.
+   Scanned PDF OCR preserves page separators in extracted text.
+3. PaddleOCR output must contain at least one letter or digit to be treated as
+   usable. If not, or if its mean word confidence is below 65, the image/PDF
+   flow tries Tesseract and chooses the higher-confidence usable result; if
+   Tesseract output is also unusable, the image result is marked
+   `ocr-unavailable`.
+4. Scanned PDFs report `pdf-ocr-mixed` when pages used both PaddleOCR and
+   Tesseract, instead of implying the entire PDF used only one engine.
+5. OCR cleanup does not autocorrect ambiguous names, dates, or numbers; exact
+   extracted content remains available for review.
+
+Strict extraction regressions cover line ending/whitespace normalization,
+preservation of exact IDs and amounts, symbol-only OCR rejection, Tesseract
+fallback after unusable PaddleOCR output, and the case where neither engine
+returns usable text.
 
 ### 4. Make the answer contract explicit
 
-Keep the prompt concise and specify output behavior, not unsupported facts.
-The answer instructions should require Gemma to:
+Implemented in `_buildPrompt()` in `src/main/services/llmService.js`. The
+prompt now requires source-grounded concise answers, preserves exact values,
+instructs the model to report conflicts instead of choosing a side, and
+abstains when the supplied evidence does not answer the specific question. It
+also treats source contents as untrusted data (not instructions), prohibits
+unsupported inferences and invented citations, and advises against guessing
+or silently correcting OCR values.
 
-- Answer only from the provided evidence and say when evidence is insufficient.
-- Put the direct answer first and avoid repeating it.
-- Preserve exact names, dates, amounts, identifiers, and units from sources.
-- Distinguish a direct source fact from an interpretation of OCR text.
-- Treat conflicting sources as unresolved and describe the conflict without
-  choosing a value.
-- Avoid inferring missing facts or claiming that a source says something it
-  does not.
-- Avoid emitting internal source markers; citations are attached by the
-  application.
-
-Use representative prompt tests for both supported facts and unsupported
-questions. Do not ask Gemma to create citations; keep source selection and
-citations in application code.
+Embedded Gemma turn-control tokens in source titles, snippets, and the query
+are escaped before prompt construction so untrusted content cannot terminate
+the user turn. Prompt tests verify the answer contract, evidence values, and
+malicious source/query token handling. Source retrieval and citations remain
+application-owned.
 
 ### 5. Clean and validate model output
 
-Continue cleaning model-specific control tokens, but also test for:
+Implemented in `_cleanAnswer()` and the Gemma Q&A response path in
+`src/main/services/llmService.js`. The output cleaner removes Gemma control
+tokens and source markers, normalizes punctuation spacing and excessive blank
+lines, and removes exact repeated sentences while preserving bullet/list
+formatting. If cleanup leaves no usable answer, the service logs the condition
+and returns its deterministic extractive fallback with `local-extractive`
+mode and fallback evidence strength rather than returning an empty Gemma
+answer as a successful model response.
 
-- Empty or whitespace-only responses.
-- Repeated answer sentences and malformed spacing.
-- Incomplete responses that end at the generation limit.
-- Unrequested internal markers or prompt fragments.
-- Statements not supported by any supplied passage.
-
-If the model returns no usable answer, use the existing deterministic
-extractive fallback. Do not return a success-shaped, confident answer when
-generation failed.
+Regression tests cover duplicate answer text, cleanup while retaining bullets,
+and a control-token/source-marker-only completion. Truncation and semantic
+claim verification are not inferred from text heuristics: they still require
+model completion metadata or a reliable answer-evidence validator.
 
 ### 6. Tune generation limits only from evidence
 
-The Q&A request currently uses temperature `0.0` and `n_predict: 256`.
-Temperature changes do not improve the quality of retrieved evidence and
-should not be the first tuning lever. If answers are cut off, test a larger
-generation limit on the evaluation set and measure latency and completeness.
-Keep the smallest limit that reliably returns complete answers. Change
-temperature only if repeatable tests show a readability benefit without a
-drop in factual accuracy.
+Implemented in `answerQuestion()` and `_queryLlamaServer()` in
+`src/main/services/llmService.js`: Q&A keeps temperature `0.0` and uses
+`n_predict: 256` for a single selected source, while multi-source answers can
+use up to `512` tokens to synthesize facts without hitting the shorter cap.
+This is a generation ceiling, not a target; the concise-answer prompt remains
+unchanged. Document metadata extraction continues to use the default
+256-token limit.
+
+Tests verify the default 256-token request and the two Q&A budgets. The
+deterministic evaluation now passes 10/10 cases, but Gemma was not started
+during that evaluation, so response completeness and latency under actual
+inference remain to be measured on a running local model. Temperature remains
+unchanged because there is no measured evidence that changing it improves
+factuality.
 
 ### 7. Report confidence conservatively
 
-The current Q&A path assigns a fixed confidence value to generated answers.
-Do not treat that value as a calibrated probability. If confidence is shown
-to users, derive it from measurable signals such as retrieval quality,
-agreement between sources, and whether the answer is directly supported.
-Otherwise, remove or relabel the value so it is not mistaken for certainty.
+Implemented in `_calculateEvidenceStrength()` in
+`src/main/services/llmService.js`. Q&A results now expose `evidenceStrength`
+instead of the former fixed `confidence` value. The estimate uses retrieval
+relevance, stored extraction confidence, and review status; query-relevant
+conflicting labeled values and explicit profile conflicts lower the result.
+Generated Gemma answers are capped at `0.65` because their claims are not yet
+independently checked against the cited snippets. No-evidence responses return
+zero.
+
+This is a heuristic evidence-strength indicator, **not a calibrated
+probability** and it is not currently shown in the chat UI. The expanded
+synthetic evaluation checks that uncertain OCR and conflicting evidence score
+lower than reviewed direct evidence. It passed **10/10** cases. Live Gemma
+calibration still requires a model-enabled evaluation set and measured
+human-reviewed outcomes.
+
+### 8. Validate generated answer values against evidence
+
+Implemented in `_validateAnswerValues()` and the Gemma Q&A response path in
+`src/main/services/llmService.js`. Before an answer is returned, numeric
+values (including dates, amounts, percentages, and unit-bearing values) and
+alphanumeric identifiers are compared with exact normalized values from the
+selected source titles and snippets. Formatting commas and whitespace are
+ignored; currency symbols and identifier characters are retained. An
+unsupported value rejects the model answer and uses the deterministic
+extractive fallback.
+
+Q&A output is now buffered until validation completes. The renderer receives
+the complete generated answer only after validation, so unsupported streamed
+claims are not briefly shown to the user. Tests cover a changed identifier,
+an altered identifier prefix/length, a missing currency symbol, a valid
+source-backed answer, and fallback behavior without emitting invalid text.
+
+This is a targeted literal-value guard, not semantic claim verification: it
+does not prove that each sentence is supported or that a value is attached to
+the right label when that same value appears elsewhere in the context. The
+harder evaluation checks those literal regressions; the local-extractive
+baseline remains **10/10** and does not start Gemma.
+
+### 9. Compare low-confidence OCR and ground generated metadata
+
+Implemented across `src/main/services/extractionService.js` and
+`src/main/services/llmService.js`.
+
+For image files and rendered scanned-PDF pages, PaddleOCR remains the fast
+primary engine. When its word-level mean confidence is below 65, the service
+also runs the existing local Tesseract fallback and selects the usable result
+with the higher mean OCR confidence. If confidence is missing, the service
+preserves prior behavior and accepts usable PaddleOCR output rather than
+running a second engine without a comparison signal. Text extraction,
+identifiers, tables, and line breaks are not autocorrected.
+
+Metadata extraction now:
+
+- Accepts issue/expiry dates only when a parsed source date occurs near an
+  appropriate explicit label; the evidence snippet is taken from that source
+  context rather than copied from the model.
+- Accepts an issuer only when its name appears in the extracted text or
+  filename; deterministic extraction also requires an explicit issuer/
+  authority/provider label instead of treating the first OCR line as issuer.
+  A generated title is accepted only when it shares meaningful terms with
+  those inputs.
+- Retains only source-grounded AI tags and lets a deterministic non-generic
+  classification override a conflicting model classification.
+- Caps self-reported model confidence at `0.75`; deterministic evidence can
+  still raise the final extraction confidence when explicit date evidence
+  supports it.
+- Instructs Gemma to respect table/line layout, distinguish date types, avoid
+  assuming the first OCR line is an issuer, and treat OCR text/filenames as
+  untrusted data.
+
+Synthetic regressions cover low-confidence Paddle output for both an image
+and a scanned PDF page, selecting a higher-confidence Tesseract result,
+rejecting unrelated dates and invented issuers/titles, and prompt injection
+inside OCR text and filenames. These tests verify the selection and grounding
+rules, not real-world OCR accuracy across all scanners, languages, or document
+formats. A representative, user-reviewed document corpus is still required
+to measure actual accuracy and tune the confidence threshold.
 
 ## Suggested code locations
 
@@ -195,13 +301,22 @@ responsibilities can change as the code evolves.
   identity.
 - [ ] Named-person queries never include another person's documents or profile
   facts in model context.
-- [ ] Unsupported questions abstain instead of guessing.
-- [ ] Conflicting facts are surfaced as conflicting, not resolved arbitrarily.
-- [ ] Output is concise, complete, free of model control tokens, and grounded
-  in returned sources.
-- [ ] Model failure or empty output uses the deterministic fallback.
-- [ ] OCR cleanup preserves exact values and does not invent corrections.
-- [ ] Latency and response quality are compared with the baseline.
+- [x] Unsupported questions abstain instead of guessing.
+- [x] Conflicting facts are surfaced as conflicting, not resolved arbitrarily.
+- [x] Output cleanup removes duplicate sentences and model control tokens.
+- [x] Model failure or empty output uses the deterministic fallback.
+- [ ] Every generated semantic claim is checked against returned sources.
+- [x] Generated numbers and identifiers are checked against retrieved text
+  before the answer is exposed.
+- [x] Low-confidence OCR is compared with the existing secondary engine and
+  AI metadata fields are grounded against extracted source text.
+- [ ] OCR accuracy is benchmarked on a representative, user-reviewed corpus
+  spanning the formats and languages supported by the app.
+- [x] Returned evidence strength uses retrieval, extraction, review, and
+  conflict signals without claiming to be a calibrated probability.
+- [x] OCR cleanup preserves exact values and does not invent corrections.
+- [ ] Gemma latency and generated-response completeness are measured against
+  the baseline on a running local model.
 - [ ] Targeted tests and the full test suite pass.
 - [ ] Relevant architecture or current-state documentation is updated if
   runtime behavior changes.

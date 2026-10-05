@@ -95,6 +95,54 @@ const documents = [
         textContent: 'Travel coverage certificate TI-88. Benefits include passport replacement assistance. Policy expires 2026-12-31.'
       }
     }
+  },
+  {
+    id: 'conflicting-policy-a',
+    title: 'Auto Policy Renewal Notice',
+    category: 'insurance',
+    currentVersion: {
+      fileName: 'policy-renewal.txt',
+      metadata: {
+        textContent: 'Policy number: POL-4401. Collision deductible: $500.'
+      }
+    }
+  },
+  {
+    id: 'conflicting-policy-b',
+    title: 'Auto Policy Schedule',
+    category: 'insurance',
+    currentVersion: {
+      fileName: 'policy-schedule.txt',
+      metadata: {
+        textContent: 'Policy number: POL-4401. Collision deductible: $1,000.'
+      }
+    }
+  },
+  {
+    id: 'uncertain-invoice',
+    title: 'Unreviewed OCR Invoice',
+    category: 'other',
+    currentVersion: {
+      fileName: 'uncertain-invoice.txt',
+      metadata: {
+        confidence: 0.25,
+        reviewStatus: 'needs_review',
+        textContent: 'Invoice total payable: $1,870.00.'
+      }
+    }
+  },
+  {
+    id: 'verified-account',
+    title: 'Verified Utility Account',
+    category: 'other',
+    currentVersion: {
+      fileName: 'verified-account.txt',
+      metadata: {
+        confidence: 0.98,
+        reviewStatus: 'confirmed',
+        textContent: 'Utility account number: AC-774201.'
+      }
+    }
   }
 ];
 
@@ -163,7 +211,8 @@ const cases = [
     profileNames: ['Morgan Reed'],
     shouldAbstain: false,
     requiredSourceTypes: ['profile'],
-    personScope: 'Morgan Reed'
+    personScope: 'Morgan Reed',
+    maxEvidenceStrength: 0.65
   },
   {
     id: 'ocr-heavy-scan',
@@ -185,6 +234,42 @@ const cases = [
     profileNames: ['Morgan Reed'],
     shouldAbstain: true,
     personScope: 'Morgan Reed'
+  },
+  {
+    id: 'conflicting-document-values',
+    description: 'Preserves both conflicting deductible values instead of silently choosing one',
+    query: 'What collision deductible is listed on policy POL-4401?',
+    expectedFacts: ['$500', '$1,000'],
+    acceptableSourceDocumentIds: ['conflicting-policy-a', 'conflicting-policy-b'],
+    requiredSourceDocumentIds: ['conflicting-policy-a', 'conflicting-policy-b'],
+    documentIds: ['conflicting-policy-a', 'conflicting-policy-b'],
+    profileNames: [],
+    shouldAbstain: false,
+    maxEvidenceStrength: 0.65
+  },
+  {
+    id: 'low-confidence-ocr-evidence',
+    description: 'Answers from uncertain OCR while assigning weak evidence strength',
+    query: 'What is the total payable on the uncertain OCR invoice?',
+    expectedFacts: ['$1,870.00'],
+    acceptableSourceDocumentIds: ['uncertain-invoice'],
+    requiredSourceDocumentIds: ['uncertain-invoice'],
+    documentIds: ['uncertain-invoice'],
+    profileNames: [],
+    shouldAbstain: false,
+    maxEvidenceStrength: 0.7
+  },
+  {
+    id: 'verified-direct-evidence',
+    description: 'Ranks confirmed, high-confidence exact text above uncertain evidence',
+    query: 'What is the utility account number?',
+    expectedFacts: ['AC-774201'],
+    acceptableSourceDocumentIds: ['verified-account'],
+    requiredSourceDocumentIds: ['verified-account'],
+    documentIds: ['verified-account'],
+    profileNames: [],
+    shouldAbstain: false,
+    minEvidenceStrength: 0.75
   }
 ];
 

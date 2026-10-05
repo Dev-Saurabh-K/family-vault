@@ -87,10 +87,10 @@ test('VaultService: Sends locally stored profiles to grounded Q&A while the vaul
 test('VaultService: Restricts named-person Q&A and indexing to that family member', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-profile-scope-test-'));
   const vaultPath = path.join(tmpDir, 'ProfileVault.fvault');
-  let receivedContext;
+  const receivedContexts = [];
   const llmStub = {
     answerQuestion: async context => {
-      receivedContext = context;
+      receivedContexts.push(context);
       return { answer: 'stub', sources: [], confidence: 0, mode: 'local-extractive' };
     }
   };
@@ -118,8 +118,17 @@ test('VaultService: Restricts named-person Q&A and indexing to that family membe
 
     await service.askQuestion('Who is Saurabh?');
 
-    assert.deepStrictEqual(receivedContext.documents.map(document => document.person), ['Saurabh Kumar']);
-    assert.deepStrictEqual(receivedContext.profiles.map(entry => entry.profile.name), ['Saurabh Kumar']);
+    assert.deepStrictEqual(receivedContexts[0].documents.map(document => document.person), ['Saurabh Kumar']);
+    assert.deepStrictEqual(receivedContexts[0].profiles.map(entry => entry.profile.name), ['Saurabh Kumar']);
+
+    await service.askQuestion('Who is Saurabh?', { searchAllDocuments: true });
+
+    assert.deepStrictEqual(
+      receivedContexts[1].documents.map(document => document.person).sort(),
+      ['Priya Sharma', 'Saurabh Kumar']
+    );
+    assert.deepStrictEqual(receivedContexts[1].profiles, []);
+    assert.equal(receivedContexts[1].searchAllDocuments, true);
   } finally {
     service.lockVault();
     fs.rmSync(tmpDir, { recursive: true, force: true });
