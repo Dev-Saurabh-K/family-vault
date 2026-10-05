@@ -404,6 +404,53 @@ test('LlmService: _buildExtractionPrompt enforces strict zero-temperature guidel
   assert.ok(prompt.includes('CRITICAL USER CATEGORIZATION RULES'));
   assert.ok(prompt.includes('category" field MUST be EXACTLY one of: "identity", "insurance", "medical", "tax", "property", "other"'));
   assert.ok(prompt.includes('unmatchedPerson'));
+  assert.ok(prompt.includes('"title": A clear, concise, and descriptive document title'));
 });
+
+test('LlmService: parseAndValidateAiMetadata and extractDocumentMetadata prioritize AI-generated document titles', async () => {
+  const service = new LlmService();
+  const text = 'CITY POWER & ELECTRICITY\nAccount: 994821\nBilling Period: March 2026\nAmount Due: $142.50\nCustomer: John Smith';
+  
+  // 1. AI provides a descriptive title
+  const aiJson = JSON.stringify({
+    title: 'City Power Electricity Bill - March 2026',
+    category: 'other',
+    docType: 'other',
+    issuer: 'City Power',
+    confidence: 0.95
+  });
+
+  const parsed = parseAndValidateAiMetadata(aiJson, text, 'scan_001.pdf', []);
+  assert.strictEqual(parsed.title, 'City Power Electricity Bill - March 2026');
+  assert.strictEqual(parsed.suggestedTitle, 'City Power Electricity Bill - March 2026');
+
+  // 2. Reject generic placeholder titles
+  const genericAiJson = JSON.stringify({
+    title: 'document.pdf',
+    category: 'other',
+    docType: 'other'
+  });
+  const parsedGeneric = parseAndValidateAiMetadata(genericAiJson, text, 'scan_001.pdf', []);
+  assert.strictEqual(parsedGeneric.title, null);
+
+  // 3. extractDocumentMetadata uses AI title when llama-server is mocked/active
+  service._isReady = true;
+  service._queryLlamaServer = async () => JSON.stringify({
+    title: 'Electricity Utility Bill (March 2026)',
+    category: 'other',
+    docType: 'other',
+    confidence: 0.96
+  });
+
+  const extracted = await service.extractDocumentMetadata({
+    text,
+    fileName: 'scan_001.pdf',
+    knownPersons: []
+  });
+
+  assert.strictEqual(extracted.suggestedTitle, 'Electricity Utility Bill (March 2026)');
+  assert.strictEqual(extracted.title, 'Electricity Utility Bill (March 2026)');
+});
+
 
 

@@ -421,6 +421,14 @@ class VaultService {
           this._db.prepare('UPDATE documents SET category = ? WHERE id = ?').run(analysis.category, doc.id);
         }
 
+        // If title was not provided by user, auto-assign AI generated title
+        const rawFileNameNoExt = path.parse(fileName).name;
+        if ((!title || title.trim() === rawFileNameNoExt) && (analysis.suggestedTitle || analysis.title)) {
+          const aiTitle = (analysis.suggestedTitle || analysis.title).trim();
+          this._db.prepare('UPDATE documents SET title = ? WHERE id = ?').run(aiTitle, doc.id);
+          doc.title = aiTitle;
+        }
+
         // Only auto-assign person if matched to an existing added family member
         const effectivePerson = person || (analysis.person && !analysis.unmatchedPerson ? analysis.person : null);
         if (!person && analysis.person && !analysis.unmatchedPerson) {

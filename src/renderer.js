@@ -1524,8 +1524,9 @@ importBrowseBtn.addEventListener('click', async () => {
     preAnalyzedDocData = analysis;
 
     // Autofill fields with high-confidence suggestions
-    if (analysis.suggestedTitle) {
-      importTitleInput.value = analysis.suggestedTitle;
+    const aiTitle = analysis.title || analysis.suggestedTitle;
+    if (aiTitle) {
+      importTitleInput.value = aiTitle;
     }
 
     // STRICT USER MATCHING RULE: Unmatched persons are flagged for user review and category forced to other
@@ -1557,6 +1558,9 @@ importBrowseBtn.addEventListener('click', async () => {
     // Display summary banner
     if (importAnalysisBanner && importAnalysisBannerDetails) {
       const summaryParts = [];
+      if (aiTitle) {
+        summaryParts.push(`Title: <strong>${escapeHtml(aiTitle)}</strong>`);
+      }
       const catLabel = analysis.category.charAt(0).toUpperCase() + analysis.category.slice(1);
       summaryParts.push(`Category: <strong>${escapeHtml(catLabel)}</strong>`);
       if (analysis.person) {
