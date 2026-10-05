@@ -20,6 +20,7 @@ let preAnalyzedDocData = null;
 // DOM Elements - Views
 const viewLauncher = document.getElementById('view-launcher');
 const viewWorkspace = document.getElementById('view-workspace');
+const btnLauncherClose = document.getElementById('btn-launcher-close');
 
 // Launcher
 const tabUnlockBtn = document.getElementById('tab-unlock-btn');
@@ -453,6 +454,10 @@ btnWindowMaximize.addEventListener('click', () => {
 });
 
 btnWindowClose.addEventListener('click', () => {
+  window.familyVault.windowControls.close();
+});
+
+btnLauncherClose.addEventListener('click', () => {
   window.familyVault.windowControls.close();
 });
 
@@ -2028,15 +2033,18 @@ async function runAiQuery() {
         <section class="ai-response-sources">
           <h4 class="ai-response-sources-heading">Sources <span>${res.sources.length}</span></h4>
           <div class="ai-response-sources-list">
-            ${res.sources.map(src => `
-              <div class="ai-citation-pill" data-doc-id="${escapeHtml(src.documentId)}" tabindex="0" role="button">
+            ${res.sources.map(src => {
+              const isDocumentSource = Boolean(src.documentId);
+              return `
+              <div class="ai-citation-pill${isDocumentSource ? '' : ' reference-only'}"${isDocumentSource ? ` data-doc-id="${escapeHtml(src.documentId)}" tabindex="0" role="button"` : ''}>
                 <div class="ai-citation-heading">
                   <strong>${escapeHtml(src.documentTitle)}</strong>
                   <span>${escapeHtml(src.fileName || '')}</span>
                 </div>
                 <div class="ai-citation-snippet">"${escapeHtml(src.snippet)}"</div>
               </div>
-            `).join('')}
+            `;
+            }).join('')}
           </div>
         </section>
       `;

@@ -193,6 +193,12 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
   padding: 40px 24px;
   position: relative;
 }
+.launcher-close-btn {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  z-index: 2;
+}
 .launcher-card {
   -webkit-backdrop-filter: blur(28px) saturate(135%);
   backdrop-filter: blur(28px) saturate(135%);
@@ -1158,6 +1164,14 @@ select.input-field:disabled {
 .ai-citation-pill:focus-visible {
   outline: 2px solid #f4f1e8;
   outline-offset: 2px;
+}
+.ai-citation-pill.reference-only {
+  cursor: default;
+}
+.ai-citation-pill.reference-only:hover {
+  background: rgba(255, 255, 255, .025);
+  border-color: rgba(255, 255, 255, .075);
+  transform: none;
 }
 .ai-citation-heading {
   align-items: baseline;

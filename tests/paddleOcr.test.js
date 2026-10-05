@@ -69,23 +69,31 @@ test('PaddleOCR: Primary OCR priority in extractionService with structured table
 });
 
 test('PaddleOCR: Graceful fallback to secondary engine on PaddleOCR failure', async () => {
+  const { llmService } = require('../src/main/services/llmService');
   const originalExtract = paddleOcrService.extractText;
+  const originalVision = llmService.processImageWithVision;
+  let visionCalled = false;
   paddleOcrService.extractText = async () => {
     throw new Error('Simulated ONNX native inference fault');
+  };
+  llmService.processImageWithVision = async () => {
+    visionCalled = true;
+    throw new Error('Gemma vision must not be used for OCR');
   };
 
   try {
     const validImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
     const fallbackRes = await extractTextFromBuffer(validImage, 'image/png');
 
-    // Must not crash, should fall through to tesseract / unavailable
+    // Must not crash; after PaddleOCR the pipeline uses Tesseract only.
     assert.ok(
       fallbackRes.method === 'ocr-tesseract-fallback' || 
-      fallbackRes.method === 'ocr-unavailable' ||
-      fallbackRes.method === 'multimodal-gemma4-vision'
+      fallbackRes.method === 'ocr-unavailable'
     );
+    assert.strictEqual(visionCalled, false);
   } finally {
     paddleOcrService.extractText = originalExtract;
+    llmService.processImageWithVision = originalVision;
   }
 });
 

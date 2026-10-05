@@ -17,7 +17,7 @@ const { generateVmk, deriveSubkeys, zeroizeBuffer } = require('../crypto/keys');
 const { createManifest, readManifest, writeManifest } = require('./manifest');
 const { storeObject, readObject, ensureObjectsDir } = require('./objectStore');
 const extractionService = require('../services/extractionService');
-const { llmService } = require('../services/llmService');
+const { llmService, resolvePersonScope } = require('../services/llmService');
 const { createVaultBackup, restoreVaultBackup } = require('./backupService');
 const dbLayer = require('./database');
 const { embeddingService } = require('../services/embeddingService');
@@ -842,19 +842,58 @@ class VaultService {
    */
   async askQuestion(query, options = {}) {
     this._assertUnlocked();
-    await this._ensureDocumentsIndexed();
-    const allDocs = dbLayer.listDocuments(this._db, {});
+    const profiles = dbLayer.listUserProfilesWithSummaries(this._db).map(({ name }) => {
+      const { profile, contradictions } = dbLayer.getUserProfileWithContradictions(this._db, name);
+      return { profile, contradictions };
+    });
+    const initialDocuments = dbLayer.listDocuments(this._db, {});
+    const personScope = resolvePersonScope(query, profiles, initialDocuments);
+    if (personScope.status === 'not_found') {
+      return {
+        answer: `"${personScope.personName}" is not in the saved family profiles. Add them to the vault before asking about their documents.`,
+        sources: [],
+        confidence: 0,
+        mode: 'local-extractive'
+      };
+    }
+    if (personScope.status === 'ambiguous') {
+      return {
+        answer: `I found multiple family members matching that name: ${personScope.candidates.join(', ')}. Please ask using a more specific name.`,
+        sources: [],
+        confidence: 0,
+        mode: 'local-extractive'
+      };
+    }
+
+    const normalizedPerson = personScope.personName?.toLowerCase();
+    const indexedDocuments = personScope.status === 'matched'
+      ? initialDocuments.filter(doc => (doc.person || '').trim().toLowerCase() === normalizedPerson)
+      : initialDocuments;
+    const relevantProfiles = personScope.status === 'matched'
+      ? profiles.filter(entry => entry.profile.name.trim().toLowerCase() === normalizedPerson)
+      : profiles;
+
+    await this._ensureDocumentsIndexed(indexedDocuments);
+    const allDocs = personScope.status === 'matched'
+      ? dbLayer.listDocuments(this._db, {}).filter(doc => (doc.person || '').trim().toLowerCase() === normalizedPerson)
+      : dbLayer.listDocuments(this._db, {});
     let semanticMatches = [];
     try {
-      if (query && typeof query === 'string' && query.trim()) {
+      if (allDocs.length > 0 && query && typeof query === 'string' && query.trim()) {
         const queryVector = await embeddingService.generateEmbedding(query.trim());
-        semanticMatches = dbLayer.searchVectorEmbeddings(this._db, queryVector, { limit: 5, minScore: 0.08 });
+        semanticMatches = dbLayer.searchVectorEmbeddings(this._db, queryVector, {
+          limit: 5,
+          minScore: 0.08,
+          personName: personScope.status === 'matched' ? personScope.personName : null
+        })
+          .filter(match => allDocs.some(doc => doc.id === match.documentId));
       }
     } catch (e) {}
-    return await llmService.answerQuestion({
+    return await this._llmService.answerQuestion({
       query,
       documents: allDocs,
       semanticMatches,
+      profiles: relevantProfiles,
       onToken: options.onToken
     });
   }
@@ -862,10 +901,10 @@ class VaultService {
   /**
    * Auto-indexes or repairs text content for documents that were imported without text.
    */
-  async _ensureDocumentsIndexed() {
+  async _ensureDocumentsIndexed(documents = null) {
     if (!this._db || !this._activeVaultPath || !this._objectKey) return;
     try {
-      const docs = dbLayer.listDocuments(this._db, {});
+      const docs = Array.isArray(documents) ? documents : dbLayer.listDocuments(this._db, {});
       for (const doc of docs) {
         const existingText = doc.currentVersion?.metadata?.textContent || '';
         const cleanedExisting = existingText.replace(/--\s*\d+\s*of\s*\d+\s*--/gi, '').trim();

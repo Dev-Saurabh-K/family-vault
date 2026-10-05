@@ -48,6 +48,84 @@ test('ExtractionService: extractProfileFacts extracts structured biographical, p
   assert.ok(factMapDegree.marks_12th.includes('Science'));
 });
 
+test('VaultService: Sends locally stored profiles to grounded Q&A while the vault is unlocked', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-profile-ai-test-'));
+  const vaultPath = path.join(tmpDir, 'ProfileVault.fvault');
+  let receivedContext;
+  const llmStub = {
+    answerQuestion: async context => {
+      receivedContext = context;
+      return { answer: 'stub', sources: [], confidence: 0, mode: 'local-extractive' };
+    }
+  };
+  const service = new VaultService(llmStub);
+
+  try {
+    await service.createVault({
+      vaultPath,
+      password: 'MasterPassword123!',
+      kdfParams: { memoryCost: 4096, timeCost: 1, parallelism: 1 }
+    });
+    service.addFamilyMember({
+      name: 'Priya Sharma',
+      address: '12 Lake Road',
+      notes: 'Prefers morning appointments.'
+    });
+
+    await service.askQuestion("What is Priya Sharma's address?");
+
+    assert.ok(receivedContext);
+    assert.strictEqual(receivedContext.profiles.length, 1);
+    assert.strictEqual(receivedContext.profiles[0].profile.name, 'Priya Sharma');
+    assert.strictEqual(receivedContext.profiles[0].profile.address, '12 Lake Road');
+    assert.strictEqual(receivedContext.profiles[0].profile.notes, 'Prefers morning appointments.');
+  } finally {
+    service.lockVault();
+  }
+});
+
+test('VaultService: Restricts named-person Q&A and indexing to that family member', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-profile-scope-test-'));
+  const vaultPath = path.join(tmpDir, 'ProfileVault.fvault');
+  let receivedContext;
+  const llmStub = {
+    answerQuestion: async context => {
+      receivedContext = context;
+      return { answer: 'stub', sources: [], confidence: 0, mode: 'local-extractive' };
+    }
+  };
+  const service = new VaultService(llmStub);
+
+  try {
+    await service.createVault({
+      vaultPath,
+      password: 'MasterPassword123!',
+      kdfParams: { memoryCost: 4096, timeCost: 1, parallelism: 1 }
+    });
+    service.addFamilyMember({ name: 'Saurabh Kumar' });
+    service.addFamilyMember({ name: 'Priya Sharma' });
+
+    for (const person of ['Saurabh Kumar', 'Priya Sharma']) {
+      const filePath = path.join(tmpDir, `${person.split(' ')[0]}.pdf`);
+      fs.writeFileSync(filePath, `Identification card for ${person}.`);
+      await service.importDocument({
+        filePath,
+        title: `${person} ID Card`,
+        category: 'identity',
+        person
+      });
+    }
+
+    await service.askQuestion('Who is Saurabh?');
+
+    assert.deepStrictEqual(receivedContext.documents.map(document => document.person), ['Saurabh Kumar']);
+    assert.deepStrictEqual(receivedContext.profiles.map(entry => entry.profile.name), ['Saurabh Kumar']);
+  } finally {
+    service.lockVault();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('VaultService: User profile aggregation and cross-document contradiction detection', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-profile-test-'));
   const vaultPath = path.join(tmpDir, 'ProfileVault.fvault');

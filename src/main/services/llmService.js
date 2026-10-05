@@ -37,6 +37,80 @@ const VALID_DOC_TYPES = new Set([
   'other'
 ]);
 
+function resolvePersonScope(query, profiles = [], documents = []) {
+  if (typeof query !== 'string' || !query.trim()) {
+    return { status: 'none' };
+  }
+  const names = new Map();
+  for (const entry of profiles) {
+    const name = entry?.profile?.name;
+    if (typeof name === 'string' && name.trim()) names.set(name.trim().toLowerCase(), name.trim());
+  }
+  for (const doc of documents) {
+    const name = doc?.person;
+    if (typeof name === 'string' && name.trim()) names.set(name.trim().toLowerCase(), name.trim());
+  }
+
+  const normalizedQuery = query.toLowerCase();
+  const availableNames = [...names.values()];
+  const fullMatches = availableNames.filter(name => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^a-z0-9])${escaped}(?=$|[^a-z0-9]|['’]s)`, 'i').test(normalizedQuery);
+  });
+  if (fullMatches.length === 1) {
+    return { status: 'matched', personName: fullMatches[0] };
+  }
+  if (fullMatches.length > 1) {
+    return { status: 'ambiguous', candidates: fullMatches };
+  }
+
+  const tokens = new Map();
+  for (const name of availableNames) {
+    for (const token of name.split(/\s+/).filter(part => part.length >= 3)) {
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(^|[^a-z0-9])${escaped}(?=$|[^a-z0-9]|['’]s)`, 'i').test(normalizedQuery)) {
+        if (!tokens.has(token.toLowerCase())) tokens.set(token.toLowerCase(), new Set());
+        tokens.get(token.toLowerCase()).add(name);
+      }
+    }
+  }
+  const partialMatches = [...tokens.values()].flatMap(matches => [...matches]);
+  const uniquePartialMatches = [...new Set(partialMatches)];
+  if (uniquePartialMatches.length === 1) {
+    return { status: 'matched', personName: uniquePartialMatches[0] };
+  }
+  if (uniquePartialMatches.length > 1) {
+    return { status: 'ambiguous', candidates: uniquePartialMatches };
+  }
+
+  const ignored = new Set([
+    'a', 'an', 'the', 'my', 'me', 'i', 'we', 'us', 'you', 'he', 'she', 'they',
+    'who', 'what', 'when', 'where', 'why', 'how', 'is', 'are', 'was', 'were',
+    'do', 'does', 'did', 'has', 'have', 'had', 'tell', 'about', 'details', 'profile',
+    'document', 'documents', 'record', 'records', 'family', 'member', 'members',
+    'address', 'date', 'birth', 'dob', 'age', 'gender', 'father', 'mother', 'parent',
+    'education', 'degree', 'school', 'college', 'marks', 'notes', 'insurance', 'passport',
+    'number', 'expiry', 'policy', 'medical', 'card', 'student', 'id', 'myself'
+  ]);
+  const candidatePatterns = [
+    /\b(?:who is|tell me about|describe|profile for|documents for|records for|information about|details about)\s+([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})/i,
+    /\b(?:passport|document|documents|record|records|address|profile|details)\s+for\s+([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})/i,
+    /\b([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})['’]s\s+(?:address|date|birth|dob|age|gender|father|mother|education|marks|documents|records|profile|notes|passport|policy|expiry|number|insurance|medical|student|id|card|ticket|phone|email|name)\b/i
+  ];
+  for (const pattern of candidatePatterns) {
+    const match = normalizedQuery.match(pattern);
+    if (!match) continue;
+    const candidate = match[1].trim().split(/\s+/).filter(Boolean);
+    while (candidate.length && ignored.has(candidate[0])) candidate.shift();
+    while (candidate.length && ignored.has(candidate[candidate.length - 1])) candidate.pop();
+    if (candidate.length && !ignored.has(candidate[0])) {
+      return { status: 'not_found', personName: candidate.join(' ') };
+    }
+  }
+
+  return { status: 'none' };
+}
+
 function isValidIsoDate(str) {
   if (!str || typeof str !== 'string') return false;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
@@ -797,9 +871,113 @@ class LlmService {
    * Cites source documents and page/text snippets.
    * If answer is not present, explicitly states unknown.
    */
-  async answerQuestion({ query, documents = [], semanticMatches = [], onToken }) {
+  _buildProfileSegments(query, profiles = []) {
+    const normalizedQuery = query.toLowerCase();
+    const fieldDefinitions = [
+      { key: 'dob', aliases: ['dob'], label: 'Date of birth', match: /\b(date of birth|birth date|dob|birthday)\b/i, value: p => p.dob },
+      { key: 'age', aliases: ['age'], label: 'Age', match: /\bage\b/i, value: p => p.age },
+      { key: 'gender', aliases: ['gender'], label: 'Gender', match: /\bgender\b/i, value: p => p.gender },
+      { key: 'fathers_name', aliases: ['fathers_name', 'father'], label: "Father's name", match: /\b(father|dad|parent)\b/i, value: p => p.fathersName },
+      { key: 'mothers_name', aliases: ['mothers_name', 'mother'], label: "Mother's name", match: /\b(mother|mom|parent)\b/i, value: p => p.mothersName },
+      { key: 'address', aliases: ['address'], label: 'Address', match: /\b(address|live|lives|location|home)\b/i, value: p => p.address },
+      { key: 'education', aliases: ['education'], label: 'Education', match: /\b(education|degree|school|college|university|study|studied)\b/i, value: p => p.education },
+      { key: 'marks_10th', aliases: ['marks_10th'], label: '10th marks', match: /\b(10th|tenth|secondary)\b/i, value: p => p.marks10th },
+      { key: 'marks_12th', aliases: ['marks_12th'], label: '12th marks', match: /\b(12th|twelfth|higher secondary)\b/i, value: p => p.marks12th },
+      { key: 'notes', aliases: ['notes'], label: 'Profile notes', match: /\bnotes?\b/i, value: p => p.notes }
+    ];
+    const requestedFields = fieldDefinitions.filter(field => field.match.test(normalizedQuery));
+    const profileScope = resolvePersonScope(query, profiles);
+    const mentionedProfiles = profileScope.status === 'matched'
+      ? profiles.filter(entry => entry.profile?.name?.trim().toLowerCase() === profileScope.personName.toLowerCase())
+      : profiles.filter(entry => {
+        const name = entry && entry.profile && entry.profile.name;
+        if (!name) return false;
+        const escapedName = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`\\b${escapedName}\\b`, 'i').test(normalizedQuery);
+      });
+    const familyScope = /\b(family|family members|member profiles|my profile|my details|my information)\b/i.test(normalizedQuery);
+    const memberNamesOnly = requestedFields.length === 0
+      && /\b(who are|list|names of|family members)\b/i.test(normalizedQuery)
+      && !/\b(details|profile|information|address|date of birth|education|marks|notes)\b/i.test(normalizedQuery);
+    const personOverview = mentionedProfiles.length > 0
+      && /\b(who is|tell me about|describe|profile|details|information)\b/i.test(normalizedQuery);
+
+    if (requestedFields.length === 0 && !familyScope && !personOverview) {
+      return [];
+    }
+
+    const fieldsToInclude = memberNamesOnly
+      ? []
+      : requestedFields.length > 0
+        ? requestedFields
+        : fieldDefinitions.filter(field => field.key !== 'notes');
+    const peopleToInclude = mentionedProfiles.length > 0
+      ? mentionedProfiles
+      : profiles;
+
+    return peopleToInclude.slice(0, 3).flatMap(({ profile, contradictions = {} }) => {
+      const lines = memberNamesOnly ? [`Family member: ${profile.name}`] : [];
+      for (const field of fieldsToInclude) {
+        const conflict = field.aliases.some(alias => contradictions[alias]?.isContradicting);
+        const value = field.value(profile);
+        if (conflict) {
+          lines.push(`${field.label}: conflicting values are recorded; do not present a single value as certain.`);
+        } else if (value !== null && value !== undefined && String(value).trim()) {
+          lines.push(`${field.label}: ${String(value).trim()}`);
+        }
+      }
+      if (!lines.length) return [];
+      return [{
+        documentId: null,
+        sourceType: 'profile',
+        documentTitle: `Family profile: ${profile.name}`,
+        fileName: 'Saved profile',
+        snippet: lines.join('\n'),
+        score: 100
+      }];
+    });
+  }
+
+  _cleanAnswer(text) {
+    return String(text || '')
+      .replace(/<\/?(?:start_of_turn|end_of_turn|eos|bos|br|fim_suffix|fim_prefix)>/gi, '')
+      .replace(/\[Source\s+\d+\]/gi, '')
+      .replace(/\s+([,.!?;:])/g, '$1')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  async answerQuestion({ query, documents = [], semanticMatches = [], profiles = [], onToken }) {
     if (!query || typeof query !== 'string' || !query.trim()) {
       throw new Error('Query must be a non-empty string');
+    }
+
+    const personScope = resolvePersonScope(query, profiles, documents);
+    if (personScope.status === 'not_found') {
+      return {
+        answer: `"${personScope.personName}" is not in the saved family profiles. Add them to the vault before asking about their documents.`,
+        sources: [],
+        confidence: 0,
+        mode: this._isReady ? 'llama-server' : 'local-extractive'
+      };
+    }
+    if (personScope.status === 'ambiguous') {
+      return {
+        answer: `I found multiple family members matching that name: ${personScope.candidates.join(', ')}. Please ask using a more specific name.`,
+        sources: [],
+        confidence: 0,
+        mode: this._isReady ? 'llama-server' : 'local-extractive'
+      };
+    }
+    if (personScope.status === 'matched') {
+      const normalizedPerson = personScope.personName.toLowerCase();
+      documents = documents.filter(doc => (doc.person || '').trim().toLowerCase() === normalizedPerson);
+      semanticMatches = semanticMatches.filter(match => {
+        const doc = documents.find(candidate => candidate.id === match.documentId);
+        return Boolean(doc);
+      });
+      profiles = profiles.filter(entry => entry.profile?.name?.trim().toLowerCase() === normalizedPerson);
     }
 
     // 1. Retrieve and score document candidates
@@ -990,11 +1168,12 @@ class LlmService {
       }
     }
 
-    const topSegments = nonRedundant.slice(0, 3);
+    const profileSegments = this._buildProfileSegments(query, profiles);
+    const topSegments = [...nonRedundant.slice(0, 3), ...profileSegments];
 
     if (topSegments.length === 0) {
       return {
-        answer: 'I could not find information regarding this in your stored documents.',
+        answer: 'I could not find information regarding this in your stored documents or family profiles.',
         sources: [],
         confidence: 0,
         mode: this._isReady ? 'llama-server' : 'local-extractive'
@@ -1007,12 +1186,13 @@ class LlmService {
         const prompt = this._buildPrompt(query, topSegments);
         const completion = await this._queryLlamaServer(prompt, onToken);
         return {
-          answer: completion.trim(),
+          answer: this._cleanAnswer(completion),
           sources: topSegments.map(s => ({
             documentId: s.documentId,
+            sourceType: s.sourceType || 'document',
             documentTitle: s.documentTitle,
             fileName: s.fileName,
-            snippet: s.snippet
+            snippet: s.snippet.length > 500 ? `${s.snippet.slice(0, 497).trimEnd()}...` : s.snippet
           })),
           confidence: 0.9,
           mode: 'llama-server'
@@ -1024,11 +1204,12 @@ class LlmService {
     }
 
     // 3. Fallback: High-precision deterministic extractive answer
-    const sources = topSegments.slice(0, 3).map(s => ({
+    const sources = topSegments.map(s => ({
       documentId: s.documentId,
+      sourceType: s.sourceType || 'document',
       documentTitle: s.documentTitle,
       fileName: s.fileName,
-      snippet: s.snippet
+      snippet: s.snippet.length > 500 ? `${s.snippet.slice(0, 497).trimEnd()}...` : s.snippet
     }));
 
     const uniqueTitles = [...new Set(sources.map(s => s.documentTitle))];
@@ -1047,13 +1228,15 @@ class LlmService {
   _buildPrompt(query, segments) {
     const context = segments.map((s, i) => `[Source ${i+1}: ${s.documentTitle}]\n${s.snippet}`).join('\n\n');
     return `<start_of_turn>user
-You are FamilyVault's private offline document assistant. Answer the user's question directly, accurately, and concisely using the provided document sources.
+You are FamilyVault's private offline assistant. Answer the user's question directly, accurately, and concisely using only the provided document and saved family profile sources.
+- Give the direct answer first, in one or two short sentences. Avoid repeating the same fact.
 - Synthesize facts across the sources, including document titles, passenger or person names, dates, times, train or flight names, stations, and reference numbers.
 - The sources may contain OCR text with minor scanning typos (e.g., "5ept" for "Sept", "Arial" for "Arrival", "Departure* 23:23"). Accurately interpret these travel details.
 - When asked about a specific person (e.g., "shubham"), check the document titles and passenger sections to find the relevant ticket or document.
 - State the exact facts (times, dates, train/flight names, locations) found in the sources.
-- If and only if the sources genuinely contain no relevant information to answer the question, say "I could not find information regarding this in your stored documents."
-- Always cite the document title.
+- Treat profile values marked as conflicting as unresolved; do not choose one value.
+- If and only if the sources genuinely contain no relevant information to answer the question, say "I could not find information regarding this in your stored documents or family profiles."
+- Do not output markers such as "[Source 1]" or "[Source 2]"; the app displays source citations separately.
 
 Sources:
 ${context}
@@ -1430,6 +1613,7 @@ const llmService = new LlmService();
 module.exports = {
   LlmService,
   llmService,
+  resolvePersonScope,
   parseAndValidateAiMetadata,
   VALID_CATEGORIES,
   VALID_DOC_TYPES

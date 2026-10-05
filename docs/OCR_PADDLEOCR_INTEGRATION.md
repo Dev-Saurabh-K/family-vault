@@ -1,12 +1,12 @@
-# PaddleOCR + ONNX Runtime Integration Plan for FamilyVault
+# PaddleOCR + ONNX Runtime OCR Notes for FamilyVault
 
-> **Status**: Feasibility confirmed — awaiting implementation approval  
-> **Change Level**: Level 2 (new library, build/packaging change)  
-> **Date**: 2026-10-05  
+> **Status**: Implemented — PaddleOCR primary, Tesseract.js fallback
+> **Current behavior**: Gemma vision is not used in the OCR pipeline.
+> **Date**: 2026-10-06
 
 ## Executive Summary
 
-This document details the architectural plan to establish **PaddleOCR (PP-OCRv5)** via **`onnxruntime-node`** (prebuilt native binaries) as the **primary dedicated OCR engine** for FamilyVault, replacing general LLM vision for character/word extraction while retaining **`tesseract.js`** as a lightweight local fallback:
+This document records the implemented OCR pipeline using **PaddleOCR (PP-OCRv5)** via **`onnxruntime-node`** as the primary OCR engine and **`tesseract.js`** as the local fallback. Gemma is not called for image or scanned-PDF OCR; it remains available for downstream text-based metadata analysis and grounded Q&A.
 
 ```text
 Document (scanned PDF / image buffer)
@@ -14,8 +14,8 @@ Document (scanned PDF / image buffer)
        ▼
 Primary OCR: PaddleOCR PP-OCRv5 via onnxruntime-node (fast, deterministic, spatial coordinates)
        │
-       ▼ (if PaddleOCR fails or models missing)
-Fallback OCR: Tesseract.js (local baseline fallback)
+       ▼ (if PaddleOCR fails, is unavailable, or returns no usable text)
+Fallback OCR: Tesseract.js (local fallback)
        │
        ▼
 Downstream AI: Gemma-4-E2B GGUF via llama-server (grounded Q&A, metadata categorization & reasoning)
@@ -49,7 +49,7 @@ PaddleOCR significantly outperforms Tesseract.js across all real-world family do
 
 ### Current Limitations (Documented in CURRENT_STATE.md)
 
-FamilyVault's current OCR pipeline uses Gemma-4-E2B as primary and Tesseract.js as fallback. When Gemma-4-E2B is unavailable (not downloaded, failed to load, or timed out), Tesseract.js handles OCR. The known limitations of this fallback are:
+Tesseract.js is used when PaddleOCR fails, is unavailable, or produces no usable text. Current limitations of this fallback are:
 
 - **English only** — Tesseract is configured with `'eng'` language pack only
 - **Poor handwriting recognition** — Tesseract's LSTM struggles with cursive and handwritten notes
@@ -450,7 +450,7 @@ The transition to PaddleOCR as primary OCR engine is non-breaking and preserves 
 ### Rollback
 
 If PaddleOCR encounters unexpected native module or platform issues:
-1. Set OCR primary routing back to Tesseract.js (or Gemma vision fallback) in `extractionService.js`.
+1. Route OCR directly through Tesseract.js in `extractionService.js`.
 2. Remove `ppu-paddle-ocr` and `onnxruntime-node` from `package.json` if necessary.
 3. Remove model assets from `models/paddleocr/`.
 

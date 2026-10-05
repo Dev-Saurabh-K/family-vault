@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const http = require('node:http');
 const {
   LlmService,
+  resolvePersonScope,
   parseAndValidateAiMetadata,
   VALID_CATEGORIES,
   VALID_DOC_TYPES
@@ -129,6 +130,161 @@ test('LlmService: Grounded extractive QA returns citations and source references
   assert.ok(res5.answer.includes('could not find information'));
   assert.strictEqual(res5.sources.length, 0);
   assert.strictEqual(res5.confidence, 0);
+});
+
+test('LlmService: A named family member question is restricted to that member and their documents', async () => {
+  const service = new LlmService();
+  const documents = [
+    {
+      id: 'doc-saurabh',
+      title: 'Saurabh Student ID',
+      person: 'Saurabh Kumar',
+      currentVersion: {
+        fileName: 'saurabh-id.pdf',
+        metadata: { textContent: 'Student name: Saurabh Kumar. Roll number: 1024.' }
+      }
+    },
+    {
+      id: 'doc-priya',
+      title: 'Priya Passport',
+      person: 'Priya Sharma',
+      currentVersion: {
+        fileName: 'priya-passport.pdf',
+        metadata: { textContent: 'Passport holder: Priya Sharma. Passport number: P12345.' }
+      }
+    }
+  ];
+  const profiles = [
+    { profile: { name: 'Saurabh Kumar', age: 21 }, contradictions: {} },
+    { profile: { name: 'Priya Sharma', age: 30 }, contradictions: {} }
+  ];
+
+  const result = await service.answerQuestion({
+    query: 'who is saurabh',
+    documents,
+    profiles
+  });
+
+  assert.ok(result.sources.length > 0);
+  assert.ok(result.sources.every(source =>
+    source.documentId === 'doc-saurabh' || source.documentTitle === 'Family profile: Saurabh Kumar'
+  ));
+  assert.ok(!result.answer.includes('Priya'));
+  assert.strictEqual(resolvePersonScope('What is Saurabh’s address?', profiles, documents).personName, 'Saurabh Kumar');
+});
+
+test('LlmService: Unknown or ambiguous named people do not search other family documents', async () => {
+  const service = new LlmService();
+  const profiles = [
+    { profile: { name: 'Alex Smith', address: 'A Street' }, contradictions: {} },
+    { profile: { name: 'Alex Jones', address: 'B Street' }, contradictions: {} }
+  ];
+  const documents = [{
+    id: 'doc-alex-smith',
+    title: 'Alex Smith passport',
+    person: 'Alex Smith',
+    currentVersion: { metadata: { textContent: 'Passport number: A123.' } }
+  }];
+
+  const unknownResult = await service.answerQuestion({
+    query: "What is Saurabh's address?",
+    documents,
+    profiles
+  });
+  assert.ok(unknownResult.answer.includes('not in the saved family profiles'));
+  assert.strictEqual(unknownResult.sources.length, 0);
+
+  const ambiguousResult = await service.answerQuestion({
+    query: 'who is Alex',
+    documents,
+    profiles
+  });
+  assert.ok(ambiguousResult.answer.includes('multiple family members'));
+  assert.strictEqual(ambiguousResult.sources.length, 0);
+});
+
+test('LlmService: Uses only relevant family profile fields and cites the profile', async () => {
+  const service = new LlmService();
+  const profiles = [{
+    profile: {
+      name: 'Priya Sharma',
+      dob: '1995-04-12',
+      age: 31,
+      address: '12 Lake Road',
+      notes: 'Prefers morning appointments.'
+    },
+    contradictions: {}
+  }];
+
+  const addressResult = await service.answerQuestion({
+    query: "What is Priya Sharma's address?",
+    profiles
+  });
+  assert.ok(addressResult.answer.includes('12 Lake Road'));
+  assert.strictEqual(addressResult.sources[0].sourceType, 'profile');
+  assert.strictEqual(addressResult.sources[0].documentTitle, 'Family profile: Priya Sharma');
+  assert.strictEqual(addressResult.sources[0].documentId, null);
+  assert.ok(!addressResult.sources[0].snippet.includes('Prefers morning appointments'));
+
+  const notesResult = await service.answerQuestion({
+    query: 'What notes are saved for Priya Sharma?',
+    profiles
+  });
+  assert.ok(notesResult.answer.includes('Prefers morning appointments'));
+
+  const namesResult = await service.answerQuestion({
+    query: 'Who are my family members?',
+    profiles
+  });
+  assert.ok(namesResult.answer.includes('Priya Sharma'));
+  assert.ok(!namesResult.answer.includes('12 Lake Road'));
+
+  const unrelatedResult = await service.answerQuestion({
+    query: 'What is the garage Wi-Fi password?',
+    profiles
+  });
+  assert.ok(unrelatedResult.answer.includes('could not find information'));
+  assert.strictEqual(unrelatedResult.sources.length, 0);
+});
+
+test('LlmService: Does not present conflicting profile values as certain', async () => {
+  const service = new LlmService();
+  const result = await service.answerQuestion({
+    query: "What is Priya Sharma's address?",
+    profiles: [{
+      profile: { name: 'Priya Sharma', address: '12 Lake Road' },
+      contradictions: { address: { isContradicting: true } }
+    }]
+  });
+
+  assert.ok(result.answer.includes('conflicting values'));
+  assert.ok(!result.answer.includes('12 Lake Road'));
+  assert.strictEqual(result.sources[0].sourceType, 'profile');
+});
+
+test('LlmService: Cleans model control tokens and source markers from generated answers', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+  service._queryLlamaServer = async () =>
+    'Saurabh is on the ID card [Source 1].</start_of_turn>\n<end_of_turn>';
+
+  const result = await service.answerQuestion({
+    query: 'Who is Saurabh?',
+    documents: [{
+      id: 'doc-1',
+      title: 'Student ID Card',
+      person: 'Saurabh Kumar',
+      currentVersion: {
+        fileName: 'student-id.pdf',
+        metadata: { textContent: 'Student name: Saurabh Kumar. ID: 12345.' }
+      }
+    }]
+  });
+
+  assert.strictEqual(result.answer, 'Saurabh is on the ID card.');
+  assert.ok(!result.answer.includes('<'));
+  assert.ok(!result.answer.includes('[Source'));
+  assert.ok(result.sources[0].snippet.length <= 500);
 });
 
 test('LlmService: Status and host binding security configuration', () => {
@@ -482,5 +638,3 @@ test('LlmService: parseAndValidateAiMetadata and extractDocumentMetadata priorit
   assert.strictEqual(extracted.suggestedTitle, 'Electricity Utility Bill (March 2026)');
   assert.strictEqual(extracted.title, 'Electricity Utility Bill (March 2026)');
 });
-
-

@@ -658,8 +658,11 @@ function saveVectorEmbeddings(db, versionId, documentId, chunkEmbeddings) {
  * @param {object} options 
  * @returns {Array<object>}
  */
-function searchVectorEmbeddings(db, queryVector, { limit = 5, minScore = 0.05 } = {}) {
+function searchVectorEmbeddings(db, queryVector, { limit = 5, minScore = 0.05, personName = null } = {}) {
   ensureIsDeletedColumn(db);
+  const personClause = typeof personName === 'string' && personName.trim()
+    ? 'AND d.person = ? COLLATE NOCASE'
+    : '';
   const rows = db.prepare(`
     SELECT v.id, v.document_id, v.version_id, v.chunk_index, v.chunk_text, v.vector_blob,
            d.title as document_title, d.category, d.person, ver.file_name
@@ -667,7 +670,8 @@ function searchVectorEmbeddings(db, queryVector, { limit = 5, minScore = 0.05 } 
     JOIN documents d ON v.document_id = d.id
     JOIN document_versions ver ON v.version_id = ver.id
     WHERE (d.is_deleted IS NULL OR d.is_deleted = 0)
-  `).all();
+    ${personClause}
+  `).all(...(personClause ? [personName.trim()] : []));
 
   const scored = [];
   for (const row of rows) {

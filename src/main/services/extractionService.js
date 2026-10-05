@@ -204,33 +204,10 @@ async function extractTextFromBuffer(buffer, mimeType) {
                     }
                   }
                 } catch (paddleErr) {
-                  // Fall through to multimodal Gemma / Tesseract fallback
+                  // Fall through to the local Tesseract fallback
                 }
 
-                // 2. Secondary fallback: Local Gemma-4-E2B multimodal vision
-                if (!pageExtracted) {
-                  try {
-                    const { llmService } = require('./llmService');
-                    if (llmService && typeof llmService.isReady === 'function' && llmService.isReady()) {
-                      const visionRes = await llmService.processImageWithVision({
-                        imageBuffer: imgBuf,
-                        mimeType: 'image/png'
-                      });
-                      if (visionRes && visionRes.text && visionRes.text.trim()) {
-                        if (Array.isArray(visionRes.ocrWords) && visionRes.ocrWords.length > 0) {
-                          allWords.push(...visionRes.ocrWords);
-                        }
-                        combinedOcr += (combinedOcr ? '\n\n' : '') + visionRes.text.trim();
-                        ocrMethod = 'pdf-ocr-gemma4-vision';
-                        pageExtracted = true;
-                      }
-                    }
-                  } catch (visionErr) {
-                    // Fall through to Tesseract fallback
-                  }
-                }
-
-                // 3. Fallback: Local Tesseract.js upon model failure or unavailability
+                // 2. Fallback: Local Tesseract.js upon PaddleOCR failure or unavailability
                 if (!pageExtracted) {
                   try {
                     const Tesseract = require('tesseract.js');
@@ -286,7 +263,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
     }
   }
 
-  // For image formats, attempt PaddleOCR (PP-OCRv5) as primary OCR engine, falling back to local vision/Tesseract.js
+  // For images, use PaddleOCR (PP-OCRv5) first and Tesseract.js as its local fallback.
   if (mimeType.startsWith('image/')) {
     // 1. Primary: Local PaddleOCR PP-OCRv5 via onnxruntime-node
     try {
@@ -314,31 +291,10 @@ async function extractTextFromBuffer(buffer, mimeType) {
         }
       }
     } catch (paddleErr) {
-      // Fall through to multimodal Gemma / Tesseract fallback
+      // Fall through to the local Tesseract fallback
     }
 
-    // 2. Secondary fallback: Local Gemma-4-E2B Multimodal Vision OCR
-    try {
-      const { llmService } = require('./llmService');
-      if (llmService && typeof llmService.isReady === 'function' && llmService.isReady()) {
-        const visionResult = await llmService.processImageWithVision({
-          imageBuffer: buffer,
-          mimeType
-        });
-        if (visionResult && visionResult.text && visionResult.text.trim()) {
-          return {
-            text: visionResult.text,
-            pageCount: 1,
-            method: 'multimodal-gemma4-vision',
-            ocrWords: visionResult.ocrWords || []
-          };
-        }
-      }
-    } catch (visionErr) {
-      // Fall through to Tesseract fallback
-    }
-
-    // 3. Fallback: Local Tesseract.js OCR with detailed word coordinates on model failure
+    // 2. Fallback: Local Tesseract.js OCR with detailed word coordinates
     try {
       const Tesseract = require('tesseract.js');
       const res = await Tesseract.recognize(buffer, 'eng').catch(() => null);

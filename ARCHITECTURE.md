@@ -61,7 +61,7 @@ version → native PDF text extraction when digital/available
 
 Document OCR leverages **PaddleOCR PP-OCRv5** running locally via `onnxruntime-node` with prebuilt native binaries as the **primary dedicated OCR engine**. PaddleOCR utilizes deep-learning text detection (DB algorithm), optional text orientation classification, and transformer-based character recognition to extract text, tables, and word-level coordinates (`text`, `x`, `y`, `width`, `height`, `confidence`) with high deterministic accuracy. It handles handwritten text, tables, multilingual content, and phone-captured photos significantly better than Tesseract.js, while remaining fast and lightweight (~15.7 MB mobile models). *(See `docs/OCR_PADDLEOCR_INTEGRATION.md` for the full integration plan.)*
 
-If PaddleOCR is unavailable or encounters an unrecoverable runtime error, `OCRService` falls back to the local `Tesseract.js` pipeline running in the main process as an offline fallback, ensuring resilient document text extraction.
+If PaddleOCR is unavailable, encounters an error, or returns no usable text, the main process falls back to local `Tesseract.js`. Gemma vision is intentionally not part of the OCR fallback chain; this avoids model-generated OCR content being mistaken for text actually present in an image. OCR fallback order applies to both image files and scanned PDF pages.
 
 High-level document comprehension, semantic metadata extraction (categorization, entity grounding), and conversational Q&A are handled downstream by the bundled **Gemma-4-E2B** model via `llama-server.exe`, which operates on the extracted text and structured layouts.
 
@@ -69,16 +69,17 @@ High-level document comprehension, semantic metadata extraction (categorization,
 
 ```text
 user query → validated metadata filters and/or SQLite FTS → results
-                                      └→ optional semantic retrieval → sources → local LLM answer
+                                      ├→ optional semantic retrieval → document sources
+                                      └→ query-relevant family-profile fields from SQLCipher
+                                           → sources → local LLM answer
 ```
 
-The LLM may parse a query into a constrained schema or write a grounded answer; application code validates the schema, executes allowed queries, and displays source references.
+When a query names a family member, resolve that name against saved family profiles before retrieval, then restrict document indexing, semantic retrieval, and LLM context to that member's documents. Unknown or ambiguous names must not fall back to searching other family members' documents. The LLM may parse a query into a constrained schema or write a grounded answer; application code validates the schema, executes allowed queries, and displays source references.
 
 ## Local AI runtime
 
-Bundle `llama-server.exe` and the Gemma-4-E2B multimodal GGUF model with the application distribution; keep model assets outside `app.asar`. The server is launched and supervised by the main process on an application-selected local port with an explicit `127.0.0.1` host binding. It provides multimodal vision capabilities for document processing and OCR as well as text inference for grounded document Q&A. It is inference-only, not a general agent or files tool. The LLM and embedding interfaces must remain replaceable.
+Bundle `llama-server.exe` and the Gemma-4-E2B GGUF model with the application distribution; keep model assets outside `app.asar`. The server is launched and supervised by the main process on an application-selected local port with an explicit `127.0.0.1` host binding. Gemma is used for text-based metadata reasoning and grounded Q&A, not document image OCR. It is inference-only, not a general agent or files tool. The LLM and embedding interfaces must remain replaceable.
 
 ## Backups and future sync
 
 Backups are portable encrypted vault backups; they preserve enough manifest, object, version, and database data to restore safely. Future local-Wi-Fi sync must operate on authenticated, encrypted vault objects and immutable versions. It is intentionally unimplemented and must not be approximated by exposing current services to the network.
-

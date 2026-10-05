@@ -19,7 +19,7 @@ The repository contains a complete, fully tested, functional implementation of F
   - `src/main/vault/backupService.js`: Portable encrypted vault backup generation (`.fvbackup`) and cryptographic restoration with SHA-256 tamper verification.
 - **Text Extraction & Multimodal Document Understanding**:
   - `src/main/services/paddleOcrService.js`: Dedicated 100% offline PaddleOCR (PP-OCRv5) primary service via `onnxruntime-node` with bundled local model resolution (`models/paddleocr/`), word-level spatial coordinate extraction (`{ text, x, y, width, height, confidence }`), and memory session lifecycle management.
-  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), document OCR pipeline with detailed word-level coordinate extraction (`{ text, x, y, width, height, confidence }`) and tabular column layout reconstruction. Implemented with **PaddleOCR PP-OCRv5** (`onnxruntime-node`) as primary dedicated OCR engine and `tesseract.js` running 100% locally as fallback (see `docs/OCR_PADDLEOCR_INTEGRATION.md`); deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, identity cards, insurance policies, tax documents, medical records, property/deeds), strict family member (person) matching constrained to added vault members (`knownPersons`) with unmatched candidates routed to `person = null`, `unmatchedPerson = <name>`, category `other`, and `reviewStatus = 'needs_review'`; automatic relevant tag generation (`generateAutoTags`), human-readable document title suggestions (`suggestDocumentTitle`), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`). Downstream local AI metadata reasoning and grounded Q&A powered by Gemma-4-E2B.
+  - `src/main/services/extractionService.js`: Offline PDF text extraction (`pdf-parse`), document OCR pipeline with detailed word-level coordinate extraction (`{ text, x, y, width, height, confidence }`) and tabular column layout reconstruction. Image and scanned-PDF OCR use **PaddleOCR PP-OCRv5** (`onnxruntime-node`) first and local `tesseract.js` directly on failure/unavailability/no usable text; Gemma vision is not used in the OCR path (see `docs/OCR_PADDLEOCR_INTEGRATION.md`). Also includes deterministic date detection (ISO, DMY, MDY formats), document classification (passports, driving licenses, identity cards, insurance policies, tax documents, medical records, property/deeds), strict family member (person) matching constrained to added vault members (`knownPersons`) with unmatched candidates routed to `person = null`, `unmatchedPerson = <name>`, category `other`, and `reviewStatus = 'needs_review'`; automatic relevant tag generation (`generateAutoTags`), human-readable document title suggestions (`suggestDocumentTitle`), source match/provenance extraction, and deterministic expiry status logic (`active`, `expiring_soon`, `expired`). Downstream local AI metadata reasoning and grounded Q&A use Gemma-4-E2B.
 - **Semantic Vector Embeddings & Similarity Retrieval**:
   - `src/main/services/embeddingService.js`: Modular, 100% offline embedding service supporting normalized vector generation, text passage chunking, cosine similarity scoring, BLOB serialization/deserialization for SQLCipher storage, and deterministic feature-hashing vectorization (with optional local `llama-server` embedding endpoint support).
 - **Local AI & Grounded Document Q&A**:
@@ -28,7 +28,7 @@ The repository contains a complete, fully tested, functional implementation of F
     - AI-generated document titles: Prompts Gemma-4-E2B to generate clear, concise, and descriptive document names derived from content, member, issuer, and date context; validates and prioritizes AI titles in pre-analysis autofill and document import with graceful deterministic fallback.
     - Strict AI family member matching: Constrained strictly to registered family members (`knownPersons`). Unmatched candidate persons are rejected from auto-assignment, flagging `unmatchedPerson`, overriding category to `other`, and marking `reviewStatus: 'needs_review'`.
     - Grounded expiry date detection: Validates ISO `YYYY-MM-DD` formatting and verifies date numbers against document text to prevent AI hallucinations.
-    - Grounded document Q&A engine with citations (`answerQuestion`). Manages local `llama-server.exe` child process targeting Gemma-4-E2B multimodal GGUF (enforcing strict `--host 127.0.0.1:18432` binding, no LAN, no web UI, Gemma turn formatting) with a built-in deterministic extractive QA fallback that scores passages by distinct query term coverage, formats citations, and guarantees no cloud leakage.
+    - Grounded local Q&A with citations (`answerQuestion`) over documents and only query-relevant whitelisted family-profile fields. Named family members are resolved before indexing and retrieval; their questions use only their documents/profile, while unknown or ambiguous names stop without searching other members' data. Contradictory profile fields are marked unresolved; citations distinguish saved profiles from source documents. Manages local `llama-server.exe` child process targeting Gemma-4-E2B multimodal GGUF (enforcing strict `--host 127.0.0.1:18432` binding, no LAN, no web UI, Gemma turn formatting) with a built-in deterministic extractive QA fallback and no cloud leakage.
   - Automated setup & packaging: `scripts/setup-ai.js` (`npm run setup:ai`) and `forge.config.js` `packagerConfig.extraResource` (`bin/` and `models/`) to bundle or place the engine and model alongside `app.asar`.
   - In-app 1-click setup: Direct download and configuration card in the AI modal with real-time progress bar and percentage display, streaming updates via IPC (`ai:download-gemma` and `ai:download-progress`).
 - **Electron Shell & UI**:
@@ -50,7 +50,7 @@ The repository contains a complete, fully tested, functional implementation of F
     - Immutable version history timeline and new version upload.
     - Master password change modal.
     - Tamper-evident encrypted audit log viewer modal with 1-click JSON export (`btn-export-audit-logs`).
-    - Conversational multi-turn Grounded AI Assistant modal with chat bubbles, 1-click Gemma-4-E2B setup card, answer copy, clickable citations, and clear chat button.
+    - Conversational multi-turn Grounded AI Assistant modal with chat bubbles, 1-click Gemma-4-E2B setup card, answer copy, clickable document citations, saved-profile references, and clear chat button.
 - **Test Suite**:
   - `tests/crypto.test.js`: Unit tests for Argon2id, VMK wrapping/unwrapping, AES-256-GCM envelope, HKDF, and zeroization.
   - `tests/vaultService.test.js`: Integration tests for vault creation, unlock with password, lock zeroization, tamper detection, document import, immutable multi-version history, inline metadata updating & FTS re-indexing, document soft-deletion with audit trail and semantic search filtering, in-memory preview, export, password rewrapping, and encrypted audit logging.
@@ -138,7 +138,7 @@ All 41 automated tests pass across 11 test suites:
 ```bash
 npm run package
 ```
-Packaging builds `family-vault.exe` directly in `out/family-vault-win32-x64/` with all native SQLCipher bindings cleanly prepared and **Option B verified**: both `llama-server.exe` and Gemma-4-E2B multimodal weights (`gemma-4-e2b.gguf`) are packaged directly under `out/family-vault-win32-x64/resources/` via `packagerConfig.extraResource`, providing a 100% offline out-of-the-box local neural AI and multimodal vision OCR experience on first run.
+Packaging builds `family-vault.exe` directly in `out/family-vault-win32-x64/` with all native SQLCipher bindings cleanly prepared and **Option B verified**: both `llama-server.exe` and Gemma-4-E2B weights (`gemma-4-e2b.gguf`) are packaged directly under `out/family-vault-win32-x64/resources/` via `packagerConfig.extraResource`, providing offline local neural metadata reasoning and Q&A; OCR remains PaddleOCR with a Tesseract.js fallback.
 
 ## Distribution Notes
 
@@ -148,15 +148,15 @@ Packaging builds `family-vault.exe` directly in `out/family-vault-win32-x64/` wi
 
 ## Planned Improvements
 
-### PaddleOCR PP-OCRv5 Integration as Primary OCR (Level 2 — Implemented & Verified)
+### PaddleOCR PP-OCRv5 Integration as Primary OCR (Implemented & Verified)
 
 **Status**: Implemented and verified via `tests/paddleOcr.test.js`.
 
 Document OCR uses **PaddleOCR PP-OCRv5 via `onnxruntime-node`** (prebuilt native binaries) as the **primary dedicated OCR engine**, with **Tesseract.js** retained as a reliable offline fallback:
 
 - **Primary dedicated OCR engine**: Uses a dedicated, deterministic deep learning OCR engine (DB detection + SVTR/transformer recognition) for raw text and coordinate extraction. It runs 10x–20x faster on CPU/DirectML, is fully deterministic, and has a minimal resource footprint (~12 MB bundled models in `models/paddleocr/`).
-- **Fallback preserved**: Tesseract.js remains available as an offline fallback if PaddleOCR encounters unrecoverable errors.
-- **Gemma-4-E2B decoupled**: Gemma-4-E2B focuses on downstream high-level semantic tasks (metadata categorization, entity grounding, and grounded Q&A with citations) without bearing primary pixel-to-text character extraction.
+- **Fallback preserved**: Tesseract.js is called directly if PaddleOCR fails, is unavailable, or returns no usable text.
+- **Gemma-4-E2B decoupled**: Gemma-4-E2B handles downstream high-level semantic tasks (metadata categorization, entity grounding, and grounded Q&A with citations); Gemma vision is not currently used for OCR.
 - **100% offline**: ONNX models are static local files (`models/paddleocr/`). Zero network calls.
 - **Stack compatible**: Electron 44.x ✅, Node.js 20+ ✅, Windows x64 ✅, MIT license ✅.
 - **Significant accuracy gains**: +7–24 percentage points over Tesseract on noisy scans, tables, receipts, and handwritten text.
