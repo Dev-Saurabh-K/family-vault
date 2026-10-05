@@ -41,13 +41,13 @@ documents anyway** action. It retries the same question across all documents'
 stored OCR/extracted text, OCR word coordinates, and extracted document
 metadata (including document type, issuer, issue/expiry dates and evidence,
 review state, and extraction confidence), along with the semantic index.
-It includes other family members' documents and omits profile records. The
+It includes other family members' documents and saved profiles. The
 broader scope is opt-in per retry; normal named-person restrictions remain
 unchanged. When the local Gemma server is available, the retry uses it for the
 answer; otherwise the deterministic extractive response is used. Responses
 with sources display a bottom-of-answer caution that another family member's
-documents may be included and OCR/AI interpretations can be wrong, advising
-users to verify the cited originals.
+documents or saved profile may be included and OCR/AI interpretations can be
+wrong, advising users to verify the cited originals.
 
 ## Recommended implementation sequence
 
@@ -286,46 +286,32 @@ lower than reviewed direct evidence. It passed **10/10** cases. Live Gemma
 calibration still requires a model-enabled evaluation set and measured
 human-reviewed outcomes.
 
-### 8. Validate generated answer values against evidence
+### 8. Let Gemma answer naturally from complete local context
 
-Implemented in `_validateAnswerValues()` and the Gemma Q&A response path in
-`src/main/services/llmService.js`. Before an answer is returned, numeric
-values (including dates, amounts, percentages, and unit-bearing values) and
-alphanumeric identifiers are compared with exact normalized values from the
-selected source titles and snippets. Formatting commas and whitespace are
-ignored; currency symbols and identifier characters are retained. An
-unsupported value rejects the model answer and uses the deterministic
-extractive fallback.
+The Q&A path now gives a running local Gemma the complete extracted OCR/text,
+OCR word text, structured metadata, notes, tags, and saved-profile fields for
+the documents allowed by the existing person scope. An explicitly requested
+all-document search includes all family documents and profiles. This context
+is assembled locally from the unlocked vault; it does not fetch internet data.
 
-Q&A output is now buffered until validation completes. The renderer receives
-the complete generated answer only after validation, so unsupported streamed
-claims are not briefly shown to the user. Tests cover a changed identifier,
-an altered identifier prefix/length, a missing currency symbol, a valid
-source-backed answer, and fallback behavior without emitting invalid text.
+The answer is no longer rejected by lexical claim overlap, exact number, or
+identifier post-generation filters, and repeated model text is preserved. The
+prompt asks Gemma to answer naturally, synthesize and paraphrase, and say when
+requested information is absent. Only model control tokens and source markers
+are cleaned from the response. The model's own answer is returned unless the
+local model is unavailable, errors, or produces no usable text, in which case
+the deterministic local fallback is used. Because post-generation filters are
+intentionally absent, Gemma can still make mistakes; users should verify
+citations, especially for OCR and all-document results.
+Generated text is streamed from llama-server through Electron IPC into the
+chat as chunks arrive; if the model fails before completing, the final local
+fallback replaces the partial response.
 
-This is a targeted literal-value guard, not semantic claim verification: it
-does not prove that each sentence is supported or that a value is attached to
-the right label when that same value appears elsewhere in the context. The
-harder evaluation checks those literal regressions; the local-extractive
-baseline remains **10/10** and does not start Gemma.
-
-### 9. Screen generated prose for unsupported claims
-
-Implemented in `_validateAnswerClaims()` in
-`src/main/services/llmService.js`. After cleanup and literal-value checking,
-each generated sentence is compared with normalized content words from the
-selected source titles and snippets. A sentence is rejected if it contains
-unsupported terms accounting for more than 20% of its content words; a
-single-content-word sentence must be directly present in the evidence. Rejected
-answers fall back to deterministic extraction, and no model text is streamed
-before validation.
-
-This is a conservative lexical screen, **not semantic entailment**: a true
-paraphrase that uses unsupported synonyms can be rejected, and shared terms
-cannot prove that a relationship or label is correct. Numeric values and
-identifiers still use the separate exact-value validator. Regression cases
-verify an ordinary grounded answer passes while an invented account status
-forces the extractive fallback without exposing model text.
+The local llama-server context has been increased from 4,096 to 8,192 tokens
+to fit more of this context. Very large vaults can still exceed that limit;
+such requests may fail and use the deterministic fallback. The larger context
+uses more memory, so startup and latency should be checked on lower-memory
+systems.
 
 ### 10. Compare low-confidence OCR and ground generated metadata
 

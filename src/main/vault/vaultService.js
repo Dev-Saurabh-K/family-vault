@@ -843,7 +843,7 @@ class VaultService {
   async askQuestion(query, options = {}) {
     this._assertUnlocked();
     const searchAllDocuments = options.searchAllDocuments === true;
-    const profiles = searchAllDocuments ? [] : dbLayer.listUserProfilesWithSummaries(this._db).map(({ name }) => {
+    const profiles = dbLayer.listUserProfilesWithSummaries(this._db).map(({ name }) => {
       const { profile, contradictions } = dbLayer.getUserProfileWithContradictions(this._db, name);
       return { profile, contradictions };
     });

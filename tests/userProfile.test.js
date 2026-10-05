@@ -127,7 +127,10 @@ test('VaultService: Restricts named-person Q&A and indexing to that family membe
       receivedContexts[1].documents.map(document => document.person).sort(),
       ['Priya Sharma', 'Saurabh Kumar']
     );
-    assert.deepStrictEqual(receivedContexts[1].profiles, []);
+    assert.deepStrictEqual(
+      receivedContexts[1].profiles.map(entry => entry.profile.name).sort(),
+      ['Priya Sharma', 'Saurabh Kumar']
+    );
     assert.equal(receivedContexts[1].searchAllDocuments, true);
   } finally {
     service.lockVault();

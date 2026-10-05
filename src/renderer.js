@@ -2183,10 +2183,11 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
            <button class="btn btn-secondary btn-search-all-documents" type="button">Search all documents anyway</button>
          </div>`
       : '';
-    const searchAllWarningHtml = searchAllDocuments && res.sources?.length
-      ? `<aside class="ai-search-all-warning" role="note" aria-label="Caution: all-documents search">
-           <strong>Search-all result — verify before relying on it.</strong>
-           <span>This may include another family member’s documents. OCR and AI can misread or interpret details incorrectly; check the cited original documents.</span>
+    const showAiAnswerCaution = res.mode === 'llama-server' && res.sources?.length;
+    const searchAllWarningHtml = (searchAllDocuments || showAiAnswerCaution) && res.sources?.length
+      ? `<aside class="ai-search-all-warning" role="note" aria-label="Caution: AI answer">
+           <strong>${searchAllDocuments ? 'Search-all result' : 'AI-generated answer'} — verify before relying on it.</strong>
+           <span>${searchAllDocuments || res.personScope?.status !== 'matched' ? 'This may include another family member’s documents or saved profile. ' : ''}OCR and AI can misread or interpret details incorrectly; check the cited original documents.</span>
          </aside>`
       : '';
 
