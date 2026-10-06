@@ -88,5 +88,15 @@ contextBridge.exposeInMainWorld('familyVault', {
   getUserProfile: (personName) => ipcRenderer.invoke('profile:get', { personName }),
   saveUserProfile: (profile) => ipcRenderer.invoke('profile:save', profile),
   addFamilyMember: (profile) => ipcRenderer.invoke('profile:add', profile),
-  removeFamilyMember: (personName) => ipcRenderer.invoke('profile:remove', { personName })
+  removeFamilyMember: (personName) => ipcRenderer.invoke('profile:remove', { personName }),
+  onProfileProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('profile:analysis-progress', handler);
+    return () => ipcRenderer.removeListener('profile:analysis-progress', handler);
+  },
+  onProfileCompleted: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('profile:analysis-completed', handler);
+    return () => ipcRenderer.removeListener('profile:analysis-completed', handler);
+  }
 });

@@ -220,3 +220,54 @@ test('VaultService: Full lifecycle, immutable versions, encryption and password 
   service.lockVault();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('VaultService: importDocument reuses preAnalyzedMetadata and avoids redundant LLM extraction', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-preanalyzed-test-'));
+  const vaultPath = path.join(tmpDir, 'test-vault');
+
+  let llmCallCount = 0;
+  const mockLlmService = {
+    extractDocumentMetadata: async () => {
+      llmCallCount++;
+      return { docType: 'id_card', issuer: 'Gov', category: 'identity' };
+    }
+  };
+
+  const service = new VaultService(mockLlmService);
+  await service.createVault({
+    vaultPath,
+    password: 'PreAnalyzedPass#1234',
+    vaultName: 'PreAnalyzed Test Vault'
+  });
+
+  const sampleFile = path.join(tmpDir, 'license.pdf');
+  fs.writeFileSync(sampleFile, 'Driver License State of CA License DL123456');
+
+  const preAnalyzedMetadata = {
+    docType: 'drivers_license',
+    issuer: 'State of CA',
+    issueDate: '2020-01-01',
+    expiryDate: '2028-01-01',
+    category: 'identity',
+    tags: ['license', 'id']
+  };
+
+  const imported = await service.importDocument({
+    filePath: sampleFile,
+    title: 'Driver License',
+    category: 'identity',
+    preExtractedText: 'Driver License State of CA License DL123456',
+    preAnalyzedMetadata
+  });
+
+  // Verified: mockLlmService.extractDocumentMetadata was NEVER called because preAnalyzedMetadata was reused!
+  assert.strictEqual(llmCallCount, 0, 'extractDocumentMetadata should not be called when preAnalyzedMetadata is supplied');
+  assert.strictEqual(imported.title, 'Driver License');
+  assert.strictEqual(imported.currentVersion.metadata.docType, 'drivers_license');
+  assert.strictEqual(imported.currentVersion.metadata.issuer, 'State of CA');
+  assert.strictEqual(imported.currentVersion.metadata.expiryDate, '2028-01-01');
+
+  service.lockVault();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+

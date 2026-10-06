@@ -592,6 +592,66 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
 .search-box .icon { color: var(--text-muted); font-size: 0; left: 14px; position: absolute; top: 50%; transform: translateY(-50%); }
 .search-box .icon::after { border: 1.5px solid currentColor; border-radius: 50%; content: ""; display: block; height: 12px; width: 12px; }
 .search-box .icon::before { background: currentColor; content: ""; display: block; height: 6px; position: absolute; right: -3px; top: 10px; transform: rotate(-45deg); width: 1.5px; }
+.filter-person-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.filter-person-wrapper .filter-person-icon {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
+  color: var(--text-muted);
+  transition: color 0.16s ease;
+  z-index: 2;
+}
+.filter-person-wrapper .filter-person-caret {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+  color: var(--text-muted);
+  transition: color 0.16s ease;
+  z-index: 2;
+}
+.filter-person-wrapper:focus-within .filter-person-icon,
+.filter-person-wrapper:hover .filter-person-icon {
+  color: #f4f1e8;
+}
+.filter-person-wrapper:focus-within .filter-person-caret,
+.filter-person-wrapper:hover .filter-person-caret {
+  color: #f4f1e8;
+}
+.filter-person-select {
+  width: 195px !important;
+  font-size: 12px !important;
+  padding: 6px 28px 6px 32px !important;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text-primary) !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+.filter-person-select:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+.filter-person-select:focus {
+  border-color: #f4f1e8 !important;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(244, 241, 232, 0.18) !important;
+}
+.filter-person-select option {
+  background: #1f2323;
+  color: var(--text-primary);
+  padding: 8px 10px;
+}
 .search-mode-group { background: rgba(0, 0, 0, .16) !important; border-color: var(--border-subtle) !important; border-radius: 8px !important; padding: 3px !important; }
 .search-mode-group .btn { border: 0 !important; font-size: 12px !important; min-height: 28px; padding: 4px 9px !important; }
 .search-mode-group .active-mode { background: var(--bg-tertiary) !important; color: var(--text-primary) !important; }
@@ -602,7 +662,56 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
 .doc-category-heading h2 { color: var(--text-primary); font-size: 14px; font-weight: 600; letter-spacing: .01em; line-height: 20px; }
 .doc-category-heading > span { background: rgba(255, 255, 255, .045); border: 1px solid rgba(255, 255, 255, .075); border-radius: 999px; color: var(--text-muted); font-size: 10px; line-height: 16px; padding: 1px 8px; white-space: nowrap; }
 .doc-category-grid { display: grid; gap: 14px; grid-auto-rows: 232px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
-.doc-card { background: linear-gradient(155deg, rgba(42, 45, 45, .88), rgba(31, 33, 33, .92)); border: 1px solid rgba(255, 255, 255, .075); border-radius: var(--radius-md); cursor: pointer; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; height: 100%; min-height: 0; overflow: hidden; padding: 14px; transition: background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.doc-card {
+  background: linear-gradient(155deg, rgba(42, 45, 45, .88), rgba(31, 33, 33, .92));
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px;
+  position: relative;
+  transition: background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.doc-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.doc-card > .fluid-fill-reservoir {
+  z-index: 0;
+}
+
+.doc-card.card-fluid-filling {
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.18), inset 0 0 16px rgba(16, 185, 129, 0.08) !important;
+}
+
+.doc-card.card-fluid-complete {
+  animation: cardFluidFlash 1.4s ease-out forwards;
+}
+
+.doc-card-fluid-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #6ee7b7 !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  font-size: 10px !important;
+  padding: 1px 6px !important;
+  animation: fluidBadgePulse 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes fluidBadgePulse {
+  0% { opacity: 0.8; }
+  100% { opacity: 1; box-shadow: 0 0 8px rgba(16, 185, 129, 0.35); }
+}
 .doc-card:hover { background: rgba(47, 47, 47, .78); border-color: #575757; box-shadow: 0 10px 28px rgba(0, 0, 0, .16); transform: translateY(-1px); }
 .doc-card-header, .meta-row, .doc-card-footer, .version-header, .version-actions { align-items: center; display: flex; justify-content: space-between; }
 .doc-card-header { align-items: flex-start; gap: 8px; min-width: 0; }
@@ -1082,19 +1191,145 @@ select.input-field:disabled {
 }
 
 .user-card-panel {
+  position: relative;
+  overflow: hidden;
   background: rgba(255, 255, 255, 0.032) !important;
   border: 1px solid rgba(255, 255, 255, 0.075) !important;
   border-radius: 12px !important;
   padding: 14px !important;
   backdrop-filter: blur(14px) !important;
   -webkit-backdrop-filter: blur(14px) !important;
-  transition: all 0.16s ease;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.user-card-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.user-card-panel > .fluid-fill-reservoir {
+  z-index: 0;
 }
 
 .user-card-panel:hover {
   background: rgba(255, 255, 255, 0.048) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Fluid Progress Banner */
+.user-profile-fluid-banner {
+  margin-bottom: 12px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 8px;
+  padding: 9px 12px;
+  backdrop-filter: blur(12px);
+  animation: fluidBannerPulse 2.5s ease-in-out infinite alternate;
+}
+
+@keyframes fluidBannerPulse {
+  0% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.05); }
+  100% { box-shadow: 0 0 18px rgba(16, 185, 129, 0.18); }
+}
+
+.fluid-banner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.fluid-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(110, 231, 183, 0.25);
+  border-top-color: #6ee7b7;
+  border-radius: 50%;
+  animation: fluidSpin 0.8s linear infinite;
+}
+
+@keyframes fluidSpin {
+  to { transform: rotate(360deg); }
+}
+
+.fluid-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fluid-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #06b6d4, #10b981);
+  background-size: 200% 100%;
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: fluidBarShimmer 1.8s linear infinite;
+}
+
+@keyframes fluidBarShimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Card Fluid Reservoir Layer */
+.fluid-fill-reservoir {
+  display: none;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 0%;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.25) 0%, rgba(6, 182, 212, 0.12) 60%, rgba(16, 185, 129, 0.05) 100%);
+  transition: height 0.65s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 0;
+}
+
+.card-fluid-filling .fluid-fill-reservoir,
+.card-fluid-complete .fluid-fill-reservoir {
+  display: block;
+}
+
+.fluid-wave {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  width: 200%;
+  height: 16px;
+  background: radial-gradient(circle at 50% 50%, rgba(110, 231, 183, 0.45), transparent 70%);
+  animation: fluidWave 3s linear infinite;
+  opacity: 0.85;
+}
+
+@keyframes fluidWave {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(-25%) scaleY(1.2); }
+  100% { transform: translateX(-50%); }
+}
+
+.card-fluid-filling {
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.15), inset 0 0 14px rgba(16, 185, 129, 0.08) !important;
+}
+
+.card-fluid-complete {
+  animation: cardFluidFlash 1.4s ease-out forwards;
+}
+
+@keyframes cardFluidFlash {
+  0% {
+    box-shadow: 0 0 32px rgba(16, 185, 129, 0.6), inset 0 0 20px rgba(16, 185, 129, 0.25);
+    border-color: rgba(110, 231, 183, 0.8) !important;
+  }
+  100% {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.075) !important;
+  }
 }
 
 .user-card-header {

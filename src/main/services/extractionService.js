@@ -1339,6 +1339,36 @@ function extractProfileFacts(text, personName = null) {
     }
   }
 
+  // 9. License Number (Driving License / DL)
+  const dlMatch = text.match(/(?:driving\s*licen[sc]e(?:\s*(?:no\.?|number|#))?|\bdl\s*(?:no\.?|#)\b|\blicen[sc]e\s*(?:no\.?|number|#))\s*[:.-]?\s*([A-Za-z0-9/-]{5,25})/i);
+  if (dlMatch) {
+    const rawVal = dlMatch[1].trim().replace(/[.,;]$/, '');
+    if (rawVal.length >= 5 && /\d/.test(rawVal) && !/^(?:expires|validity|issue|class|vehicle|state|null)$/i.test(rawVal)) {
+      facts.push({
+        personName,
+        fieldName: 'license_number',
+        fieldValue: rawVal.toUpperCase(),
+        rawSnippet: dlMatch[0].slice(0, 100),
+        confidence: 0.95
+      });
+    }
+  }
+
+  // 10. National ID / Passport Number
+  const passMatch = text.match(/\b(?:passport\s*(?:no\.?|number|#)?)\s*[:.-]?\s*([A-Za-z0-9]{6,12})\b/i);
+  if (passMatch) {
+    const rawVal = passMatch[1].trim().toUpperCase();
+    if (/\d/.test(rawVal)) {
+      facts.push({
+        personName,
+        fieldName: 'id_number',
+        fieldValue: rawVal,
+        rawSnippet: passMatch[0].slice(0, 80),
+        confidence: 0.95
+      });
+    }
+  }
+
   return facts;
 }
 

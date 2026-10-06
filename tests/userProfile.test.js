@@ -345,3 +345,67 @@ test('VaultService: Add family member, list in dropdowns, and remove family memb
   service.lockVault();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('Phase 2 Pipeline: Pre-analyze does not output profile facts; background processing extracts license number and emits progress', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-profile-pipeline-test-'));
+  const vaultPath = path.join(tmpDir, 'PipelineVault.fvault');
+
+  const emittedEvents = [];
+  const service = new VaultService();
+  service.setProfileEventListener((event, data) => {
+    emittedEvents.push({ event, data });
+  });
+
+  await service.createVault({
+    vaultPath,
+    password: 'MasterPassword123!',
+    kdfParams: { memoryCost: 4096, timeCost: 1, parallelism: 1 }
+  });
+
+  // 1. Add family member
+  service.addFamilyMember({ name: 'Vikram Singh' });
+
+  // 2. Create driving license document
+  const dlDocPath = path.join(tmpDir, 'driving_license.pdf');
+  fs.writeFileSync(dlDocPath, `
+    TRANSPORT DEPARTMENT
+    DRIVING LICENCE
+    Name: Vikram Singh
+    Father's Name: Ranveer Singh
+    DOB: 12/08/1988
+    Gender: Male
+    Driving Licence No: DL-0420110012345
+    Permanent Address: 45 MG Road, Bangalore 560001
+  `);
+
+  // 3. Pre-analyze scan MUST NOT extract profileFacts
+  const scanResult = await service.preAnalyzeDocument(dlDocPath);
+  assert.strictEqual(scanResult.profileFacts, undefined, 'Pre-analysis scan must not extract profileFacts');
+  assert.ok(scanResult.textContent.includes('DL-0420110012345'));
+
+  // 4. Import document: triggers post-save background extraction pipeline
+  await service.importDocument({
+    filePath: dlDocPath,
+    title: 'Vikram Driving License',
+    category: 'identity',
+    person: 'Vikram Singh'
+  });
+
+  // 5. Verify user profile was populated with license number and address
+  const profileData = service.getUserProfile('Vikram Singh');
+  assert.strictEqual(profileData.profile.name, 'Vikram Singh');
+  assert.strictEqual(profileData.profile.gender, 'Male');
+  assert.strictEqual(profileData.profile.licenseNumber, 'DL-0420110012345');
+  assert.ok(profileData.profile.address.includes('Bangalore'));
+  assert.strictEqual(profileData.hasContradictions, false);
+
+  // 6. Verify progress telemetry events were emitted
+  assert.ok(emittedEvents.length >= 2, 'Progress events must be emitted');
+  const completedEvt = emittedEvents.find(e => e.event === 'profile:analysis-completed');
+  assert.ok(completedEvt, 'Must emit profile:analysis-completed event');
+  assert.strictEqual(completedEvt.data.progress, 100);
+  assert.ok(completedEvt.data.updatedFields.includes('license_number'));
+
+  service.lockVault();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});

@@ -744,7 +744,9 @@ const PROFILE_FIELD_LABELS = {
   marks_10th: '10th Secondary Marks',
   marks_12th: '12th Higher Secondary Marks',
   education: 'Higher Education / Degree',
-  gender: 'Gender'
+  gender: 'Gender',
+  license_number: 'Driving License Number',
+  id_number: 'National / Passport ID'
 };
 
 function normalizeProfileFieldValue(fieldName, val) {
@@ -768,6 +770,9 @@ function normalizeProfileFieldValue(fieldName, val) {
     if (str.startsWith('m')) return 'male';
     if (str.startsWith('f')) return 'female';
     return str;
+  }
+  if (fieldName === 'license_number' || fieldName === 'id_number') {
+    return str.replace(/[^a-z0-9]/g, '');
   }
   return str.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -1057,7 +1062,9 @@ function getUserProfileWithContradictions(db, personName) {
     address: canonical.address || aggregatedValues.address || null,
     education: canonical.education || aggregatedValues.education || null,
     marks10th: canonical.marks10th || aggregatedValues.marks_10th || null,
-    marks12th: canonical.marks12th || aggregatedValues.marks_12th || null
+    marks12th: canonical.marks12th || aggregatedValues.marks_12th || null,
+    licenseNumber: aggregatedValues.license_number || (canonical.extraDetails && canonical.extraDetails.licenseNumber) || null,
+    idNumber: aggregatedValues.id_number || (canonical.extraDetails && canonical.extraDetails.idNumber) || null
   };
 
   return {

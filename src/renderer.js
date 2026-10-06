@@ -18,6 +18,7 @@ let documentIdPendingDelete = null;
 let preAnalyzedDocData = null;
 let importAnalysisRequestId = 0;
 let isImportAnalysisInProgress = false;
+const activeProcessingDocIds = new Map();
 
 // DOM Elements - Views
 const viewLauncher = document.getElementById('view-launcher');
@@ -557,11 +558,11 @@ async function updateCounts() {
       } catch (e) {
         persons = [...new Set(allDocs.map(d => d.person).filter(Boolean))].sort();
       }
-      filterPersonSelect.innerHTML = '<option value="">👤 All Family Members</option>';
+      filterPersonSelect.innerHTML = '<option value="">All Family Members</option>';
       (persons || []).forEach(p => {
         const opt = document.createElement('option');
         opt.value = p;
-        opt.textContent = `👤 ${p}`;
+        opt.textContent = p;
         if (p === currentSelected) opt.selected = true;
         filterPersonSelect.appendChild(opt);
       });
@@ -753,7 +754,7 @@ function renderDocuments() {
       if (emptyDesc) emptyDesc.textContent = `No documents found matching "${escapeHtml(currentSearch)}". Check your query or reset filters.`;
       if (resetBtn) resetBtn.classList.remove('hidden');
     } else if (selectedPerson) {
-      if (emptyIcon) emptyIcon.textContent = '👤';
+      if (emptyIcon) emptyIcon.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>';
       if (emptyTitle) emptyTitle.textContent = `No documents for ${selectedPerson}`;
       if (emptyDesc) emptyDesc.textContent = `No documents in the vault are associated with ${escapeHtml(selectedPerson)} yet.`;
       if (resetBtn) resetBtn.classList.remove('hidden');
@@ -824,42 +825,58 @@ function renderDocuments() {
     docGrid.appendChild(categorySection);
 
     categoryDocs.forEach(doc => {
-    const card = document.createElement('div');
-    card.className = 'doc-card';
-    card.addEventListener('click', () => openDocumentDrawer(doc.id));
+      const card = document.createElement('div');
+      card.className = 'doc-card';
+      card.setAttribute('data-doc-id', doc.id);
+      card.addEventListener('click', () => openDocumentDrawer(doc.id));
 
-    const vNum = doc.currentVersion ? `v${doc.currentVersion.versionNumber}` : 'v0';
-    const fSize = doc.currentVersion ? formatBytes(doc.currentVersion.fileSize) : '-';
+      const vNum = doc.currentVersion ? `v${doc.currentVersion.versionNumber}` : 'v0';
+      const fSize = doc.currentVersion ? formatBytes(doc.currentVersion.fileSize) : '-';
 
-    const expiryStatus = doc.currentVersion?.metadata?.expiryStatus;
-    const expiryDate = doc.currentVersion?.metadata?.expiryDate;
-    let expiryBadgeHtml = '';
+      const activeProgress = activeProcessingDocIds.get(doc.id);
+      const isProcessing = typeof activeProgress === 'number';
+      if (isProcessing) {
+        card.classList.add('card-fluid-filling');
+      }
 
-    if (expiryStatus === 'expired') {
-      expiryBadgeHtml = `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">Expired</span>`;
-    } else if (expiryStatus === 'expiring_soon') {
-      expiryBadgeHtml = `<span class="badge badge-orange">Expiring Soon</span>`;
-    } else if (expiryStatus === 'active') {
-      expiryBadgeHtml = `<span class="badge badge-green" style="font-size: 10px;">Exp: ${expiryDate}</span>`;
-    }
+      const fluidBadgeHtml = isProcessing
+        ? `<span class="badge doc-card-fluid-badge"><span class="fluid-spinner" style="width: 8px; height: 8px; border-width: 1.5px;"></span> ${activeProgress}%</span>`
+        : '';
+      const fluidReservoirHtml = isProcessing
+        ? `<div class="fluid-fill-reservoir" style="height: ${activeProgress}%;"><div class="fluid-wave"></div></div>`
+        : '';
 
-    const semanticBadgeHtml = doc._semanticScore != null 
-      ? `<span class="badge" style="background: rgba(16, 163, 127, 0.12); color: #8dd8c3; border: 1px solid rgba(16, 163, 127, 0.25);">${doc._semanticScore}% match</span>`
-      : '';
-    const semanticSnippetHtml = doc._semanticSnippet
-      ? `<div class="doc-card-snippet">"${escapeHtml(doc._semanticSnippet.length > 110 ? doc._semanticSnippet.substring(0, 110) + '...' : doc._semanticSnippet)}"</div>`
-      : '';
+      const expiryStatus = doc.currentVersion?.metadata?.expiryStatus;
+      const expiryDate = doc.currentVersion?.metadata?.expiryDate;
+      let expiryBadgeHtml = '';
 
-    card.innerHTML = `
-      <div class="doc-card-header">
-        <div class="doc-card-title" title="${escapeHtml(doc.title)}">${escapeHtml(doc.title)}</div>
-        <div class="doc-card-actions">
-          ${semanticBadgeHtml}
-          ${expiryBadgeHtml}
-          <span class="badge badge-green">${vNum}</span>
-          <button type="button" class="btn-card-delete" data-doc-id="${escapeHtml(doc.id)}" data-doc-title="${escapeHtml(doc.title)}" aria-label="Delete document"></button>
+      if (expiryStatus === 'expired') {
+        expiryBadgeHtml = `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">Expired</span>`;
+      } else if (expiryStatus === 'expiring_soon') {
+        expiryBadgeHtml = `<span class="badge badge-orange">Expiring Soon</span>`;
+      } else if (expiryStatus === 'active') {
+        expiryBadgeHtml = `<span class="badge badge-green" style="font-size: 10px;">Exp: ${expiryDate}</span>`;
+      }
+
+      const semanticBadgeHtml = doc._semanticScore != null 
+        ? `<span class="badge" style="background: rgba(16, 163, 127, 0.12); color: #8dd8c3; border: 1px solid rgba(16, 163, 127, 0.25);">${doc._semanticScore}% match</span>`
+        : '';
+      const semanticSnippetHtml = doc._semanticSnippet
+        ? `<div class="doc-card-snippet">"${escapeHtml(doc._semanticSnippet.length > 110 ? doc._semanticSnippet.substring(0, 110) + '...' : doc._semanticSnippet)}"</div>`
+        : '';
+
+      card.innerHTML = `
+        ${fluidReservoirHtml}
+        <div class="doc-card-header">
+          <div class="doc-card-title" title="${escapeHtml(doc.title)}">${escapeHtml(doc.title)}</div>
+          <div class="doc-card-actions">
+            ${fluidBadgeHtml}
+            ${semanticBadgeHtml}
+            ${expiryBadgeHtml}
+            <span class="badge badge-green">${vNum}</span>
+            <button type="button" class="btn-card-delete" data-doc-id="${escapeHtml(doc.id)}" data-doc-title="${escapeHtml(doc.title)}" aria-label="Delete document"></button>
+          </div>
         </div>
-      </div>
       <div class="doc-card-meta">
         <div class="meta-row">
           <span>Category</span>
@@ -1713,7 +1730,7 @@ submitImportBtn.addEventListener('click', async () => {
   submitImportBtn.textContent = 'Encrypting & Saving...';
 
   try {
-    await window.familyVault.importDocument({
+    const savedDoc = await window.familyVault.importDocument({
       filePath,
       title,
       category,
@@ -1721,8 +1738,14 @@ submitImportBtn.addEventListener('click', async () => {
       tags,
       notes,
       preExtractedText: preAnalyzedDocData ? preAnalyzedDocData.textContent : null,
-      preExtractedOcrWords: preAnalyzedDocData ? preAnalyzedDocData.ocrWords : null
+      preExtractedOcrWords: preAnalyzedDocData ? preAnalyzedDocData.ocrWords : null,
+      preAnalyzedMetadata: preAnalyzedDocData ? preAnalyzedDocData : null,
+      asyncProfile: true
     });
+
+    if (savedDoc && savedDoc.id) {
+      activeProcessingDocIds.set(savedDoc.id, 15);
+    }
 
     modalImport.classList.add('hidden');
     preAnalyzedDocData = null;
@@ -2782,6 +2805,7 @@ const userDetailDocsBadge = document.getElementById('user-detail-docs-badge');
 const userContradictionBox = document.getElementById('user-contradiction-box');
 const userContradictionItems = document.getElementById('user-contradiction-items');
 
+const userFieldLicense = document.getElementById('user-field-license');
 const userFieldDob = document.getElementById('user-field-dob');
 const userFieldFather = document.getElementById('user-field-father');
 const userFieldMother = document.getElementById('user-field-mother');
@@ -2790,6 +2814,11 @@ const userField10th = document.getElementById('user-field-10th');
 const userField12th = document.getElementById('user-field-12th');
 const userFieldEducation = document.getElementById('user-field-education');
 const userSourceDocsList = document.getElementById('user-source-docs-list');
+
+const userProfileFluidBanner = document.getElementById('user-profile-fluid-banner');
+const userProfileFluidTitle = document.getElementById('user-profile-fluid-title');
+const userProfileFluidPct = document.getElementById('user-profile-fluid-pct');
+const userProfileFluidBar = document.getElementById('user-profile-fluid-bar');
 
 const btnEditUserProfile = document.getElementById('btn-edit-user-profile');
 const editUserName = document.getElementById('edit-user-name');
@@ -2906,6 +2935,16 @@ async function loadUserProfileDetails(personName) {
     usersProfileEmpty.classList.add('hidden');
     usersProfileContent.classList.remove('hidden');
 
+    // Ensure idle profile cards have no residual fluid elements or classes
+    ['user-card-identity', 'user-card-address', 'user-card-education', 'user-card-sources'].forEach(id => {
+      const card = document.getElementById(id);
+      if (card) {
+        card.classList.remove('card-fluid-filling', 'card-fluid-complete');
+        const res = card.querySelector('.fluid-fill-reservoir');
+        if (res) res.remove();
+      }
+    });
+
     // Header
     userDetailName.textContent = data.personName;
     userDetailAgeBadge.textContent = data.profile.age !== null ? `Age: ${data.profile.age}` : 'Age: Unknown';
@@ -2941,6 +2980,7 @@ async function loadUserProfileDetails(personName) {
     }
 
     // Populate Fields with inline contradiction indicator if conflicting
+    renderFieldWithConflict(userFieldLicense, data.profile.licenseNumber || data.profile.idNumber, data.contradictions.license_number);
     renderFieldWithConflict(userFieldDob, data.profile.dob, data.contradictions.dob);
     renderFieldWithConflict(userFieldFather, data.profile.fathersName, data.contradictions.fathers_name);
     renderFieldWithConflict(userFieldMother, data.profile.mothersName, data.contradictions.mothers_name);
@@ -3438,6 +3478,151 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// --- Real-time Fluid Profile Analysis Controller ---
+if (window.familyVault && window.familyVault.onProfileProgress) {
+  window.familyVault.onProfileProgress(evt => {
+    if (!evt) return;
+
+    // 1. Update newly added card on the main dashboard grid
+    if (evt.documentId) {
+      activeProcessingDocIds.set(evt.documentId, evt.progress);
+      const docCard = document.querySelector(`.doc-card[data-doc-id="${evt.documentId}"]`);
+      if (docCard) {
+        docCard.classList.add('card-fluid-filling');
+        let reservoir = docCard.querySelector('.fluid-fill-reservoir');
+        if (!reservoir) {
+          reservoir = document.createElement('div');
+          reservoir.className = 'fluid-fill-reservoir';
+          reservoir.innerHTML = '<div class="fluid-wave"></div>';
+          docCard.prepend(reservoir);
+        }
+        reservoir.style.height = `${evt.progress}%`;
+
+        let badgeEl = docCard.querySelector('.doc-card-fluid-badge');
+        if (!badgeEl) {
+          const actionsEl = docCard.querySelector('.doc-card-actions');
+          if (actionsEl) {
+            badgeEl = document.createElement('span');
+            badgeEl.className = 'badge doc-card-fluid-badge';
+            actionsEl.prepend(badgeEl);
+          }
+        }
+        if (badgeEl) {
+          badgeEl.innerHTML = `<span class="fluid-spinner" style="width: 8px; height: 8px; border-width: 1.5px;"></span> ${evt.progress}%`;
+        }
+      }
+    }
+
+    // 2. Update user profile modal cards if viewing this member
+    if (evt.personName && selectedProfileName && selectedProfileName.toLowerCase() === evt.personName.toLowerCase()) {
+      if (userProfileFluidBanner) {
+        userProfileFluidBanner.classList.remove('hidden');
+      }
+      if (userProfileFluidTitle) {
+        userProfileFluidTitle.textContent = `AI Information Schema: Extracting profile data for ${escapeHtml(evt.personName)}...`;
+      }
+      if (userProfileFluidPct) {
+        userProfileFluidPct.textContent = `${evt.progress}%`;
+      }
+      if (userProfileFluidBar) {
+        userProfileFluidBar.style.width = `${evt.progress}%`;
+      }
+
+      // Fluid wave filling on profile cards (only during active processing)
+      const identityCard = document.getElementById('user-card-identity');
+      const addressCard = document.getElementById('user-card-address');
+      const educationCard = document.getElementById('user-card-education');
+      const sourcesCard = document.getElementById('user-card-sources');
+
+      [identityCard, addressCard, educationCard, sourcesCard].forEach(card => {
+        if (!card) return;
+        card.classList.add('card-fluid-filling');
+        let reservoir = card.querySelector('.fluid-fill-reservoir');
+        if (!reservoir) {
+          reservoir = document.createElement('div');
+          reservoir.className = 'fluid-fill-reservoir';
+          reservoir.innerHTML = '<div class="fluid-wave"></div>';
+          card.prepend(reservoir);
+        }
+        reservoir.style.height = `${evt.progress}%`;
+      });
+    }
+  });
+}
+
+if (window.familyVault && window.familyVault.onProfileCompleted) {
+  window.familyVault.onProfileCompleted(async evt => {
+    if (!evt) return;
+
+    // 1. Complete fluid animation on the main page document card
+    if (evt.documentId) {
+      activeProcessingDocIds.set(evt.documentId, 100);
+      const docCard = document.querySelector(`.doc-card[data-doc-id="${evt.documentId}"]`);
+      if (docCard) {
+        docCard.classList.remove('card-fluid-filling');
+        docCard.classList.add('card-fluid-complete');
+        const reservoir = docCard.querySelector('.fluid-fill-reservoir');
+        if (reservoir) {
+          reservoir.style.height = '100%';
+        }
+        const badgeEl = docCard.querySelector('.doc-card-fluid-badge');
+        if (badgeEl) {
+          badgeEl.innerHTML = '✓ AI Ready';
+        }
+
+        setTimeout(() => {
+          if (reservoir) reservoir.remove();
+          if (badgeEl) badgeEl.remove();
+          docCard.classList.remove('card-fluid-complete', 'card-fluid-filling');
+          activeProcessingDocIds.delete(evt.documentId);
+        }, 1400);
+      }
+    }
+
+    // 2. Complete fluid animation in the user profiles modal
+    if (evt.personName && selectedProfileName && selectedProfileName.toLowerCase() === evt.personName.toLowerCase()) {
+      if (userProfileFluidPct) userProfileFluidPct.textContent = '100%';
+      if (userProfileFluidBar) userProfileFluidBar.style.width = '100%';
+      if (userProfileFluidTitle) {
+        userProfileFluidTitle.textContent = 'AI Information Schema: Profile extraction complete!';
+      }
+
+      const identityCard = document.getElementById('user-card-identity');
+      const addressCard = document.getElementById('user-card-address');
+      const educationCard = document.getElementById('user-card-education');
+      const sourcesCard = document.getElementById('user-card-sources');
+
+      [identityCard, addressCard, educationCard, sourcesCard].forEach(card => {
+        if (!card) return;
+        card.classList.remove('card-fluid-filling');
+        card.classList.add('card-fluid-complete');
+        const reservoir = card.querySelector('.fluid-fill-reservoir');
+        if (reservoir) {
+          reservoir.style.height = '100%';
+        }
+      });
+
+      // Smoothly update details in-place and remove fluid reservoir entirely
+      setTimeout(async () => {
+        await loadUserProfileDetails(selectedProfileName);
+        [identityCard, addressCard, educationCard, sourcesCard].forEach(card => {
+          if (!card) return;
+          card.classList.remove('card-fluid-complete', 'card-fluid-filling');
+          const reservoir = card.querySelector('.fluid-fill-reservoir');
+          if (reservoir) reservoir.remove();
+        });
+      }, 700);
+
+      setTimeout(() => {
+        if (userProfileFluidBanner) userProfileFluidBanner.classList.add('hidden');
+      }, 2400);
+    }
+
+    // Refresh sidebar member list so discrepancy badges update
+    await refreshUserProfilesUI();
+  });
 }
 
 // Start app

@@ -34,7 +34,9 @@ const ImportDocumentSchema = z.object({
   tags: z.array(z.string()).default([]),
   notes: z.string().default(''),
   preExtractedText: z.string().nullable().optional(),
-  preExtractedOcrWords: z.array(z.any()).optional()
+  preExtractedOcrWords: z.array(z.any()).optional(),
+  preAnalyzedMetadata: z.any().optional(),
+  asyncProfile: z.boolean().default(true)
 });
 
 const AddVersionSchema = z.object({
@@ -62,6 +64,14 @@ const AiModelDownloadSchema = z.object({
 });
 
 function registerIpcHandlers(mainWindow) {
+  if (typeof vaultService.setProfileEventListener === 'function') {
+    vaultService.setProfileEventListener((channel, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, data);
+      }
+    });
+  }
+
   ipcMain.on('window:minimize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.minimize();

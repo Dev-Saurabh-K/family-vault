@@ -34,6 +34,19 @@ class VaultService {
     this._objectKey = null;
     this._db = null;
     this._llmService = customLlmService || llmService;
+    this._profileEventListener = null;
+  }
+
+  setProfileEventListener(listener) {
+    this._profileEventListener = typeof listener === 'function' ? listener : null;
+  }
+
+  emitProfileEvent(event, data) {
+    if (typeof this._profileEventListener === 'function') {
+      try {
+        this._profileEventListener(event, data);
+      } catch (e) {}
+    }
   }
 
   isUnlocked() {
@@ -319,7 +332,9 @@ class VaultService {
     tags = [],
     notes = '',
     preExtractedText = null,
-    preExtractedOcrWords = null
+    preExtractedOcrWords = null,
+    preAnalyzedMetadata = null,
+    asyncProfile = false
   }) {
     this._assertUnlocked();
 
@@ -385,16 +400,21 @@ class VaultService {
 
       if (text) {
         const knownPersons = dbLayer.listDistinctPersons(this._db);
-        let analysis;
-        if (this._llmService && typeof this._llmService.extractDocumentMetadata === 'function') {
-          analysis = await this._llmService.extractDocumentMetadata({
-            text,
-            fileName,
-            knownPersons,
-            strictToAddedUsers: true
-          });
-        } else {
-          analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons, strictToAddedUsers: true });
+        let analysis = (preAnalyzedMetadata && (preAnalyzedMetadata.docType || preAnalyzedMetadata.category))
+          ? preAnalyzedMetadata
+          : null;
+
+        if (!analysis) {
+          if (this._llmService && typeof this._llmService.extractDocumentMetadata === 'function') {
+            analysis = await this._llmService.extractDocumentMetadata({
+              text,
+              fileName,
+              knownPersons,
+              strictToAddedUsers: true
+            });
+          } else {
+            analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons, strictToAddedUsers: true });
+          }
         }
 
         dbLayer.saveMetadata(this._db, {
@@ -438,20 +458,26 @@ class VaultService {
           }
         }
 
-        // Record structured profile facts and upsert user profile
+        // Post-save background profile information schema processing & fluid UI notification
         if (effectivePerson) {
-          try {
-            const extractedFacts = extractionService.extractProfileFacts(text, effectivePerson).map(f => ({
-              ...f,
-              sourceDocumentId: doc.id,
-              sourceVersionId: version.id
-            }));
-            if (extractedFacts.length > 0) {
-              dbLayer.saveProfileFactsBatch(this._db, extractedFacts);
+          const profileTask = this._processDocumentProfileBackground({
+            docId: doc.id,
+            versionId: version.id,
+            text,
+            person: effectivePerson,
+            isAsync: Boolean(asyncProfile)
+          });
+
+          if (asyncProfile) {
+            profileTask.catch(err => {
+              console.warn('[vaultService] Background profile extraction caught error:', err.message);
+            });
+          } else {
+            try {
+              await profileTask;
+            } catch (profileErr) {
+              // Profile extraction failure should never abort import
             }
-            dbLayer.upsertUserProfile(this._db, { name: effectivePerson });
-          } catch (profileErr) {
-            // Profile extraction failure should never abort import
           }
         }
 
@@ -714,14 +740,73 @@ class VaultService {
       analysis = extractionService.analyzeDocumentText(text, fileName, { knownPersons, strictToAddedUsers: true });
     }
 
-    const profileFacts = extractionService.extractProfileFacts(text, analysis.person || null);
-
     return {
       ...analysis,
-      profileFacts,
       textContent: text,
       ocrWords
     };
+  }
+
+  /**
+   * Post-save background process applying the profile information schema over scanned OCR text.
+   * Emits progress events for real-time UI fluid card animation and updates profile facts & contradictions.
+   */
+  async _processDocumentProfileBackground({ docId, versionId, text, person, onProgress, isAsync = false }) {
+    if (!person || !text || !this.isUnlocked() || !this._db) return;
+
+    try {
+      const sleep = (ms) => isAsync ? new Promise(r => setTimeout(r, ms)) : Promise.resolve();
+
+      const notify = (evt) => {
+        if (typeof onProgress === 'function') onProgress(evt);
+        this.emitProfileEvent(evt.progress === 100 ? 'profile:analysis-completed' : 'profile:analysis-progress', evt);
+      };
+
+      notify({ personName: person, documentId: docId, progress: 15, step: 'started' });
+      await sleep(220);
+
+      // Step 1: Extract structured profile facts using Information Schema
+      const extractedFacts = extractionService.extractProfileFacts(text, person).map(f => ({
+        ...f,
+        sourceDocumentId: docId,
+        sourceVersionId: versionId
+      }));
+
+      notify({ personName: person, documentId: docId, progress: 55, step: 'schema_matched' });
+      await sleep(260);
+
+      // Step 2: Grounding & anti-hallucination verification against source OCR text
+      const groundedFacts = extractedFacts.filter(f => {
+        if (!f.fieldValue) return false;
+        const textLower = text.toLowerCase();
+        const valLower = String(f.fieldValue).toLowerCase();
+        if (textLower.includes(valLower)) return true;
+        const tokens = valLower.replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(t => t.length >= 3);
+        return tokens.length > 0 && tokens.every(t => textLower.includes(t));
+      });
+
+      notify({ personName: person, documentId: docId, progress: 85, step: 'grounding_verified' });
+      await sleep(220);
+
+      // Step 3: Batch persist verified facts and upsert user profile
+      if (groundedFacts.length > 0) {
+        dbLayer.saveProfileFactsBatch(this._db, groundedFacts);
+      }
+      dbLayer.upsertUserProfile(this._db, { name: person });
+
+      const updatedProfile = dbLayer.getUserProfileWithContradictions(this._db, person);
+
+      notify({
+        personName: person,
+        documentId: docId,
+        progress: 100,
+        step: 'completed',
+        updatedFields: groundedFacts.map(f => f.fieldName),
+        profile: updatedProfile
+      });
+    } catch (err) {
+      console.warn('[vaultService] _processDocumentProfileBackground error:', err.message);
+    }
   }
 
   /**

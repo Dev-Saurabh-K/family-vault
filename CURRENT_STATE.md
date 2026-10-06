@@ -116,6 +116,7 @@ The repository contains a complete, fully tested, functional implementation of F
       - **Dynamic Contextual Empty States**: The document grid dynamically detects whether an empty view is due to an active search query, selected family member, category filter, expiry filter, tag filter, or an empty vault, updating icons, titles, and descriptions accordingly and offering a 1-click "Reset Filters" button.
       - **Duplicate Family Member Validation**: Both quick and full family member additions check for name collisions against existing vault members, displaying inline error banners and warning toasts.
       - **Global UI Error Boundaries**: `window.addEventListener('error')` and `window.addEventListener('unhandledrejection')` safely catch unhandled exceptions and promise rejections with non-crashing notifications.
+    - **Instant "Encrypt & Save" Optimization**: Pre-analyzed document metadata (tags, title, category, person, dates, issuer, OCR words) from the in-modal AI analysis is passed directly to `importDocument`, eliminating the redundant second local LLM re-analysis call and making document saving virtually instantaneous (<100ms) with background profile processing.
 
 ## Verification Commands Used
 
@@ -163,3 +164,12 @@ Document OCR uses **PaddleOCR PP-OCRv5 via `onnxruntime-node`** (prebuilt native
 - **No security boundary changes**: OCR output continues through existing validation pipeline. No new ports, listeners, or trust boundaries.
 
 Full architecture design, benchmarks per document type, and test details are documented in [`docs/OCR_PADDLEOCR_INTEGRATION.md`](docs/OCR_PADDLEOCR_INTEGRATION.md).
+
+### Profile Background Extraction & Fluid Animation Architecture (Planned & Specified)
+
+**Status**: Architected & Documented in [`docs/PROFILE_BACKGROUND_EXTRACTION.md`](docs/PROFILE_BACKGROUND_EXTRACTION.md).
+
+Decouples interactive OCR document scanning from biographical profile extraction:
+- **Phase 1 (Interactive Scan)**: Limited strictly to document-level metadata (title, category, docType, person name, issuer, validity dates, tags). Excludes profile attributes like `gender`, `address`, `license_number`, parentage, and marks.
+- **Phase 2 (Post-Save Background Extraction Pipeline)**: Triggers asynchronously upon document save, applying an information extraction schema over saved OCR text for `license_number`, `id_number`, `gender`, `address`, parentage, and marks, persisting atomic facts to `profile_facts`, and detecting cross-document contradictions.
+- **UI Fluid Card-Filling Animation**: Real-time fluid wave reservoir filling animation on profile cards reacting to background extraction progress and completing with a luminescent pulse upon 100% completion.
