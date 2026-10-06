@@ -57,6 +57,10 @@ const AiAskStreamSchema = z.object({
   searchAllDocuments: z.boolean().optional().default(false)
 });
 
+const AiModelDownloadSchema = z.object({
+  modelVariant: z.enum(['E2B', 'E4B']).default('E2B')
+});
+
 function registerIpcHandlers(mainWindow) {
   ipcMain.on('window:minimize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -332,8 +336,9 @@ function registerIpcHandlers(mainWindow) {
     return { success: true };
   });
 
-  ipcMain.handle('ai:download-gemma', async () => {
-    return await llmService.downloadAndSetupGemma((progress) => {
+  ipcMain.handle('ai:download-gemma', async (_event, payload) => {
+    const { modelVariant } = AiModelDownloadSchema.parse(payload || {});
+    return await llmService.downloadAndSetupGemma(modelVariant, (progress) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('ai:download-progress', progress);
       }

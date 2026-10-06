@@ -76,7 +76,7 @@ contextBridge.exposeInMainWorld('familyVault', {
   selectLlamaServer: () => ipcRenderer.invoke('dialog:select-llama-server'),
   startAiServer: (args) => ipcRenderer.invoke('ai:start-server', args),
   stopAiServer: () => ipcRenderer.invoke('ai:stop-server'),
-  downloadGemmaModel: () => ipcRenderer.invoke('ai:download-gemma'),
+  downloadGemmaModel: (modelVariant = 'E2B') => ipcRenderer.invoke('ai:download-gemma', { modelVariant }),
   onAiDownloadProgress: (callback) => {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('ai:download-progress', handler);

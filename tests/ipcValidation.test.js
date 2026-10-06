@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const Module = require('node:module');
 
 const { readObject } = require('../src/main/vault/objectStore');
 const { parseAndValidateManifest } = require('../src/main/vault/manifest');
@@ -57,4 +58,51 @@ test('Security & Validation: Manifest schema strictly rejects missing or tampere
       }
     });
   }, /Invalid or tampered manifest format/);
+});
+
+test('AI model download IPC passes the selected variant before its progress callback', async () => {
+  const ipcPath = require.resolve('../src/main/ipc');
+  const handlers = new Map();
+  const calls = [];
+  const llmService = {
+    downloadAndSetupGemma: async (variant, onProgress) => {
+      calls.push(variant);
+      onProgress({ percent: 50 });
+      return { success: true, modelVariant: variant };
+    }
+  };
+  const ipcMain = {
+    handle: (channel, handler) => handlers.set(channel, handler),
+    on: () => {}
+  };
+  const originalLoad = Module._load;
+
+  Module._load = function(request, parent, isMain) {
+    if (parent?.filename === ipcPath && request === 'electron') return { ipcMain, dialog: {} };
+    if (parent?.filename === ipcPath && request === './vault/vaultService') return { vaultService: {} };
+    if (parent?.filename === ipcPath && request === './services/llmService') return { llmService };
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  let registerIpcHandlers;
+  try {
+    delete require.cache[ipcPath];
+    ({ registerIpcHandlers } = require('../src/main/ipc'));
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[ipcPath];
+  }
+
+  const sentProgress = [];
+  registerIpcHandlers({
+    isDestroyed: () => false,
+    webContents: { send: (_channel, progress) => sentProgress.push(progress) }
+  });
+  const downloadHandler = handlers.get('ai:download-gemma');
+  const result = await downloadHandler({}, { modelVariant: 'E4B' });
+
+  assert.deepStrictEqual(calls, ['E4B']);
+  assert.deepStrictEqual(result, { success: true, modelVariant: 'E4B' });
+  assert.deepStrictEqual(sentProgress, [{ percent: 50 }]);
+  await assert.rejects(downloadHandler({}, { modelVariant: 'E3B' }));
 });

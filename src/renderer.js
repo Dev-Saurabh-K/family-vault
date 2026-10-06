@@ -88,6 +88,7 @@ const aiSubmitQueryBtn = document.getElementById('ai-submit-query-btn');
 const btnReturnToChat = document.getElementById('btn-return-to-chat');
 const btnOpenModelSetup = document.getElementById('btn-open-model-setup');
 const aiQuickSetupBox = document.getElementById('ai-quick-setup-box');
+const aiModelVariantSelect = document.getElementById('ai-model-variant-select');
 const btnDownloadSetupGemma = document.getElementById('btn-download-setup-gemma');
 const aiDownloadProgressContainer = document.getElementById('ai-download-progress-container');
 const aiDownloadStatusText = document.getElementById('ai-download-status-text');
@@ -2572,12 +2573,14 @@ async function startGemmaDownload() {
   });
 
   try {
-    const res = await window.familyVault.downloadGemmaModel();
+    const modelVariant = aiModelVariantSelect?.value === 'E4B' ? 'E4B' : 'E2B';
+    const modelLabel = `Gemma-4-${modelVariant}`;
+    const res = await window.familyVault.downloadGemmaModel(modelVariant);
     if (res && res.success) {
-      showToast('Gemma-4-E2B model installed & local CPU engine started! (127.0.0.1:18432)', 'success');
+      showToast(`${modelLabel} model installed & local CPU engine started! (127.0.0.1:18432)`, 'success');
       await checkAiModelStatus();
       const engineText = document.getElementById('ai-active-engine-text');
-      if (engineText) engineText.textContent = 'Local Gemma-4-E2B (CPU Multimodal 127.0.0.1)';
+      if (engineText) engineText.textContent = `Local ${modelLabel} (CPU Multimodal 127.0.0.1)`;
       if (btnStartAiServer) btnStartAiServer.classList.add('hidden');
       if (btnStopAiServer) btnStopAiServer.classList.remove('hidden');
       if (aiQuickSetupBox) aiQuickSetupBox.classList.add('hidden');
