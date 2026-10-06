@@ -802,9 +802,7 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
   #import-analysis-status-text { animation: none; }
 }
 #ai-settings-panel { background: rgba(0, 0, 0, .15) !important; border-color: var(--border-subtle) !important; }
-#ai-quick-setup-box { background: rgba(16, 163, 127, .08) !important; border-color: rgba(16, 163, 127, .25) !important; }
-#modal-users-profiles .modal-content, #modal-audit-logs .modal-content, #modal-ai-qa .modal-content { background: var(--glass-strong) !important; }
-#modal-users-profiles .modal-header { background: rgba(255, 255, 255, 0.03) !important; }
+#modal-audit-logs .modal-content, #modal-ai-qa .modal-content { background: var(--glass-strong) !important; }
 @media (max-width: 1100px) { body { min-width: 760px; } .sidebar { flex-basis: 200px; } .detail-drawer { flex-basis: 400px; } .top-bar-actions .btn:nth-child(3), .top-bar-actions .btn:nth-child(4) { display: none; } }
 
 /* Refined selects and profile controls */
@@ -965,112 +963,154 @@ select.input-field:disabled {
   color: #fff !important;
 }
 
-#modal-users-profiles .modal-content {
-  background: linear-gradient(145deg, rgba(32, 37, 39, .98), rgba(23, 26, 28, .98)) !important;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 18px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .035);
+/* Acrylic Glassmorphic Styling for Family Profiles Modal */
+#modal-users-profiles .modal-content,
+.modal-users-profiles-content {
+  background: rgba(18, 22, 25, 0.78) !important;
+  backdrop-filter: blur(28px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(140%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  max-width: 960px !important;
+  width: 94% !important;
+  max-height: 88vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  overflow: hidden !important;
 }
+
 #modal-users-profiles .modal-header {
-  background: rgba(255, 255, 255, .035) !important;
-  border-bottom-color: rgba(255, 255, 255, .09) !important;
-  min-height: 72px;
-  padding: 16px 22px !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  min-height: 68px;
+  padding: 14px 20px !important;
+  backdrop-filter: blur(10px);
 }
+
 #modal-users-profiles .modal-header h3 {
   color: var(--text-primary);
-  font-size: 17px !important;
-  letter-spacing: -.015em;
-  line-height: 24px;
+  font-size: 16px !important;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 22px;
 }
+
 #modal-users-profiles .modal-header p {
   color: var(--text-muted) !important;
-  font-size: 12px !important;
-  line-height: 17px;
+  font-size: 11px !important;
+  line-height: 16px;
   margin-top: 3px !important;
   max-width: 680px;
 }
-#modal-users-profiles .modal-content > div:nth-child(2) > div:first-child {
-  background: rgba(0, 0, 0, .15) !important;
-  border-right-color: rgba(255, 255, 255, .08) !important;
+
+#users-profile-sidebar-pane {
+  width: 270px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 14, 16, 0.45);
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(12px);
 }
-#modal-users-profiles #users-profile-list {
-  gap: 5px !important;
-  padding: 10px !important;
+
+#users-profile-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
-#modal-users-profiles #users-profile-list > div {
+
+.user-item-btn {
+  padding: 9px 11px !important;
   border-radius: 9px !important;
-  padding: 10px 11px !important;
-  transition: background .16s ease, border-color .16s ease, transform .16s ease !important;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: all 0.16s ease !important;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
-#modal-users-profiles #users-profile-list > div:hover {
+
+.user-item-btn:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
   transform: translateX(2px);
 }
-#modal-users-profiles #users-profile-detail-pane {
-  background: rgba(255, 255, 255, .012) !important;
-  gap: 16px !important;
-  padding: 22px 26px !important;
+
+.user-item-btn.active {
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
-#modal-users-profiles #user-detail-name {
-  font-size: 21px !important;
-  font-weight: 650;
-  letter-spacing: -.02em;
-  line-height: 28px;
+
+.user-item-btn.active strong {
+  color: #ffffff !important;
 }
-#modal-users-profiles #users-profile-content > div:first-child {
-  align-items: center !important;
-  border-bottom: 1px solid rgba(255, 255, 255, .08);
-  gap: 14px;
-  padding-bottom: 16px;
-}
-#modal-users-profiles #users-profile-content > div:first-child > div:first-child > div {
-  gap: 7px !important;
-  margin-top: 7px !important;
-}
-#modal-users-profiles #users-profile-content > div:first-child .btn {
-  min-height: 32px;
-  padding: 5px 11px !important;
-}
-#modal-users-profiles #btn-edit-user-profile {
-  background: rgba(255, 255, 255, .06) !important;
-  border-color: rgba(255, 255, 255, .12) !important;
-  color: var(--text-primary) !important;
-}
-#modal-users-profiles #btn-edit-user-profile:hover {
-  background: rgba(255, 255, 255, .12) !important;
-  border-color: rgba(255, 255, 255, .2) !important;
-}
-#modal-users-profiles .user-card-panel {
-  background: rgba(255, 255, 255, .028) !important;
-  border-color: rgba(255, 255, 255, .085) !important;
-  border-radius: 11px !important;
-  height: 190px;
-  min-height: 0;
+
+#users-profile-detail-pane {
+  flex: 1;
   overflow-y: auto;
-  padding: 15px !important;
-  transition: border-color .16s ease, background .16s ease;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgba(14, 18, 20, 0.35);
+  backdrop-filter: blur(16px);
 }
-#modal-users-profiles #users-profile-content > div:last-child {
-  align-items: stretch;
-  grid-auto-rows: 190px;
+
+#user-detail-name {
+  font-size: 20px !important;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: #ffffff;
 }
-#modal-users-profiles #user-source-docs-list {
-  max-height: 92px !important;
-  overflow-y: auto !important;
-  padding-right: 4px;
+
+/* Contradiction alert styling matching Delete Modal security notice */
+.user-contradiction-banner {
+  margin-bottom: 14px;
+  background: rgba(239, 68, 68, 0.08) !important;
+  border: 1px solid rgba(239, 68, 68, 0.28) !important;
+  border-left: 3px solid #ef4444 !important;
+  border-radius: 8px !important;
+  padding: 12px 14px !important;
+  backdrop-filter: blur(10px) !important;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.06);
 }
-#modal-users-profiles .user-card-panel .user-detail-field > span:last-child,
-#modal-users-profiles .user-card-panel .user-detail-field > strong {
-  overflow-wrap: anywhere;
+
+.user-card-panel {
+  background: rgba(255, 255, 255, 0.032) !important;
+  border: 1px solid rgba(255, 255, 255, 0.075) !important;
+  border-radius: 12px !important;
+  padding: 14px !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  transition: all 0.16s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
-#modal-users-profiles .user-card-panel:hover {
-  background: rgba(255, 255, 255, .04) !important;
-  border-color: rgba(255, 255, 255, .13) !important;
+
+.user-card-panel:hover {
+  background: rgba(255, 255, 255, 0.048) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
 }
-#modal-users-profiles .user-card-panel > div:first-child {
-  color: #a4ddce !important;
-  font-size: 12px !important;
-  letter-spacing: .01em;
+
+.user-card-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a4ddce;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: 0.01em;
+}
+
+.user-card-header svg {
+  color: #a4ddce;
+  flex-shrink: 0;
 }
 #modal-edit-user-profile .modal-content {
   background: linear-gradient(145deg, rgba(35, 39, 40, .99), rgba(24, 27, 28, .99)) !important;

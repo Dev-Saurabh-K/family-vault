@@ -680,7 +680,7 @@ function renderSidebarFamilyMembers(profiles) {
     }
 
     const conflictBadge = profile.hasContradictions
-      ? `<span class="badge" title="${profile.contradictionCount} Discrepancies" style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-size: 9px; padding: 1px 4px; border: 1px solid rgba(239, 68, 68, 0.35);">⚠️</span>`
+      ? `<span class="badge" title="${profile.contradictionCount} Discrepancies" style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-size: 9px; padding: 2px 4px; border: 1px solid rgba(239, 68, 68, 0.35); display: inline-flex; align-items: center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></span>`
       : '';
 
     const avatarColor = getAvatarColor(profile.name);
@@ -1171,7 +1171,7 @@ async function loadVersionPreview(versionId, mimeType, fileName, fileSize) {
   } catch (err) {
     drawerPreviewBox.innerHTML = `
       <div class="preview-error-fallback">
-        <div class="fallback-icon">⚠️</div>
+        <div class="fallback-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
         <h4>Failed to Decrypt Preview</h4>
         <p>${escapeHtml(err.message || 'Decryption key error or corrupt preview block.')}</p>
         <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">The encrypted raw file remains safely intact in your vault.</div>
@@ -2858,16 +2858,14 @@ function renderUsersList(profiles, preferredSelectedName = null) {
   filtered.forEach(u => {
     const item = document.createElement('div');
     item.className = 'user-item-btn';
-    item.style.cssText = 'padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; border: 1px solid transparent;';
     
     const isTarget = u.name === (preferredSelectedName || selectedProfileName);
     if (isTarget) {
-      item.style.background = 'rgba(59, 130, 246, 0.15)';
-      item.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+      item.classList.add('active');
     }
 
     const conflictBadge = u.hasContradictions
-      ? `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 9px; padding: 1px 5px;">⚠️ ${u.contradictionCount} Discrepanc${u.contradictionCount > 1 ? 'ies' : 'y'}</span>`
+      ? `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 9px; padding: 1px 6px; display: inline-flex; align-items: center; gap: 4px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>${u.contradictionCount} Discrepanc${u.contradictionCount > 1 ? 'ies' : 'y'}</span>`
       : '';
 
     item.innerHTML = `
@@ -2883,12 +2881,10 @@ function renderUsersList(profiles, preferredSelectedName = null) {
     `;
 
     item.addEventListener('click', () => {
-      document.querySelectorAll('#users-profile-list > div').forEach(el => {
-        el.style.background = 'transparent';
-        el.style.borderColor = 'transparent';
+      document.querySelectorAll('#users-profile-list .user-item-btn').forEach(el => {
+        el.classList.remove('active');
       });
-      item.style.background = 'rgba(59, 130, 246, 0.15)';
-      item.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+      item.classList.add('active');
       loadUserProfileDetails(u.name);
     });
 
@@ -2984,7 +2980,7 @@ function renderFieldWithConflict(element, value, contradictionObj) {
   if (!element) return;
   const valStr = value && String(value).trim() ? String(value).trim() : '-';
   if (contradictionObj && contradictionObj.isContradicting) {
-    element.innerHTML = `${escapeHtml(valStr)} <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); font-size: 9px; margin-left: 6px;">⚠️ Contradicting</span>`;
+    element.innerHTML = `${escapeHtml(valStr)} <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); font-size: 9px; margin-left: 6px; display: inline-flex; align-items: center; gap: 3px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Contradicting</span>`;
   } else {
     element.textContent = valStr;
   }
