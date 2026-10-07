@@ -34,5 +34,5 @@ The installed application is replaceable. A user's vault is their data and must 
 
 ## Search strategy
 
-The primary search path is metadata filtering and SQLite full-text search. Semantic embeddings are a separate optional layer for meaning-based retrieval; they are not required for basic search and must be abstracted from any single embedding model or vector store.
+The primary search path is metadata filtering and SQLite full-text search. Semantic embeddings are a separate optional layer for meaning-based retrieval; they are not required for basic search and must be abstracted from any single embedding model or vector store..
 
