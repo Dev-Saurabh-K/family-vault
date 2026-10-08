@@ -119,25 +119,167 @@ function isValidIsoDate(str) {
   return d.getUTCFullYear() === y && (d.getUTCMonth() + 1) === m && d.getUTCDate() === day;
 }
 
+const JSON_GBNF_GRAMMAR = `root   ::= object
+value  ::= object | array | string | number | ("true" | "false" | "null") ws
+
+object ::=
+  "{" ws (
+            string ":" ws value
+    ("," ws string ":" ws value)*
+  )? "}" ws
+
+array  ::=
+  "[" ws (
+            value
+    ("," ws value)*
+  )? "]" ws
+
+string ::=
+  "\\"" (
+    [^"\\\\] |
+    "\\\\" (["\\\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+  )* "\\"" ws
+
+number ::= ("-"? ([0-9] | [1-9] [0-9]*)) ("." [0-9]+)? ([eE] [-+]? [0-9]+)? ws
+
+ws ::= [ \\t\\n\\r]*`;
+
+function stripTrailingCommas(str) {
+  return str.replace(/,\s*([}\]])/g, '$1');
+}
+
+function balanceAndParse(str) {
+  let input = str.trim();
+  input = stripTrailingCommas(input);
+
+  let inString = false;
+  let escapeNext = false;
+  const stack = [];
+  let s = '';
+
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+    if (escapeNext) {
+      escapeNext = false;
+      s += char;
+      continue;
+    }
+    if (char === '\\') {
+      if (inString) escapeNext = true;
+      s += char;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      s += char;
+      continue;
+    }
+    if (inString) {
+      if (char === '\n') {
+        s += '\\n';
+        continue;
+      }
+      if (char === '\r') {
+        continue;
+      }
+      if (char === '\t') {
+        s += '\\t';
+        continue;
+      }
+      s += char;
+      continue;
+    }
+    if (char === '{' || char === '[') {
+      stack.push(char);
+    } else if (char === '}') {
+      if (stack.length > 0 && stack[stack.length - 1] === '{') {
+        stack.pop();
+      }
+    } else if (char === ']') {
+      if (stack.length > 0 && stack[stack.length - 1] === '[') {
+        stack.pop();
+      }
+    }
+    s += char;
+  }
+
+  if (inString) {
+    s += '"';
+  }
+
+  s = s.replace(/,\s*$/, '');
+
+  while (stack.length > 0) {
+    const openChar = stack.pop();
+    if (openChar === '{') s += '}';
+    else if (openChar === '[') s += ']';
+  }
+
+  s = stripTrailingCommas(s);
+
+  try {
+    return JSON.parse(s);
+  } catch (e) {
+    return null;
+  }
+}
+
+function attemptJsonRepair(candidate) {
+  let result = balanceAndParse(candidate);
+  if (result) return result;
+
+  let current = candidate;
+  for (let i = 0; i < 10; i++) {
+    const lastComma = current.lastIndexOf(',');
+    if (lastComma === -1) break;
+    current = current.slice(0, lastComma);
+    result = balanceAndParse(current);
+    if (result) return result;
+  }
+  return null;
+}
+
 function extractJsonFromText(rawText) {
   if (!rawText || typeof rawText !== 'string') return null;
+
   let text = rawText.trim();
-  if (text.startsWith('```')) {
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) {
+    text = fenceMatch[1].trim();
+  } else if (text.startsWith('```')) {
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
   }
+
+  // 1. Direct parse attempt
   try {
     return JSON.parse(text);
   } catch (e) {}
 
+  // 2. Trailing comma cleanup on full text
+  try {
+    return JSON.parse(stripTrailingCommas(text));
+  } catch (e) {}
+
+  // 3. Extract between first { and last }
   const startIdx = text.indexOf('{');
-  const endIdx = text.lastIndexOf('}');
-  if (startIdx !== -1 && endIdx > startIdx) {
-    const candidate = text.substring(startIdx, endIdx + 1);
+  if (startIdx === -1) return null;
+
+  const lastEndIdx = text.lastIndexOf('}');
+  if (lastEndIdx > startIdx) {
+    const candidate = text.substring(startIdx, lastEndIdx + 1);
     try {
       return JSON.parse(candidate);
     } catch (e) {}
+    try {
+      return JSON.parse(stripTrailingCommas(candidate));
+    } catch (e) {}
   }
-  return null;
+
+  // 4. Defensive repair for truncated / cut-off JSON
+  let candidate = text.substring(startIdx).trim();
+  candidate = candidate.replace(/```\s*$/, '').trim();
+
+  return attemptJsonRepair(candidate);
 }
 
 function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = [], options = {}) {
@@ -174,10 +316,9 @@ function parseAndValidateAiMetadata(rawContent, text, fileName, knownPersons = [
   let unmatchedPerson = null;
 
   let candidatePerson = null;
-  if (typeof parsed.person === 'string' && parsed.person.trim()) {
-    candidatePerson = parsed.person.trim().replace(/^(?:Name|Patient|Cardholder|Policyholder|Insured|Citizen|MR|MRS|MS|DR)\s*[:.-]?\s*/i, '').trim();
-  } else if (typeof parsed.unmatchedPerson === 'string' && parsed.unmatchedPerson.trim()) {
-    candidatePerson = parsed.unmatchedPerson.trim().replace(/^(?:Name|Patient|Cardholder|Policyholder|Insured|Citizen|MR|MRS|MS|DR)\s*[:.-]?\s*/i, '').trim();
+  const rawCandidate = parsed.detectedName || parsed.person || parsed.unmatchedPerson;
+  if (typeof rawCandidate === 'string' && rawCandidate.trim()) {
+    candidatePerson = rawCandidate.trim().replace(/^(?:Name|Patient|Cardholder|Policyholder|Insured|Citizen|MR|MRS|MS|DR)\s*[:.-]?\s*/i, '').trim();
   }
 
   const blacklist = /\b(?:government|republic|passport|department|authority|insurance|hospital|clinic|bank|ministry|embassy|official|unknown|none|n\/a|null|undefined|sample|test|validity)\b/i;
@@ -897,7 +1038,7 @@ class LlmService {
    * Expiry date is strictly validated and grounded in document text.
    * Person is matched against known family members or validated individual name.
    */
-  async extractDocumentMetadata({ text, fileName = '', knownPersons = [] }) {
+  async extractDocumentMetadata({ text, fileName = '', knownPersons = [], options = {} }) {
     // 1. Run deterministic baseline extraction
     const deterministic = extractionService.analyzeDocumentText(text, fileName, { knownPersons });
 
@@ -912,7 +1053,14 @@ class LlmService {
     // 3. Local neural extraction via llama-server
     try {
       const prompt = this._buildExtractionPrompt(text, fileName, knownPersons);
-      const rawAiResponse = await this._queryLlamaServer(prompt);
+      const queryOptions = {};
+      if (options && options.grammar) {
+        queryOptions.grammar = options.grammar;
+      }
+      if (options && options.json_schema) {
+        queryOptions.json_schema = options.json_schema;
+      }
+      const rawAiResponse = await this._queryLlamaServer(prompt, null, 512, queryOptions);
       const validatedAi = parseAndValidateAiMetadata(rawAiResponse, text, fileName, knownPersons);
 
       if (!validatedAi) {
@@ -1675,15 +1823,26 @@ ${safeText}<end_of_turn>
 `;
   }
 
-  async _queryLlamaServer(prompt, onToken, maxTokens = 256) {
+  async _queryLlamaServer(prompt, onToken, maxTokens = 256, options = {}) {
     return new Promise((resolve, reject) => {
-      const data = JSON.stringify({
+      const payload = {
         prompt,
         temperature: 0.0,
         n_predict: maxTokens,
         stop: ['<end_of_turn>', '<eos>', '<start_of_turn>'],
         ...(typeof onToken === 'function' ? { stream: true } : {})
-      });
+      };
+
+      if (options && options.grammar) {
+        payload.grammar = (options.grammar === true || options.grammar === 'json')
+          ? JSON_GBNF_GRAMMAR
+          : options.grammar;
+      }
+      if (options && options.json_schema) {
+        payload.json_schema = options.json_schema;
+      }
+
+      const data = JSON.stringify(payload);
 
       const req = http.request({
         hostname: '127.0.0.1',
@@ -2059,6 +2218,8 @@ module.exports = {
   llmService,
   resolvePersonScope,
   parseAndValidateAiMetadata,
+  extractJsonFromText,
+  JSON_GBNF_GRAMMAR,
   VALID_CATEGORIES,
   VALID_DOC_TYPES
 };

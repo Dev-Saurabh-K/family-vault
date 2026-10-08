@@ -7,6 +7,8 @@ const {
   LlmService,
   resolvePersonScope,
   parseAndValidateAiMetadata,
+  extractJsonFromText,
+  JSON_GBNF_GRAMMAR,
   VALID_CATEGORIES,
   VALID_DOC_TYPES
 } = require('../src/main/services/llmService');
@@ -1346,3 +1348,132 @@ test('LlmService: parseAndValidateAiMetadata and extractDocumentMetadata priorit
   assert.strictEqual(extracted.suggestedTitle, 'Electricity Utility Bill (March 2026)');
   assert.strictEqual(extracted.title, 'Electricity Utility Bill (March 2026)');
 });
+
+test('LlmService: extractJsonFromText defensively parses markdown fences, trailing commas, and unclosed JSON', () => {
+  // 1. Markdown code block with leading/trailing text and trailing commas
+  const fenceInput = `Here is the parsed result:
+\`\`\`json
+{
+  "category": "identity",
+  "docType": "passport",
+  "tags": ["travel", "id",],
+}
+\`\`\`
+Hope this helps!`;
+  const res1 = extractJsonFromText(fenceInput);
+  assert.deepStrictEqual(res1, {
+    category: 'identity',
+    docType: 'passport',
+    tags: ['travel', 'id']
+  });
+
+  // 2. Truncated mid-JSON with missing closing brace
+  const missingBrace = '{"category": "medical", "docType": "medical_record", "issuer": "City Hospital"';
+  const res2 = extractJsonFromText(missingBrace);
+  assert.deepStrictEqual(res2, {
+    category: 'medical',
+    docType: 'medical_record',
+    issuer: 'City Hospital'
+  });
+
+  // 3. Truncated mid-string at token ceiling
+  const cutMidString = '{"category": "insurance", "docType": "insurance_policy", "title": "State Farm Auto Ins';
+  const res3 = extractJsonFromText(cutMidString);
+  assert.deepStrictEqual(res3, {
+    category: 'insurance',
+    docType: 'insurance_policy',
+    title: 'State Farm Auto Ins'
+  });
+
+  // 4. Truncated at colon or trailing comma
+  const cutAtColon = '{"category": "tax", "docType": "tax_document", "issuer": ';
+  const res4 = extractJsonFromText(cutAtColon);
+  assert.deepStrictEqual(res4, {
+    category: 'tax',
+    docType: 'tax_document'
+  });
+
+  // 5. Unclosed array and object
+  const unclosedArray = '{"category": "identity", "tags": ["passport", "republic"';
+  const res5 = extractJsonFromText(unclosedArray);
+  assert.deepStrictEqual(res5, {
+    category: 'identity',
+    tags: ['passport', 'republic']
+  });
+
+  // 6. Unescaped newline in string literal
+  const unescapedNewline = '{\n  "category": "other",\n  "notes": "First line\nSecond line"\n}';
+  const res6 = extractJsonFromText(unescapedNewline);
+  assert.deepStrictEqual(res6, {
+    category: 'other',
+    notes: 'First line\nSecond line'
+  });
+
+  // 7. Non-JSON text returns null
+  assert.strictEqual(extractJsonFromText('I am not a JSON object at all'), null);
+  assert.strictEqual(extractJsonFromText(''), null);
+  assert.strictEqual(extractJsonFromText(null), null);
+});
+
+test('LlmService: extractDocumentMetadata queries llama-server with 512 maxTokens and salvages truncated JSON', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+
+  let capturedMaxTokens = null;
+  let capturedOptions = null;
+  service._queryLlamaServer = async (_prompt, _onToken, maxTokens, options) => {
+    capturedMaxTokens = maxTokens;
+    capturedOptions = options;
+    // Simulate truncated response with trailing comma and missing closing brace
+    return '{"category": "identity", "docType": "passport", "person": "Rahul Sharma", "title": "Indian Passport",';
+  };
+
+  const text = 'REPUBLIC OF INDIA PASSPORT SURNAME: SHARMA GIVEN NAMES: RAHUL';
+  const result = await service.extractDocumentMetadata({
+    text,
+    fileName: 'passport.pdf',
+    knownPersons: ['Rahul Sharma'],
+    options: { grammar: true }
+  });
+
+  assert.strictEqual(capturedMaxTokens, 512, 'Must query llama-server with 512 max tokens for metadata extraction');
+  assert.strictEqual(capturedOptions.grammar, true);
+  assert.strictEqual(result.category, 'identity');
+  assert.strictEqual(result.docType, 'passport');
+  assert.strictEqual(result.person, 'Rahul Sharma');
+  assert.strictEqual(result.title, 'Indian Passport');
+});
+
+test('LlmService: _queryLlamaServer sends grammar and json_schema in payload when configured', async () => {
+  let receivedPayload = null;
+  const server = http.createServer((req, res) => {
+    let requestBody = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => requestBody += chunk);
+    req.on('end', () => {
+      receivedPayload = JSON.parse(requestBody);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ content: '{"status":"ok"}' }));
+    });
+  });
+
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const service = new LlmService();
+  service._port = server.address().port;
+
+  try {
+    // 1. With grammar: true (defaults to JSON_GBNF_GRAMMAR)
+    await service._queryLlamaServer('test prompt', null, 512, { grammar: true });
+    assert.strictEqual(receivedPayload.n_predict, 512);
+    assert.strictEqual(receivedPayload.grammar, JSON_GBNF_GRAMMAR);
+
+    // 2. With json_schema
+    const schema = { type: 'object', properties: { category: { type: 'string' } } };
+    await service._queryLlamaServer('test prompt', null, 256, { json_schema: schema });
+    assert.strictEqual(receivedPayload.n_predict, 256);
+    assert.deepStrictEqual(receivedPayload.json_schema, schema);
+  } finally {
+    await new Promise((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+  }
+});
+
