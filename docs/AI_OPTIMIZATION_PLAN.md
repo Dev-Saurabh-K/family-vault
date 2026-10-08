@@ -34,6 +34,7 @@ flowchart LR
 ---
 
 ### Step 1: Fix Token Choke & Strengthen JSON Repair
+> **Status**: Completed (Implemented & Verified in test suite)
 
 #### Objective:
 Ensure the LLM never gets cut off mid-JSON, and that minor formatting quirks (like markdown code blocks or trailing commas) never cause the entire output to be discarded.
@@ -63,6 +64,7 @@ Ensure the LLM never gets cut off mid-JSON, and that minor formatting quirks (li
 ---
 
 ### Step 2: Deconstruct the Monolithic Prompt into Focused Micro-Prompts
+> **Status**: Completed (Implemented & Verified in test suite)
 
 #### Objective:
 Relieve cognitive load on the 2B model by asking only for high-level semantic insights (category, document type, suggested title), letting code handle deterministic tasks.
@@ -109,6 +111,8 @@ Relieve cognitive load on the 2B model by asking only for high-level semantic in
 ---
 
 ### Step 3: Enforce Deterministic Routing, Dates, and Member Grounding in Code
+> **Status**: Skipped for now (Yet to implement)  
+> *Note: By user direction, full deterministic migration of Step 3 was skipped to proceed directly to Step 4 profile fact extraction. Step 3 remains planned and will be implemented in a subsequent phase.*
 
 #### Objective:
 Delegate dates, tags, and family member matching 100% to deterministic JavaScript code, which does not hallucinate.
@@ -141,6 +145,7 @@ Delegate dates, tags, and family member matching 100% to deterministic JavaScrip
 ---
 
 ### Step 4: Upgrade Profile Fact Extraction with Targeted AI Fallback
+> **Status**: Completed (Implemented & Verified in test suite)
 
 #### Objective:
 Fix the fragility of biographical fact extraction (Father's name, Mother's name, Residential address) in `extractProfileFacts`.
@@ -204,12 +209,12 @@ This floods the prompt with 3x–4x redundant repetitions of the same words.
 
 ## 3. Implementation Order & Safety Checklist
 
-| Step | Complexity | Level | Risk of Regression | Expected Benefit |
-| :---: | :---: | :---: | :---: | :--- |
-| **Step 1** | Low | Level 1 | Very Low | Eliminates 100% of JSON truncation crashes. |
-| **Step 2** | Medium | Level 1 | Low | Faster inference, reliable titles & categories. |
-| **Step 3** | Medium | Level 1 | Low | 100% deterministic dates; zero hallucinated members. |
-| **Step 4** | Medium | Level 1 | Low | Significantly captures addresses & parent names from scans. |
-| **Step 5** | Low | Level 1 | Very Low | Faster Q&A responses, cleaner citations, no token bloat. |
+| Step | Status | Complexity | Level | Risk of Regression | Expected Benefit |
+| :---: | :---: | :---: | :---: | :---: | :--- |
+| **Step 1** | **Completed** | Low | Level 1 | Very Low | Eliminates 100% of JSON truncation crashes. |
+| **Step 2** | **Completed** | Medium | Level 1 | Low | Faster inference, reliable titles & categories. |
+| **Step 3** | **Skipped (Yet to implement)** | Medium | Level 1 | Low | 100% deterministic dates; zero hallucinated members. |
+| **Step 4** | **Completed** | Medium | Level 1 | Low | Significantly captures addresses & parent names from scans. |
+| **Step 5** | Proposed / Pending | Low | Level 1 | Very Low | Faster Q&A responses, cleaner citations, no token bloat. |
 
 All planned changes are **Level 1** architectural changes (local implementation, bug fixes, preserving documented offline boundaries), allowing safe and structured execution.

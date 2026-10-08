@@ -779,8 +779,9 @@ class VaultService {
       notify({ personName: person, documentId: docId, progress: 15, step: 'started' });
       await sleep(220);
 
-      // Step 1: Extract structured profile facts using Information Schema
-      const extractedFacts = extractionService.extractProfileFacts(text, person).map(f => ({
+      // Step 1: Extract structured profile facts using Information Schema with targeted AI fallback
+      const factsList = await extractionService.extractProfileFactsWithAi(text, person, this._llmService);
+      const extractedFacts = factsList.map(f => ({
         ...f,
         sourceDocumentId: docId,
         sourceVersionId: versionId
@@ -796,7 +797,12 @@ class VaultService {
         const valLower = String(f.fieldValue).toLowerCase();
         if (textLower.includes(valLower)) return true;
         const tokens = valLower.replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(t => t.length >= 3);
-        return tokens.length > 0 && tokens.every(t => textLower.includes(t));
+        if (tokens.length === 0) return false;
+        if (f.fieldName === 'address' && tokens.length >= 3) {
+          const matchCount = tokens.filter(t => textLower.includes(t)).length;
+          return (matchCount / tokens.length) >= 0.65;
+        }
+        return tokens.every(t => textLower.includes(t));
       });
 
       notify({ personName: person, documentId: docId, progress: 85, step: 'grounding_verified' });

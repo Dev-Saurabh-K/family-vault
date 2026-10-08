@@ -5,7 +5,8 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { extractProfileFacts } = require('../src/main/services/extractionService');
+const { extractProfileFacts, extractProfileFactsWithAi, cleanPersonName } = require('../src/main/services/extractionService');
+const { LlmService } = require('../src/main/services/llmService');
 const { VaultService } = require('../src/main/vault/vaultService');
 
 test('ExtractionService: extractProfileFacts extracts structured biographical, parental, and academic data', () => {
@@ -409,3 +410,151 @@ test('Phase 2 Pipeline: Pre-analyze does not output profile facts; background pr
   service.lockVault();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('Step 4 Pass 1: Enhanced deterministic regex patterns for S/O, D/O, C/O, and residence addresses', () => {
+  // Test S/O and C/O abbreviations commonly found on Indian and Asian ID cards
+  const noisyCard = `
+    GOVERNMENT ID CARD
+    Name: Rahul Verma
+    S/O: Suresh Verma
+    DOB: 10/12/1995
+    Residence: 104 Lake View Apartments, Road No 12, Hyderabad 500034
+    Mobile: 9876543210
+  `;
+
+  const facts = extractProfileFacts(noisyCard, 'Rahul Verma');
+  const factMap = Object.fromEntries(facts.map(f => [f.fieldName, f.fieldValue]));
+
+  assert.strictEqual(factMap.fathers_name, 'Suresh Verma');
+  assert.strictEqual(factMap.dob, '1995-12-10');
+  assert.ok(factMap.address.includes('Lake View Apartments'));
+  assert.ok(factMap.address.includes('Hyderabad'));
+  assert.ok(!factMap.address.includes('Mobile'), 'Address must not include subsequent Mobile field');
+
+  // Test C/O pattern
+  const coCard = `
+    AADHAAR CARD
+    Name: Meera Patel
+    C/O: Ramesh Patel
+    DOB: 05/04/1992
+    Gender: Female
+    Address: Flat 3B, Sunshine Towers, MG Road, Pune 411001
+  `;
+  const coFacts = extractProfileFacts(coCard, 'Meera Patel');
+  const coMap = Object.fromEntries(coFacts.map(f => [f.fieldName, f.fieldValue]));
+  assert.strictEqual(coMap.fathers_name, 'Ramesh Patel');
+  assert.strictEqual(coMap.gender, 'Female');
+  assert.ok(coMap.address.includes('Sunshine Towers'));
+});
+
+test('Step 4 Pass 2: Targeted LLM Fallback (extractBiographicalFacts) extracts missing parents and address', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+
+  // Unstructured prose text where standard regex fails
+  const narrativeDoc = `
+    AFFIDAVIT OF RESIDENCE AND PARENTAGE
+    This official declaration confirms that the applicant Johnathan Miller
+    was born to proud parents George Miller (father) and Martha Miller (mother).
+    The Miller family has continuously resided at their family home situated at
+    452 Maple Blossom Avenue, Apartment 8C, Springfield, IL 62704 since 2010.
+  `;
+
+  service._queryLlamaServer = async (prompt) => {
+    assert.ok(prompt.includes('residential address'));
+    return JSON.stringify({
+      fathersName: 'George Miller',
+      mothersName: 'Martha Miller',
+      address: '452 Maple Blossom Avenue, Apartment 8C, Springfield, IL 62704'
+    });
+  };
+
+  const facts = await extractProfileFactsWithAi(narrativeDoc, 'Johnathan Miller', service);
+  const factMap = Object.fromEntries(facts.map(f => [f.fieldName, f.fieldValue]));
+
+  assert.strictEqual(factMap.fathers_name, 'George Miller');
+  assert.strictEqual(factMap.mothers_name, 'Martha Miller');
+  assert.ok(factMap.address.includes('452 Maple Blossom Avenue'));
+  assert.ok(factMap.address.includes('Springfield'));
+
+  // Verify provenance and methods
+  const fatherFact = facts.find(f => f.fieldName === 'fathers_name');
+  assert.strictEqual(fatherFact.method, 'local-ai-gemma4');
+  assert.strictEqual(fatherFact.confidence, 0.88);
+});
+
+test('Step 4 Anti-Hallucination: extractBiographicalFacts rejects hallucinated addresses and ungrounded names', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+
+  const realText = `
+    RESIDENCE VERIFICATION SLIP
+    Citizen: David Miller
+    Living at: 742 Evergreen Terrace, Springfield
+  `;
+
+  // LLM hallucinates an address not in text and a father name not in text
+  service._queryLlamaServer = async () => JSON.stringify({
+    fathersName: 'Alexander Hamilton', // Not in text!
+    mothersName: null,
+    address: '999 Fantasy Island Boulevard, Atlantis, CA 90210' // Not in text!
+  });
+
+  const aiResult = await service.extractBiographicalFacts({
+    text: realText,
+    person: 'David Miller'
+  });
+
+  assert.strictEqual(aiResult.fathersName, null, 'Ungrounded father name must be rejected as null');
+  assert.strictEqual(aiResult.address, null, 'Hallucinated address must be rejected as null');
+});
+
+test('Step 4 VaultService: Background profile processing captures facts via AI fallback and persists to DB', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-step4-bg-'));
+  const vaultPath = path.join(tmpDir, 'Step4Vault.fvault');
+
+  const llmStub = new LlmService();
+  llmStub._isReady = true;
+  llmStub._queryLlamaServer = async () => JSON.stringify({
+    fathersName: 'Arthur Dent',
+    mothersName: 'Trillian Dent',
+    address: '42 Cottington Lane, Islington, London N1 2AB'
+  });
+
+  const service = new VaultService(llmStub);
+
+  await service.createVault({
+    vaultPath,
+    password: 'MasterPassword123!',
+    kdfParams: { memory: 4096, iterations: 1, parallelism: 1 }
+  });
+
+  service.addFamilyMember({ name: 'Arthur Dent Jr', dob: '2000-01-01', gender: 'Male' });
+
+  const bioDoc = path.join(tmpDir, 'bio_certificate.pdf');
+  fs.writeFileSync(bioDoc, Buffer.from(`
+    %PDF-1.4
+    FAMILY DESCENT DOCUMENT
+    Person: Arthur Dent Jr
+    Descended from parent Arthur Dent and mother Trillian Dent
+    Family estate at 42 Cottington Lane, Islington, London N1 2AB
+  `, 'utf8'));
+
+  await service.importDocument({
+    filePath: bioDoc,
+    title: 'Descent Certificate',
+    person: 'Arthur Dent Jr',
+    category: 'identity'
+  });
+
+  // Verify user profile in SQLite has the facts persisted
+  const userProfile = service.getUserProfile('Arthur Dent Jr');
+  assert.strictEqual(userProfile.profile.fathersName, 'Arthur Dent');
+  assert.strictEqual(userProfile.profile.mothersName, 'Trillian Dent');
+  assert.ok(userProfile.profile.address.includes('42 Cottington Lane'));
+  assert.ok(userProfile.profile.address.includes('London'));
+
+  service.lockVault();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+

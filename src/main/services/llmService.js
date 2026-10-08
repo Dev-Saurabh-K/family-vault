@@ -2175,6 +2175,118 @@ If exact bounding boxes are not measurable, return { "fullText": "..." }. Respon
     });
   }
 
+  /**
+   * Constructs a focused micro-prompt for biographical fact extraction
+   * (fathersName, mothersName, address) from document text.
+   * Adheres to Step 4 of docs/AI_OPTIMIZATION_PLAN.md.
+   */
+  _buildBiographicalPrompt(text, missingFields = {}) {
+    const excerpt = (text || '').slice(0, 2500).trim();
+    return [
+      'Extract the residential address and parent names from this document snippet.',
+      'Respond with ONLY valid JSON with keys "address", "fathersName", "mothersName":',
+      '{',
+      '  "address": "<full residential address string or null>",',
+      '  "fathersName": "<father name or null>",',
+      '  "mothersName": "<mother name or null>"',
+      '}',
+      'Rules:',
+      '- Use null if not explicitly mentioned in the text.',
+      '- Do not guess or invent names or addresses.',
+      '- Output valid JSON only, without commentary.',
+      '',
+      'Document snippet:',
+      '"""',
+      excerpt,
+      '"""'
+    ].join('\n');
+  }
+
+  /**
+   * Extracts biographical facts (fathersName, mothersName, address) via local Gemma-4-E2B
+   * when deterministic regex heuristics miss them.
+   * Grounded strictly in source text tokens to prevent hallucinations.
+   * Adheres to Step 4 of docs/AI_OPTIMIZATION_PLAN.md.
+   */
+  async extractBiographicalFacts({ text, person = null, missingFields = {} }) {
+    if (!this._isReady || !text || !text.trim()) {
+      return null;
+    }
+
+    try {
+      const prompt = this._buildBiographicalPrompt(text, missingFields);
+      const rawAiResponse = await this._queryLlamaServer(prompt, null, 256);
+      if (!rawAiResponse || typeof rawAiResponse !== 'string') {
+        return null;
+      }
+
+      const parsed = extractJsonFromText(rawAiResponse);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null;
+      }
+
+      const textLower = text.toLowerCase();
+      const result = {
+        fathersName: null,
+        mothersName: null,
+        address: null,
+        fathersSnippet: null,
+        mothersSnippet: null,
+        addressSnippet: null
+      };
+
+      // 1. Father's Name grounding & validation
+      if (typeof parsed.fathersName === 'string' && parsed.fathersName.trim()) {
+        const candidateFather = parsed.fathersName.trim().replace(/^(?:Father['’]?s?\s*Name|Father|S\/O|Son\s+of|C\/O)\s*[:.-]?\s*/i, '').trim();
+        const cleaned = typeof extractionService.cleanPersonName === 'function'
+          ? extractionService.cleanPersonName(candidateFather)
+          : candidateFather;
+        if (cleaned && cleaned.length >= 2 && cleaned.length <= 80 && !/^(?:none|null|unknown|n\/a|not\s+mentioned|father)$/i.test(cleaned)) {
+          const tokens = cleaned.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(t => t.length >= 2);
+          if (tokens.length > 0 && tokens.every(t => textLower.includes(t))) {
+            result.fathersName = cleaned;
+            result.fathersSnippet = `Father: ${cleaned}`;
+          }
+        }
+      }
+
+      // 2. Mother's Name grounding & validation
+      if (typeof parsed.mothersName === 'string' && parsed.mothersName.trim()) {
+        const candidateMother = parsed.mothersName.trim().replace(/^(?:Mother['’]?s?\s*Name|Mother|M\/O|Daughter\s+of)\s*[:.-]?\s*/i, '').trim();
+        const cleaned = typeof extractionService.cleanPersonName === 'function'
+          ? extractionService.cleanPersonName(candidateMother)
+          : candidateMother;
+        if (cleaned && cleaned.length >= 2 && cleaned.length <= 80 && !/^(?:none|null|unknown|n\/a|not\s+mentioned|mother)$/i.test(cleaned)) {
+          const tokens = cleaned.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(t => t.length >= 2);
+          if (tokens.length > 0 && tokens.every(t => textLower.includes(t))) {
+            result.mothersName = cleaned;
+            result.mothersSnippet = `Mother: ${cleaned}`;
+          }
+        }
+      }
+
+      // 3. Address grounding & validation
+      if (typeof parsed.address === 'string' && parsed.address.trim()) {
+        const rawAddr = parsed.address.replace(/^Address\s*[:.-]?\s*/i, '').replace(/\s+/g, ' ').trim();
+        if (rawAddr.length >= 10 && rawAddr.length <= 220 && !/^(?:none|null|unknown|n\/a|same\s+as|not\s+mentioned)$/i.test(rawAddr)) {
+          const addrTokens = rawAddr.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(t => t.length >= 3);
+          if (addrTokens.length > 0) {
+            const matchedCount = addrTokens.filter(t => textLower.includes(t)).length;
+            if ((matchedCount / addrTokens.length) >= 0.65) {
+              result.address = rawAddr;
+              result.addressSnippet = `Address: ${rawAddr}`;
+            }
+          }
+        }
+      }
+
+      return result;
+    } catch (err) {
+      console.warn('[llmService] extractBiographicalFacts failed:', err.message || err);
+      return null;
+    }
+  }
+
   _waitForHealth(port, timeoutMs) {
     const startTime = Date.now();
     return new Promise((resolve) => {

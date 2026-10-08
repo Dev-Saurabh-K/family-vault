@@ -1217,9 +1217,9 @@ function extractProfileFacts(text, personName = null) {
 
   // 1. Father's Name
   const fatherMatch = text.match(/(?:father['’]?s?\s*name|father\s*name)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i) ||
-                      text.match(/\b(?:s\/o|son\s+of|d\/o|daughter\s+of)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i);
+                      text.match(/\b(?:s\/o\.?|son\s+of|d\/o\.?|daughter\s+of|c\/o\.?|care\s+of)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i);
   if (fatherMatch) {
-    const rawVal = fatherMatch[1].split(/[\r\n;,]+/)[0].trim();
+    const rawVal = fatherMatch[1].split(/[\r\n;,]|\b(?:dob|date\s+of\s+birth|address|pin|sex|gender)\b/i)[0].trim();
     const cleaned = cleanPersonName(rawVal);
     if (cleaned) {
       facts.push({
@@ -1233,9 +1233,9 @@ function extractProfileFacts(text, personName = null) {
   }
 
   // 2. Mother's Name
-  const motherMatch = text.match(/(?:mother['’]?s?\s*name|mother\s*name|m\/o|mother)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i);
+  const motherMatch = text.match(/(?:mother['’]?s?\s*name|mother\s*name|\bm\/o\.?|\bmother)\s*[:.-]?\s*([A-Za-z\s.'-]+)/i);
   if (motherMatch) {
-    const rawVal = motherMatch[1].split(/[\r\n;,]+/)[0].trim();
+    const rawVal = motherMatch[1].split(/[\r\n;,]|\b(?:dob|date\s+of\s+birth|address|pin|sex|gender)\b/i)[0].trim();
     const cleaned = cleanPersonName(rawVal);
     if (cleaned) {
       facts.push({
@@ -1371,10 +1371,11 @@ function extractProfileFacts(text, personName = null) {
   }
 
   // 8. Address
-  const addrMatch = text.match(/(?:permanent\s*address|residential\s*address|present\s*address|address)\s*[:.-]?\s*([^\n\r]+(?:\n[^\n\r]+){0,2})/i);
+  const addrMatch = text.match(/(?:permanent\s*address|residential\s*address|present\s*address|residence|residing\s+at|address)\s*[:.-]?\s*([^\n\r]+(?:\r?\n[^\n\r]+){0,3})/i);
   if (addrMatch) {
-    const rawAddr = addrMatch[1].replace(/\s+/g, ' ').trim();
-    if (rawAddr.length >= 10 && rawAddr.length <= 160 && !/^(?:none|n\/a|same\s+as|null)$/i.test(rawAddr)) {
+    let rawAddr = addrMatch[1].split(/\r?\n(?:\s*(?:date|signature|mobile|phone|tel|email|aadhaar|pan|dl|license|issue)\b[:.-])/i)[0];
+    rawAddr = rawAddr.replace(/\s+/g, ' ').trim();
+    if (rawAddr.length >= 10 && rawAddr.length <= 200 && !/^(?:none|n\/a|same\s+as|null|not\s+mentioned)$/i.test(rawAddr)) {
       facts.push({
         personName,
         fieldName: 'address',
@@ -1418,6 +1419,82 @@ function extractProfileFacts(text, personName = null) {
   return facts;
 }
 
+/**
+ * Async extraction of profile facts combining fast deterministic Pass 1
+ * with targeted local LLM fallback (Pass 2) for missing biographical fields.
+ * Adheres strictly to Step 4 of docs/AI_OPTIMIZATION_PLAN.md.
+ */
+async function extractProfileFactsWithAi(text, personName = null, llmService = null) {
+  const deterministicFacts = extractProfileFacts(text, personName);
+  if (!llmService || typeof llmService.extractBiographicalFacts !== 'function' || !llmService.isReady()) {
+    return deterministicFacts;
+  }
+
+  const hasFather = deterministicFacts.some(f => f.fieldName === 'fathers_name');
+  const hasMother = deterministicFacts.some(f => f.fieldName === 'mothers_name');
+  const hasAddress = deterministicFacts.some(f => f.fieldName === 'address');
+
+  // If all critical biographical facts were found deterministically, no LLM query needed
+  if (hasFather && hasMother && hasAddress) {
+    return deterministicFacts;
+  }
+
+  // Check if text has any biographical indicator before invoking LLM to save CPU resources
+  const hasBioKeywords = /\b(father|mother|parent|s\/o|d\/o|c\/o|address|residence|residing|permanent|street|road|lane|colony|block|sector|flat|apt|apartment|p\.?o\.?|pin|zip)\b/i.test(text || '');
+  if (!hasBioKeywords) {
+    return deterministicFacts;
+  }
+
+  try {
+    const aiFacts = await llmService.extractBiographicalFacts({
+      text,
+      person: personName,
+      missingFields: {
+        fathersName: !hasFather,
+        mothersName: !hasMother,
+        address: !hasAddress
+      }
+    });
+
+    if (aiFacts) {
+      if (!hasFather && aiFacts.fathersName) {
+        deterministicFacts.push({
+          personName,
+          fieldName: 'fathers_name',
+          fieldValue: aiFacts.fathersName,
+          rawSnippet: aiFacts.fathersSnippet || `Father: ${aiFacts.fathersName}`,
+          confidence: 0.88,
+          method: 'local-ai-gemma4'
+        });
+      }
+      if (!hasMother && aiFacts.mothersName) {
+        deterministicFacts.push({
+          personName,
+          fieldName: 'mothers_name',
+          fieldValue: aiFacts.mothersName,
+          rawSnippet: aiFacts.mothersSnippet || `Mother: ${aiFacts.mothersName}`,
+          confidence: 0.88,
+          method: 'local-ai-gemma4'
+        });
+      }
+      if (!hasAddress && aiFacts.address) {
+        deterministicFacts.push({
+          personName,
+          fieldName: 'address',
+          fieldValue: aiFacts.address,
+          rawSnippet: aiFacts.addressSnippet || `Address: ${aiFacts.address}`,
+          confidence: 0.85,
+          method: 'local-ai-gemma4'
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[extractionService] extractProfileFactsWithAi AI fallback error:', err.message || err);
+  }
+
+  return deterministicFacts;
+}
+
 module.exports = {
   extractTextFromBuffer,
   extractOcrWordCoordinates,
@@ -1443,5 +1520,7 @@ module.exports = {
   detectPerson,
   generateAutoTags,
   suggestDocumentTitle,
-  extractProfileFacts
+  cleanPersonName,
+  extractProfileFacts,
+  extractProfileFactsWithAi
 };

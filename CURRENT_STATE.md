@@ -97,8 +97,8 @@ The repository contains a complete, fully tested, functional implementation of F
     - Cross-document contradiction engine (`getUserProfileWithContradictions`): Groups facts by normalized field values across documents; flags discrepancies when different documents make conflicting claims (e.g. conflicting birthdates, differing father's name spellings, conflicting marks, differing addresses); prepares side-by-side discrepancy reports citing source document titles and text snippets.
     - `listDistinctPersons`: Unions distinct persons from active documents and `user_profiles` so all family members appear instantly across application filters and import dropdowns.
     - `deleteUserProfile`: Safely deletes a member's canonical profile and atomic facts, unlinks linked documents (`person = NULL`), updates FTS5 indexes, and logs an immutable `FAMILY_MEMBER_REMOVED` audit event without deleting source documents.
-  - `src/main/services/extractionService.js`: `extractProfileFacts(text, personName)` parses OCR and plain text to extract parental names, dates of birth, full address strings, 10th marks (percentages, CGPA, boards, years), 12th marks (stream, boards, percentages), and higher education degrees.
-  - `src/main/vault/vaultService.js`: Automatically triggers profile fact extraction and canonical profile upserting during document import; exposes `listUserProfiles`, `getUserProfile`, `saveUserProfile`, `addFamilyMember`, and `removeFamilyMember`.
+  - `src/main/services/extractionService.js`: `extractProfileFacts(text, personName)` (Pass 1 fast deterministic extraction with support for parentage abbreviations `S/O`, `D/O`, `C/O` and multi-line residential addresses) and `extractProfileFactsWithAi(text, personName, llmService)` (Pass 2 targeted local LLM fallback for missing biographical fields). Also extracts dates of birth, full address strings, 10th marks (percentages, CGPA, boards, years), 12th marks (stream, boards, percentages), license numbers, and higher education degrees.
+  - `src/main/vault/vaultService.js`: Automatically triggers background profile fact extraction (`_processDocumentProfileBackground`) using `extractProfileFactsWithAi` and token anti-hallucination verification during document import; exposes `listUserProfiles`, `getUserProfile`, `saveUserProfile`, `addFamilyMember`, and `removeFamilyMember`.
   - `src/index.html` & `src/renderer.js`:
     - **Sidebar Family Members Section**: Prominently displays all family members directly in the left sidebar with custom initials avatars, full names, document count badges, and contradiction alerts (`⚠️`). Clicking a family member instantly filters vault documents to that person; clicking their profile icon opens their detailed card.
     - **Sidebar "+ Add" Button & Quick Add Modal (`#modal-quick-add-member`)**: Header of the sidebar Family Members section features an active `+ Add` button opening a streamlined dialog asking **only for Full Name**, with an optional toggle for full biographical details.
@@ -174,3 +174,21 @@ Decouples interactive OCR document scanning from biographical profile extraction
 - **Phase 1 (Interactive Scan)**: Limited strictly to document-level metadata (title, category, docType, person name, issuer, validity dates, tags). Excludes profile attributes like `gender`, `address`, `license_number`, parentage, and marks.
 - **Phase 2 (Post-Save Background Extraction Pipeline)**: Triggers asynchronously upon document save, applying an information extraction schema over saved OCR text for `license_number`, `id_number`, `gender`, `address`, parentage, and marks, persisting atomic facts to `profile_facts`, and detecting cross-document contradictions.
 - **UI Fluid Card-Filling Animation**: Real-time fluid wave reservoir filling animation on profile cards reacting to background extraction progress and completing with a luminescent pulse upon 100% completion.
+
+### Local AI Optimization Plan Implementation Status (docs/AI_OPTIMIZATION_PLAN.md)
+
+- **Step 1 (Token Budget & Defensive JSON Extraction)**: **Completed**  
+  - Increased `maxTokens` to 512 for metadata extraction.
+  - Implemented `extractJsonFromText` defensive repair (code fence stripping, trailing comma elimination, unclosed bracket/brace salvaging, and GBNF grammar payload support).
+- **Step 2 (Focused Micro-Prompting for Metadata)**: **Completed**  
+  - Deconstructed monolithic 12-field prompt into streamlined micro-prompt schema under 200 words (`_buildExtractionPrompt`).
+  - Added deterministic re-evaluation of auto-tags with resolved category/docType, eliminating empty tags.
+  - Added robust date parsing for ID abbreviations (`EXP:`, `DOE`, `VAL THRU`, `DOI`, `EFF`, `term...to`), bilingual repeated month names (`21 MAR / MAR 2031`), and date candidate proximity disambiguation.
+- **Step 3 (Enforce Deterministic Routing, Dates, and Member Grounding in Code)**: **Skipped for now (Yet to implement)**  
+  - *Per user directive, full deterministic migration of Step 3 was skipped for now to prioritize profile fact extraction. Step 3 remains planned and will be implemented in a subsequent phase.*
+- **Step 4 (Upgrade Profile Fact Extraction with Targeted AI Fallback)**: **Completed**  
+  - **Pass 1 (Deterministic)**: Enhanced regex patterns in `extractProfileFacts` to parse parentage abbreviations (`S/O`, `D/O`, `C/O`, `care of`) and multi-line residential addresses with metadata stop tokens.
+  - **Pass 2 (Targeted AI Fallback)**: Implemented `extractBiographicalFacts` on `LlmService` with concise micro-prompting and token-level grounding against source text, integrated via `extractProfileFactsWithAi` into background profile processing (`_processDocumentProfileBackground`).
+  - **Anti-Hallucination Grounding**: Enforced that AI-suggested parents and addresses must be strictly grounded in source OCR text before persisting to `profile_facts`.
+- **Step 5 (Clean Up & Deduplicate Q&A Context Passages)**: **Proposed / Pending**  
+  - Elimination of raw `ocrWords` duplicate text injection and context passage deduplication.
