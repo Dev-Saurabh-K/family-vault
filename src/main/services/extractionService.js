@@ -698,17 +698,17 @@ function findDateCandidates(text) {
       regex: /\b(19\d\d|20\d\d)[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b/g,
       handler: (m) => toIsoDate(m[1], m[2], m[3])
     },
-    // 2. Day Month Year: 25 Jan 2026 or 25 January 2026
+    // 2. Day Month Year: 25 Jan 2026, 25 January 2026, 25-Jan-2026, 25/Jan/2026, 21 MAR / MAR 2031
     {
-      regex: /\b(0?[1-9]|[12]\d|3[01])\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s]+(19\d\d|20\d\d)\b/gi,
+      regex: /\b(0?[1-9]|[12]\d|3[01])[-/\s]+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s*[\/]\s*[A-Za-z]+)?[-/\s,]+(19\d\d|20\d\d)\b/gi,
       handler: (m) => {
         const monthNum = MONTH_NAMES[m[2].toLowerCase()];
         return monthNum ? toIsoDate(m[3], monthNum, m[1]) : null;
       }
     },
-    // 3. Month Day, Year: January 25, 2026
+    // 3. Month Day, Year: January 25, 2026, Jan-25-2026, Jan/25/2026
     {
-      regex: /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(0?[1-9]|[12]\d|3[01])[,\s]+(19\d\d|20\d\d)\b/gi,
+      regex: /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s*[\/]\s*[A-Za-z]+)?[-/\s]+(0?[1-9]|[12]\d|3[01])[-/\s,]+(19\d\d|20\d\d)\b/gi,
       handler: (m) => {
         const monthNum = MONTH_NAMES[m[1].toLowerCase()];
         return monthNum ? toIsoDate(m[3], monthNum, m[2]) : null;
@@ -718,6 +718,11 @@ function findDateCandidates(text) {
     {
       regex: /\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](19\d\d|20\d\d)\b/g,
       handler: (m) => toIsoDate(m[3], m[2], m[1])
+    },
+    // 5. Month/Day/Year (unambiguous US format when day > 12): 08/25/2030 or 12/31/2028
+    {
+      regex: /\b(0?[1-9]|1[0-2])[-/.](1[3-9]|2\d|3[01])[-/.](19\d\d|20\d\d)\b/g,
+      handler: (m) => toIsoDate(m[3], m[1], m[2])
     }
   ];
 
@@ -744,9 +749,18 @@ function findDateCandidates(text) {
     }
   }
 
-  // Sort by position in text
+  // Sort by position in text and deduplicate
   candidates.sort((a, b) => a.index - b.index);
-  return candidates;
+  const uniqueCandidates = [];
+  const seenKeys = new Set();
+  for (const c of candidates) {
+    const key = `${c.date}::${c.index}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      uniqueCandidates.push(c);
+    }
+  }
+  return uniqueCandidates;
 }
 
 const PERSON_NAME_STOP_WORDS = new Set([
@@ -877,6 +891,7 @@ function generateAutoTags(text, category, docType, person, issueDate, expiryDate
     if (/passport/i.test(lowerText)) tagsSet.add('travel');
     if (/license|licence/i.test(lowerText)) tagsSet.add('driver');
     if (/visa/i.test(lowerText)) tagsSet.add('visa');
+    if (/national\s*id|identity\s*card|aadhaar|ssn/i.test(lowerText)) tagsSet.add('national-id');
   } else if (category === 'insurance') {
     tagsSet.add('policy');
     if (/health|medical/i.test(lowerText)) tagsSet.add('health');
@@ -901,6 +916,15 @@ function generateAutoTags(text, category, docType, person, issueDate, expiryDate
     if (/deed/i.test(lowerText)) tagsSet.add('deed');
   }
 
+  // General document semantic keywords (applicable across all categories including 'other')
+  if (/invoice/i.test(lowerText)) tagsSet.add('invoice');
+  if (/receipt/i.test(lowerText)) tagsSet.add('receipt');
+  if (/bill|utility|electric|water|gas|internet/i.test(lowerText)) tagsSet.add('utility');
+  if (/statement|bank/i.test(lowerText)) tagsSet.add('statement');
+  if (/education|degree|diploma|transcript|certificate|university|college|school/i.test(lowerText)) tagsSet.add('education');
+  if (/employment|salary|payslip|paystub|offer\s*letter|contract/i.test(lowerText)) tagsSet.add('employment');
+  if (/vehicle|registration|car|automobile|title/i.test(lowerText) && !tagsSet.has('vehicle')) tagsSet.add('vehicle');
+
   // Year tag from dates
   const yearMatch = (expiryDate || issueDate || '').match(/\b(20\d\d)\b/);
   if (yearMatch) {
@@ -912,7 +936,7 @@ function generateAutoTags(text, category, docType, person, issueDate, expiryDate
     }
   }
 
-  return Array.from(tagsSet).slice(0, 7);
+  return Array.from(tagsSet).slice(0, 8);
 }
 
 const DOC_TYPE_LABELS = {
@@ -975,27 +999,27 @@ function analyzeDocumentText(text, fileName = '', options = {}) {
   let docType = 'other';
   let category = 'other';
 
-  if (/passport|republic|nationality|travel document/i.test(lowerText)) {
+  if (/\b(?:passport|travel\s*document)\b/i.test(lowerText) || (/passport/i.test(lowerText) && /republic|nationality/i.test(lowerText))) {
     docType = 'passport';
     category = 'identity';
   } else if (/driver['’]?s?\s*license|driving\s*licence|motor\s*vehicle|dl\s*no/i.test(lowerText)) {
     docType = 'driving_license';
     category = 'identity';
-  } else if (/national\s*id|identity\s*card|aadhaar|pan\s*card|voter\s*id|social\s*security|ssn/i.test(lowerText)) {
-    docType = 'identity_card';
-    category = 'identity';
+  } else if (/\b(?:tax\s*return|form\s*1040|w-?2|1099|incometax|income\s*tax|internal\s*revenue|revenue\s*service|irs|itr)\b/i.test(lowerText)) {
+    docType = 'tax_document';
+    category = 'tax';
   } else if (/insurance|policy\s*no|premium|coverage|insured|sum\s*assured|deductible|claim\s*no/i.test(lowerText)) {
     docType = 'insurance_policy';
     category = 'insurance';
-  } else if (/tax\s*return|form\s*1040|w-?2|1099|incometax|internal\s*revenue|revenue\s*service|irs|itr/i.test(lowerText)) {
-    docType = 'tax_document';
-    category = 'tax';
   } else if (/prescription|clinic|hospital|patient|doctor|physician|diagnosis|medical\s*center|lab\s*report|blood\s*test|lipid\s*profile/i.test(lowerText)) {
     docType = 'medical_record';
     category = 'medical';
   } else if (/deed|mortgage|lease|lease\s*agreement|tenant|landlord|rental\s*agreement|property\s*tax|land\s*registry|title\s*deed/i.test(lowerText)) {
     docType = 'property_document';
     category = 'property';
+  } else if (/national\s*id|identity\s*card|aadhaar|pan\s*card|voter\s*id|social\s*security|ssn/i.test(lowerText)) {
+    docType = 'identity_card';
+    category = 'identity';
   }
 
   // Detect Dates
@@ -1007,22 +1031,28 @@ function analyzeDocumentText(text, fileName = '', options = {}) {
   let issueSnippet = null;
   let confidence = 0.5;
 
-  const expiryKeywords = /expir|valid\s+until|valid\s+thru|valid\s+through|valid\s+to|end\s+date/i;
-  const issueKeywords = /issu|date\s+of\s+issue|valid\s+from|start\s+date/i;
+  const expiryKeywords = /\b(expir\w*|exp\.?|valid\s+until|valid\s+thru|valid\s+through|valid\s+to|val\s+thru|val\s+to|end\s+date|(?:d\.o\.e\.?|doe\b(?=\s*[:\-0-9]))|validity|renewal|renew\s+by|effective[^\n]+?\bto|from[^\n]+?\bto|term[^\n]+?\bto|until|thru|through)\b/i;
+  const issueKeywords = /\b(issu\w*|iss\.?|(?:d\.o\.i\.?|doi\b(?=\s*[:\-0-9]))|date\s+of\s+issue|valid\s+from|start\s+date|eff\.?\s*date|effective\s+date|effective)\b/i;
 
   for (const candidate of candidates) {
-    if (expiryKeywords.test(candidate.prefix)) {
+    const prefix = candidate.prefix || '';
+    const expMatches = prefix.match(new RegExp(expiryKeywords.source, 'gi'));
+    const issMatches = prefix.match(new RegExp(issueKeywords.source, 'gi'));
+    const lastExpIdx = expMatches ? prefix.toLowerCase().lastIndexOf(expMatches[expMatches.length - 1].toLowerCase()) : -1;
+    const lastIssIdx = issMatches ? prefix.toLowerCase().lastIndexOf(issMatches[issMatches.length - 1].toLowerCase()) : -1;
+
+    if (lastExpIdx > lastIssIdx && lastExpIdx !== -1) {
       if (!expiryDate || candidate.date > expiryDate) {
         expiryDate = candidate.date;
         expirySnippet = candidate.snippet;
         confidence = 0.9;
       }
-    } else if (issueKeywords.test(candidate.prefix)) {
+    } else if (lastIssIdx > lastExpIdx && lastIssIdx !== -1) {
       if (!issueDate || candidate.date < issueDate) {
         issueDate = candidate.date;
         issueSnippet = candidate.snippet;
       }
-    } else if (expiryKeywords.test(candidate.snippet) && !issueKeywords.test(candidate.prefix)) {
+    } else if (expiryKeywords.test(candidate.snippet) && !issueKeywords.test(prefix)) {
       if (!expiryDate || candidate.date > expiryDate) {
         expiryDate = candidate.date;
         expirySnippet = candidate.snippet;
@@ -1043,13 +1073,29 @@ function analyzeDocumentText(text, fileName = '', options = {}) {
     }
   }
 
-  // Only assign an issuer when the document explicitly labels it.
+  // Only assign an issuer when the document explicitly labels it or contains a recognized authority
   let issuer = null;
   const issuerMatch = String(text || '').match(
-    /^\s*(?:issuer|issued\s+by|issuing\s+authority|authority|provider|insurer|bank|hospital)\s*[:\-]\s*(.{3,80}?)\s*$/im
+    /(?:issuer|issued\s+by|issuing\s+authority|authority|provider|insurer|bank|hospital)\s*[:\-]\s*([^\r\n|;]{3,80})/i
   );
   if (issuerMatch) {
     issuer = issuerMatch[1].trim();
+  }
+
+  if (!issuer) {
+    const recognizedAuthorityPatterns = [
+      /\b(Department of Motor Vehicles|California DMV|DMV|Bureau of Motor Vehicles|BMV|DVLA)\b/i,
+      /\b(Department of State|Passport Agency|Ministry of Foreign Affairs|Ministry of External Affairs)\b/i,
+      /\b(Blue Cross(?:\s+Blue\s+Shield)?|State Farm|Geico|Progressive|Allstate|UnitedHealthcare|Aetna|Cigna|Kaiser Permanente|MetLife)\b/i,
+      /\b(Internal Revenue Service|IRS|Social Security Administration|SSA)\b/i
+    ];
+    for (const pattern of recognizedAuthorityPatterns) {
+      const match = String(text || '').match(pattern);
+      if (match) {
+        issuer = match[1].trim();
+        break;
+      }
+    }
   }
 
   // Detect Family Member / Person with strict matching to added users

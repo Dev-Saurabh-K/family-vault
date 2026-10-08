@@ -417,6 +417,43 @@ class VaultService {
           }
         }
 
+        // STRICT CATEGORIZATION & PERSON MATCHING:
+        // If unmatched person is detected, category stays 'other' for review and no rogue person is auto-assigned
+        if (category === 'other' && analysis.category && analysis.category !== 'other' && !analysis.unmatchedPerson) {
+          this._db.prepare('UPDATE documents SET category = ? WHERE id = ?').run(analysis.category, doc.id);
+          doc.category = analysis.category;
+        }
+
+        // If title was not provided by user, auto-assign AI generated title
+        const rawFileNameNoExt = path.parse(fileName).name;
+        if ((!title || title.trim() === rawFileNameNoExt) && (analysis.suggestedTitle || analysis.title)) {
+          const aiTitle = (analysis.suggestedTitle || analysis.title).trim();
+          this._db.prepare('UPDATE documents SET title = ? WHERE id = ?').run(aiTitle, doc.id);
+          doc.title = aiTitle;
+        }
+
+        // Only auto-assign person if matched to an existing added family member
+        const effectivePerson = person || (analysis.person && !analysis.unmatchedPerson ? analysis.person : null);
+        if (!person && analysis.person && !analysis.unmatchedPerson) {
+          const isKnown = knownPersons.some(kp => kp.toLowerCase() === analysis.person.toLowerCase());
+          if (isKnown) {
+            this._db.prepare('UPDATE documents SET person = ? WHERE id = ?').run(analysis.person, doc.id);
+            doc.person = analysis.person;
+          }
+        }
+
+        // If tags were not explicitly provided, auto-assign generated tags
+        if ((!tags || (Array.isArray(tags) && tags.length === 0)) && Array.isArray(analysis.tags) && analysis.tags.length > 0) {
+          this._db.prepare('UPDATE documents SET tags = ? WHERE id = ?').run(JSON.stringify(analysis.tags), doc.id);
+          doc.tags = analysis.tags;
+        }
+
+        // If notes were not explicitly provided, auto-assign notes summary
+        if ((!notes || !notes.trim()) && analysis.notesSummary) {
+          this._db.prepare('UPDATE documents SET notes = ? WHERE id = ?').run(analysis.notesSummary, doc.id);
+          doc.notes = analysis.notesSummary;
+        }
+
         dbLayer.saveMetadata(this._db, {
           versionId: version.id,
           docType: analysis.docType,
@@ -434,29 +471,6 @@ class VaultService {
             unmatchedPerson: analysis.unmatchedPerson || null
           }
         });
-
-        // STRICT CATEGORIZATION & PERSON MATCHING:
-        // If unmatched person is detected, category stays 'other' for review and no rogue person is auto-assigned
-        if (category === 'other' && analysis.category && analysis.category !== 'other' && !analysis.unmatchedPerson) {
-          this._db.prepare('UPDATE documents SET category = ? WHERE id = ?').run(analysis.category, doc.id);
-        }
-
-        // If title was not provided by user, auto-assign AI generated title
-        const rawFileNameNoExt = path.parse(fileName).name;
-        if ((!title || title.trim() === rawFileNameNoExt) && (analysis.suggestedTitle || analysis.title)) {
-          const aiTitle = (analysis.suggestedTitle || analysis.title).trim();
-          this._db.prepare('UPDATE documents SET title = ? WHERE id = ?').run(aiTitle, doc.id);
-          doc.title = aiTitle;
-        }
-
-        // Only auto-assign person if matched to an existing added family member
-        const effectivePerson = person || (analysis.person && !analysis.unmatchedPerson ? analysis.person : null);
-        if (!person && analysis.person && !analysis.unmatchedPerson) {
-          const isKnown = knownPersons.some(kp => kp.toLowerCase() === analysis.person.toLowerCase());
-          if (isKnown) {
-            this._db.prepare('UPDATE documents SET person = ? WHERE id = ?').run(analysis.person, doc.id);
-          }
-        }
 
         // Post-save background profile information schema processing & fluid UI notification
         if (effectivePerson) {

@@ -331,4 +331,99 @@ test('VaultService: Import with unmatched person strictly keeps category "other"
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+test('Auto-Detection: OCR date abbreviations (EXP, EXP., DOE, DOI) and US MM/DD/YYYY format', () => {
+  const { findDateCandidates } = require('../src/main/services/extractionService');
+
+  // 1. US format MM/DD/YYYY where day > 12
+  const textUs = 'CALIFORNIA DRIVER LICENSE\nDOB: 03/15/1990\nEXP: 08/25/2030\nFN: Jane\nLN: Doe';
+  const candidatesUs = findDateCandidates(textUs);
+  assert.ok(candidatesUs.some(c => c.date === '2030-08-25'), 'Must parse US MM/DD/YYYY when day > 12');
+
+  const analysisUs = analyzeDocumentText(textUs, 'ca_dl.jpg');
+  assert.strictEqual(analysisUs.docType, 'driving_license');
+  assert.strictEqual(analysisUs.expiryDate, '2030-08-25');
+  assert.ok(analysisUs.tags.includes('identity'));
+  assert.ok(analysisUs.tags.includes('driving-license'));
+
+  // 2. EXP. abbreviation and DOE (Date of Expiry)
+  const textDoe = 'REPUBLIC ID CARD\nDOI: 2021-01-15\nDOE: 2031-01-14\nAuthority: National ID Registry';
+  const analysisDoe = analyzeDocumentText(textDoe, 'id_card.png');
+  assert.strictEqual(analysisDoe.issueDate, '2021-01-15');
+  assert.strictEqual(analysisDoe.expiryDate, '2031-01-14');
+
+  // 3. Hyphenated month name: 14-APR-2031
+  const textHyphenMonth = 'PASSPORT\nDate of issue: 15-MAY-2021\nValid until: 14-APR-2031';
+  const analysisHyphen = analyzeDocumentText(textHyphenMonth, 'passport.pdf');
+  assert.strictEqual(analysisHyphen.expiryDate, '2031-04-14');
+  assert.strictEqual(analysisHyphen.issueDate, '2021-05-15');
+});
+
+test('Auto-Detection: Recognized authority detection for OCR scans without literal Issuer labels', () => {
+  const textDl = 'STATE OF CALIFORNIA\nDEPARTMENT OF MOTOR VEHICLES\nDRIVER LICENSE\nDL 998877\nEXP: 2029-05-12';
+  const analysisDl = analyzeDocumentText(textDl, 'driver_license.jpg');
+  assert.ok(analysisDl.issuer && /Department of Motor Vehicles/i.test(analysisDl.issuer));
+  assert.strictEqual(analysisDl.expiryDate, '2029-05-12');
+  assert.strictEqual(analysisDl.docType, 'driving_license');
+
+  const textIns = 'STATE FARM INSURANCE\nAuto Policy Renewal\nCoverage Active Thru 2028-11-30\nVIN: 1XYZ2044';
+  const analysisIns = analyzeDocumentText(textIns, 'auto_policy.pdf');
+  assert.ok(analysisIns.issuer && /State Farm/i.test(analysisIns.issuer));
+  assert.strictEqual(analysisIns.expiryDate, '2028-11-30');
+  assert.strictEqual(analysisIns.category, 'insurance');
+});
+
+test('Auto-Tags: Tags are richly populated for all categories and common non-category documents', () => {
+  // Utility bill under category 'other'
+  const utilityTags = generateAutoTags('CITY POWER ELECTRIC AND WATER UTILITY BILL March 2026', 'other', 'other', null, '2026-03-01', null);
+  assert.ok(utilityTags.includes('utility'));
+  assert.ok(utilityTags.includes('2026'));
+
+  // Statement / Bank document
+  const statementTags = generateAutoTags('CHASE BANK MONTHLY ACCOUNT STATEMENT', 'other', 'other', null, null, null);
+  assert.ok(statementTags.includes('statement'));
+
+  // Insurance policy
+  const insuranceTags = generateAutoTags('State Farm Auto Car Insurance Policy 2026', 'insurance', 'insurance_policy', null, '2026-01-01', '2027-01-01');
+  assert.ok(insuranceTags.includes('insurance'));
+  assert.ok(insuranceTags.includes('insurance-policy'));
+  assert.ok(insuranceTags.includes('policy'));
+  assert.ok(insuranceTags.includes('vehicle'));
+});
+
+test('LlmService: extractDocumentMetadata generates non-empty tags and notesSummary when AI resolves category', async () => {
+  const { LlmService } = require('../src/main/services/llmService');
+  const service = new LlmService();
+  service._isReady = true;
+
+  // Simulate Gemma returning category and title from OCR scan
+  service._queryLlamaServer = async () => JSON.stringify({
+    category: 'insurance',
+    docType: 'insurance_policy',
+    detectedName: 'Alice Smith',
+    issuer: 'State Farm',
+    expiryDate: '2028-12-31',
+    suggestedTitle: 'State Farm Auto Insurance - Alice Smith'
+  });
+
+  const scanText = 'STATE FARM INSURANCE AUTO POLICY\nPolicyholder: Alice Smith\nEXP: 2028-12-31\nVehicle: Honda Civic';
+  const result = await service.extractDocumentMetadata({
+    text: scanText,
+    fileName: 'scanned_card.jpg',
+    knownPersons: ['Alice Smith']
+  });
+
+  assert.strictEqual(result.category, 'insurance');
+  assert.strictEqual(result.docType, 'insurance_policy');
+  assert.strictEqual(result.person, 'Alice Smith');
+  assert.strictEqual(result.expiryDate, '2028-12-31');
+  assert.ok(result.issuer.includes('State Farm'));
+  assert.ok(Array.isArray(result.tags) && result.tags.length > 0, 'Tags must not be empty');
+  assert.ok(result.tags.includes('insurance'));
+  assert.ok(result.tags.includes('insurance-policy'));
+  assert.ok(result.tags.includes('policy'));
+  assert.ok(result.notesSummary.includes('Expiry Date: 2028-12-31'));
+  assert.ok(result.notesSummary.includes('Issuer: State Farm'));
+});
+
+
 
