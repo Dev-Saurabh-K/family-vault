@@ -1271,7 +1271,7 @@ class LlmService {
     });
   }
 
-  _buildCompleteContextSegments(documents = [], profiles = []) {
+  _buildCompleteContextSegments(documents = [], profiles = [], query = '') {
     const documentSegments = documents.map(doc => {
       const metadata = doc.currentVersion?.metadata || {};
       const metadataLines = Object.entries(metadata)
@@ -1282,14 +1282,15 @@ class LlmService {
           && value !== undefined
           && value !== '')
         .map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`);
-      const ocrWords = (Array.isArray(metadata.ocrWords)
-        ? metadata.ocrWords
-        : Array.isArray(metadata.rawPayload?.ocrWords)
-          ? metadata.rawPayload.ocrWords
-          : [])
-        .map(word => typeof word?.text === 'string' ? word.text.trim() : '')
-        .filter(Boolean)
-        .join(' ');
+      
+      // Step 5 Task 1: Omit raw ocrWords dump when clean textContent is already available
+      const hasCleanText = Boolean(metadata.textContent && String(metadata.textContent).trim());
+      const ocrWords = (!hasCleanText && (Array.isArray(metadata.ocrWords) || Array.isArray(metadata.rawPayload?.ocrWords)))
+        ? (metadata.ocrWords || metadata.rawPayload.ocrWords)
+          .map(word => typeof word?.text === 'string' ? word.text.trim() : '')
+          .filter(Boolean)
+          .join(' ')
+        : '';
       const parts = [
         doc.person ? `Person: ${doc.person}` : null,
         doc.category ? `Category: ${doc.category}` : null,
@@ -1336,6 +1337,16 @@ class LlmService {
         score: 1
       };
     });
+
+    // Step 5 Task 3: Prioritize profile facts at top of context for biographical queries
+    const isBiographical = Boolean(query && (
+      /\b(address|live|lives|reside|residence|home|dob|birth|birthday|age|gender|father|mother|parent|education|degree|marks|10th|12th|who is|tell me about|profile|details|bio)\b/i.test(query)
+      || this._buildProfileSegments(query, profiles).length > 0
+    ));
+
+    if (isBiographical && profileSegments.length > 0) {
+      return [...profileSegments, ...documentSegments];
+    }
 
     return [...documentSegments, ...profileSegments];
   }
@@ -1570,16 +1581,20 @@ class LlmService {
 
       if (notes && !passages.includes(notes)) passages.push(notes);
 
-      const ocrWordText = (Array.isArray(metadata.ocrWords)
-        ? metadata.ocrWords
-        : Array.isArray(metadata.rawPayload?.ocrWords)
-          ? metadata.rawPayload.ocrWords
-          : [])
-        .map(word => typeof word?.text === 'string' ? word.text.trim() : '')
-        .filter(Boolean)
-        .join(' ');
-      if (ocrWordText && !passages.includes(ocrWordText)) {
-        passages.push(`OCR Words: ${ocrWordText}`);
+      // Step 5 Task 1: Omit raw ocrWords dump if clean text is available; only include as fallback when textContent is missing
+      const hasCleanText = Boolean(text && text.trim());
+      if (!hasCleanText) {
+        const ocrWordText = (Array.isArray(metadata.ocrWords)
+          ? metadata.ocrWords
+          : Array.isArray(metadata.rawPayload?.ocrWords)
+            ? metadata.rawPayload.ocrWords
+            : [])
+          .map(word => typeof word?.text === 'string' ? word.text.trim() : '')
+          .filter(Boolean)
+          .join(' ');
+        if (ocrWordText && !passages.includes(ocrWordText)) {
+          passages.push(`OCR Words: ${ocrWordText}`);
+        }
       }
 
       if (text) {
@@ -1591,6 +1606,7 @@ class LlmService {
         }
 
         // Sliding overlapping window chunking (window size 800, overlap 150)
+        // Step 5 Task 2: Skip chunks that overlap >= 70% with already added passages
         let start = 0;
         const maxChunkLen = 800;
         const overlap = 150;
@@ -1598,7 +1614,10 @@ class LlmService {
           let end = start + maxChunkLen;
           if (end >= trimmedText.length) {
             const lastChunk = trimmedText.substring(start).trim();
-            if (lastChunk && !passages.includes(lastChunk)) passages.push(lastChunk);
+            if (lastChunk) {
+              const isRedundant = passages.some(existing => calculatePassageOverlap(existing, lastChunk) >= 0.70);
+              if (!isRedundant) passages.push(lastChunk);
+            }
             break;
           }
           let breakPoint = trimmedText.lastIndexOf('\n', end);
@@ -1610,8 +1629,11 @@ class LlmService {
           }
 
           const chunk = trimmedText.substring(start, breakPoint).trim();
-          if (chunk && !passages.includes(chunk)) {
-            passages.push(chunk);
+          if (chunk) {
+            const isRedundant = passages.some(existing => calculatePassageOverlap(existing, chunk) >= 0.70);
+            if (!isRedundant) {
+              passages.push(chunk);
+            }
           }
           start = Math.max(breakPoint - overlap, start + 1);
         }
@@ -1699,11 +1721,15 @@ class LlmService {
     const uniqueSegments = Array.from(segmentMap.values());
     uniqueSegments.sort((a, b) => b.score - a.score);
 
-    // Prune redundant sub-snippets from the same document
+    // Prune redundant sub-snippets from the same document (substrings and >= 70% overlap)
     const nonRedundant = [];
     for (const seg of uniqueSegments) {
       const isSub = nonRedundant.some(existing => 
-        existing.documentId === seg.documentId && existing.snippet.includes(seg.snippet)
+        existing.documentId === seg.documentId && (
+          existing.snippet.includes(seg.snippet) ||
+          seg.snippet.includes(existing.snippet) ||
+          calculatePassageOverlap(existing.snippet, seg.snippet) >= 0.70
+        )
       );
       if (!isSub) {
         nonRedundant.push(seg);
@@ -1720,8 +1746,18 @@ class LlmService {
     }
     const profileSegments = this._buildProfileSegments(query, profiles);
     const maxDocumentSegments = searchAllDocuments ? 8 : 3;
-    const topSegments = [...bestByDocument.values()].slice(0, maxDocumentSegments).concat(profileSegments);
-    const completeContextSegments = this._buildCompleteContextSegments(documents, profiles);
+
+    // Step 5 Task 3: Prioritize profile facts at top of context for biographical questions
+    const isBiographical = Boolean(query && (
+      /\b(address|live|lives|reside|residence|home|dob|birth|birthday|age|gender|father|mother|parent|education|degree|marks|10th|12th|who is|tell me about|profile|details|bio)\b/i.test(query)
+      || profileSegments.length > 0
+    ));
+
+    const topSegments = isBiographical && profileSegments.length > 0
+      ? [...profileSegments, ...bestByDocument.values()].slice(0, maxDocumentSegments + profileSegments.length)
+      : [...bestByDocument.values()].slice(0, maxDocumentSegments).concat(profileSegments);
+
+    const completeContextSegments = this._buildCompleteContextSegments(documents, profiles, query);
 
     if (topSegments.length === 0 && !this._isReady) {
       return {
@@ -2375,6 +2411,37 @@ function escapePromptContent(value) {
   ).replace(/\bEND SOURCE(?=\s+\d+\b)/gi, 'END\u00a0SOURCE');
 }
 
+/**
+ * Calculates lexical/token and character overlap ratio between two text passages.
+ * Returns a float between 0.0 and 1.0.
+ * Adheres to Step 5 of docs/AI_OPTIMIZATION_PLAN.md.
+ */
+function calculatePassageOverlap(textA, textB) {
+  if (!textA || !textB) return 0;
+  const a = String(textA).trim();
+  const b = String(textB).trim();
+  if (a === b) return 1.0;
+  if (a.length === 0 || b.length === 0) return 0;
+
+  // If one is fully contained in the other, the shorter passage is 100% redundant with the longer
+  if (a.includes(b) || b.includes(a)) {
+    return 1.0;
+  }
+
+  // Token-level overlap (Simpson's overlap coefficient)
+  const tokensA = a.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  const tokensB = b.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  if (tokensA.length === 0 || tokensB.length === 0) return 0;
+
+  const setB = new Set(tokensB);
+  let sharedCount = 0;
+  for (const t of tokensA) {
+    if (setB.has(t)) sharedCount++;
+  }
+  const minTokens = Math.min(tokensA.length, tokensB.length);
+  return minTokens > 0 ? sharedCount / minTokens : 0;
+}
+
 const llmService = new LlmService();
 
 module.exports = {
@@ -2383,7 +2450,9 @@ module.exports = {
   resolvePersonScope,
   parseAndValidateAiMetadata,
   extractJsonFromText,
+  calculatePassageOverlap,
   JSON_GBNF_GRAMMAR,
   VALID_CATEGORIES,
   VALID_DOC_TYPES
 };
+

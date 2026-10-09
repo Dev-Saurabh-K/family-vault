@@ -98,3 +98,33 @@ test('Theme: renderer.js theme management and event handlers', () => {
   assert.ok(jsContent.includes('searchModeKeywordBtn.classList.add(\'active-mode\');'), 'Must toggle active-mode on keyword button');
   assert.ok(jsContent.includes('searchModeSemanticBtn.classList.add(\'active-mode\');'), 'Must toggle active-mode on semantic button');
 });
+
+test('UI Actions & Modals: renderer.js script integrity and topbar action bindings', () => {
+  const jsPath = path.join(__dirname, '..', 'src', 'renderer.js');
+  const htmlPath = path.join(__dirname, '..', 'src', 'index.html');
+  const jsContent = fs.readFileSync(jsPath, 'utf8');
+  const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+  // Verify topbar action buttons exist in index.html
+  assert.ok(htmlContent.includes('id="btn-open-audit-logs"'), 'index.html must contain btn-open-audit-logs');
+  assert.ok(htmlContent.includes('id="btn-create-backup"'), 'index.html must contain btn-create-backup');
+  assert.ok(htmlContent.includes('id="btn-change-password-modal"'), 'index.html must contain btn-change-password-modal');
+
+  // Verify helper functions exist and are declared in renderer.js
+  assert.ok(jsContent.includes('function openChangePasswordModal()'), 'renderer.js must define openChangePasswordModal');
+  assert.ok(jsContent.includes('async function handleCreateBackup()'), 'renderer.js must define handleCreateBackup');
+  assert.ok(jsContent.includes('async function openAuditLogsModal()'), 'renderer.js must define openAuditLogsModal');
+  assert.ok(jsContent.includes('function openQuickAddMemberModal('), 'renderer.js must define openQuickAddMemberModal');
+
+  // Verify modal handlers are safely guarded
+  assert.ok(jsContent.includes('if (btnChangePasswordModal)'), 'btnChangePasswordModal must be guarded');
+  assert.ok(jsContent.includes('if (btnCreateBackup)'), 'btnCreateBackup must be guarded');
+  assert.ok(jsContent.includes('if (btnOpenAuditLogs)'), 'btnOpenAuditLogs must be guarded');
+
+  // Verify script compiles cleanly
+  const vm = require('node:vm');
+  assert.doesNotThrow(() => {
+    new vm.Script(jsContent, { filename: 'renderer.js' });
+  }, 'renderer.js must have zero compile-time or syntax errors');
+});
+

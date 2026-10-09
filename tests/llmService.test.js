@@ -8,6 +8,7 @@ const {
   resolvePersonScope,
   parseAndValidateAiMetadata,
   extractJsonFromText,
+  calculatePassageOverlap,
   JSON_GBNF_GRAMMAR,
   VALID_CATEGORIES,
   VALID_DOC_TYPES
@@ -1660,5 +1661,272 @@ test('LlmService Edge Cases: extractDocumentMetadata handles empty inputs and se
   assert.strictEqual(errRes.category, 'identity');
   assert.strictEqual(errRes.docType, 'passport');
 });
+
+test('Step 5: calculatePassageOverlap accurately scores lexical, token, and containment overlap', () => {
+  // 1. Identical strings
+  assert.strictEqual(calculatePassageOverlap('Hello world test', 'Hello world test'), 1.0);
+
+  // 2. Substring containment
+  const full = 'The government of India issued this passport for Rahul Verma with expiry date 2030-05-15.';
+  const sub = 'issued this passport for Rahul Verma';
+  assert.strictEqual(calculatePassageOverlap(full, sub), 1.0);
+  assert.strictEqual(calculatePassageOverlap(sub, full), 1.0);
+
+  // 3. Sliding window high overlap (>= 70%)
+  const passageA = 'The quick brown fox jumps over the lazy dog in the sunny summer afternoon and rests peacefully';
+  const passageB = 'brown fox jumps over the lazy dog in the sunny summer afternoon and rests peacefully by the tree';
+  const highOverlap = calculatePassageOverlap(passageA, passageB);
+  assert.ok(highOverlap >= 0.70, `Expected >= 0.70, got ${highOverlap}`);
+
+  // 4. Distinct passages with low overlap (< 0.70)
+  const passageC = 'Medical health checkup report showed normal blood pressure and excellent hemoglobin levels';
+  const passageD = 'Automobile insurance policy with comprehensive collision and theft coverage';
+  const lowOverlap = calculatePassageOverlap(passageC, passageD);
+  assert.ok(lowOverlap < 0.20, `Expected < 0.20, got ${lowOverlap}`);
+
+  // 5. Empty or null inputs
+  assert.strictEqual(calculatePassageOverlap('', 'hello'), 0);
+  assert.strictEqual(calculatePassageOverlap(null, 'hello'), 0);
+  assert.strictEqual(calculatePassageOverlap('hello', undefined), 0);
+});
+
+test('Step 5 Task 1: Omission of raw ocrWords dump when clean textContent is available', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+
+  let capturedPrompt = '';
+  service._queryLlamaServer = async (prompt) => {
+    capturedPrompt = prompt;
+    return 'The policy number is POL-88219.';
+  };
+
+  const documentWithCleanText = {
+    id: 'doc-insurance',
+    title: 'Health Insurance Policy',
+    person: 'Rohan Sharma',
+    category: 'insurance',
+    currentVersion: {
+      fileName: 'health_policy.pdf',
+      metadata: {
+        docType: 'insurance_policy',
+        issuer: 'Care Health',
+        textContent: 'Health Insurance Policy No: POL-88219 for Rohan Sharma. Premium: $1200 annually.',
+        ocrWords: [
+          { text: 'Health' },
+          { text: 'Insurance' },
+          { text: 'Policy' },
+          { text: 'No:' },
+          { text: 'POL-88219' },
+          { text: 'for' },
+          { text: 'Rohan' },
+          { text: 'Sharma.' }
+        ]
+      }
+    }
+  };
+
+  const res = await service.answerQuestion({
+    query: 'What is the health insurance policy number?',
+    documents: [documentWithCleanText],
+    profiles: []
+  });
+
+  assert.strictEqual(res.mode, 'llama-server');
+  // Raw 'OCR words:\n' dump must NOT be present in the prompt because clean textContent is available
+  assert.ok(!capturedPrompt.includes('OCR words:\nHealth Insurance Policy'), 'Prompt must omit raw ocrWords dump when clean textContent is available');
+  assert.ok(capturedPrompt.includes('Full extracted OCR/text:'), 'Prompt should retain clean textContent');
+
+  // Verify that when textContent is empty, OCR words IS used as fallback
+  const documentWithEmptyText = {
+    id: 'doc-scan',
+    title: 'Receipt Scan',
+    person: 'Rohan Sharma',
+    category: 'other',
+    currentVersion: {
+      fileName: 'receipt.png',
+      metadata: {
+        textContent: '',
+        ocrWords: [
+          { text: 'Total' },
+          { text: 'Amount:' },
+          { text: '$45.00' }
+        ]
+      }
+    }
+  };
+
+  let capturedEmptyPrompt = '';
+  service._queryLlamaServer = async (prompt) => {
+    capturedEmptyPrompt = prompt;
+    return 'Total is $45.00.';
+  };
+
+  await service.answerQuestion({
+    query: 'What is the total amount?',
+    documents: [documentWithEmptyText],
+    profiles: []
+  });
+
+  assert.ok(capturedEmptyPrompt.includes('OCR words:\nTotal Amount: $45.00'), 'Prompt must include OCR words fallback when textContent is empty');
+});
+
+test('Step 5 Task 2: Passage deduplication skips chunks with >= 70% overlap ratio', async () => {
+  const service = new LlmService();
+  service._isReady = false; // Test extractive passage selection
+
+  // Concise document (under 2500 characters) - should not duplicate sub-chunks
+  const conciseText = 'Train Ticket PNR: 2451098234. Train: Rajdhani Express 12430. Departure: New Delhi at 20:00. Arrival: Kanpur at 01:30. Berth: B3 42.';
+  const document = {
+    id: 'doc-ticket',
+    title: 'Train E-Ticket',
+    person: 'Meera Rao',
+    category: 'other',
+    currentVersion: {
+      fileName: 'ticket.pdf',
+      metadata: {
+        docType: 'other',
+        textContent: conciseText
+      }
+    }
+  };
+
+  const result = await service.answerQuestion({
+    query: 'What is the PNR and departure time for the train?',
+    documents: [document],
+    profiles: []
+  });
+
+  assert.strictEqual(result.mode, 'local-extractive');
+  // Should have exactly 1 source snippet for the document, not multiple duplicate sliding chunks
+  const ticketSources = result.sources.filter(s => s.documentId === 'doc-ticket');
+  assert.strictEqual(ticketSources.length, 1);
+  assert.ok(ticketSources[0].snippet.includes('PNR: 2451098234'));
+});
+
+test('Step 5 Task 3: Profile fact prioritization places saved family profiles at top of Q&A context', async () => {
+  const service = new LlmService();
+  service._isReady = true;
+
+  let capturedPrompt = '';
+  service._queryLlamaServer = async (prompt) => {
+    capturedPrompt = prompt;
+    return 'Priya Sharma resides at 45 Lake View Road, Bangalore.';
+  };
+
+  const documents = [
+    {
+      id: 'doc-id1',
+      title: 'Old Utility Bill',
+      person: 'Priya Sharma',
+      currentVersion: {
+        fileName: 'bill.pdf',
+        metadata: { textContent: 'Old address: 12 Temple Road, Mysore.' }
+      }
+    },
+    {
+      id: 'doc-id2',
+      title: 'Employment Letter',
+      person: 'Priya Sharma',
+      currentVersion: {
+        fileName: 'letter.pdf',
+        metadata: { textContent: 'Workplace: Tech Park, Electronic City.' }
+      }
+    }
+  ];
+
+  const profiles = [
+    {
+      profile: {
+        name: 'Priya Sharma',
+        dob: '1992-08-25',
+        address: '45 Lake View Road, Bangalore 560034',
+        fathersName: 'Kamesh Sharma'
+      },
+      contradictions: {}
+    }
+  ];
+
+  const res = await service.answerQuestion({
+    query: "What is Priya Sharma's residential address?",
+    documents,
+    profiles
+  });
+
+  assert.strictEqual(res.mode, 'llama-server');
+  // For biographical queries, SOURCE 1 must be the authoritative family profile
+  assert.ok(capturedPrompt.includes('SOURCE 1 (saved family profile: Family profile: Priya Sharma)'), 'Biographical query must prioritize profile at SOURCE 1');
+  assert.ok(capturedPrompt.indexOf('SOURCE 1 (saved family profile:') < capturedPrompt.indexOf('SOURCE 2 (document:'), 'Profile must appear before documents in prompt');
+
+  // Verify non-biographical query does NOT prioritize profile before document
+  let nonBioPrompt = '';
+  service._queryLlamaServer = async (prompt) => {
+    nonBioPrompt = prompt;
+    return 'Workplace is Tech Park.';
+  };
+
+  await service.answerQuestion({
+    query: 'What workplace is mentioned in the employment letter?',
+    documents,
+    profiles
+  });
+
+  assert.ok(nonBioPrompt.indexOf('SOURCE 1 (document:') < nonBioPrompt.indexOf('(saved family profile:'), 'Non-biographical query must keep document first');
+});
+
+test('Step 5 Token Reduction: Deduplication and ocrWords pruning achieve substantial prompt context savings', async () => {
+  const service = new LlmService();
+
+  const longCleanText = `
+    COMPREHENSIVE ANNUAL RESIDENTIAL LEASE AGREEMENT
+    Landlord: Landmark Properties Inc.
+    Tenant: Rahul Verma and Priya Verma.
+    Premises: Apartment 4B, Emerald Heights, MG Road, Pune, Maharashtra 411001.
+    Term: Twelve (12) months commencing October 1, 2026 and terminating September 30, 2027.
+    Monthly Rent: INR 35,000 payable on the first day of each calendar month.
+    Security Deposit: INR 100,000 deposited with the Landlord upon execution.
+    Permitted Use: Strictly residential occupancy by the named tenants and immediate family.
+    Utilities: Tenant shall be responsible for electricity, water, internet, and gas charges.
+    Maintenance: Minor repairs up to INR 1,000 shall be borne by the tenant.
+    Governing Law: The laws of Maharashtra and jurisdiction of courts in Pune.
+  `.repeat(3).trim();
+
+  const ocrWordsList = longCleanText.split(/\s+/).map(w => ({ text: w, x: 10, y: 10, width: 20, height: 10 }));
+
+  const doc = {
+    id: 'doc-lease',
+    title: 'Residential Lease Agreement',
+    person: 'Rahul Verma',
+    category: 'property',
+    currentVersion: {
+      fileName: 'lease.pdf',
+      metadata: {
+        docType: 'property_document',
+        issuer: 'Landmark Properties',
+        textContent: longCleanText,
+        ocrWords: ocrWordsList
+      }
+    }
+  };
+
+  // With Step 5 optimization:
+  const optimizedSegments = service._buildCompleteContextSegments([doc], []);
+  const optimizedPrompt = service._buildPrompt('What is the monthly rent?', optimizedSegments);
+
+  // Unoptimized baseline: what it would have been if raw ocrWords were also dumped alongside textContent
+  const unoptimizedSnippet = `${optimizedSegments[0].snippet}\n\nOCR words:\n${ocrWordsList.map(w => w.text).join(' ')}`;
+  const unoptimizedSegments = [{ ...optimizedSegments[0], snippet: unoptimizedSnippet }];
+  const unoptimizedPrompt = service._buildPrompt('What is the monthly rent?', unoptimizedSegments);
+
+  const optimizedLength = optimizedPrompt.length;
+  const unoptimizedLength = unoptimizedPrompt.length;
+  const promptReductionRatio = (unoptimizedLength - optimizedLength) / unoptimizedLength;
+  const snippetReductionRatio = (unoptimizedSnippet.length - optimizedSegments[0].snippet.length) / unoptimizedSnippet.length;
+
+  // Verify that omitting duplicate OCR words produces > 40% snippet reduction and > 30% total prompt reduction
+  assert.ok(snippetReductionRatio >= 0.40, `Expected >= 40% snippet reduction, achieved ${(snippetReductionRatio * 100).toFixed(1)}%`);
+  assert.ok(promptReductionRatio >= 0.30, `Expected >= 30% prompt reduction, achieved ${(promptReductionRatio * 100).toFixed(1)}%`);
+  assert.ok(!optimizedPrompt.includes('OCR words:\n'), 'Optimized prompt must not contain raw OCR words dump');
+});
+
 
 

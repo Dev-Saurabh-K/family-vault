@@ -196,6 +196,9 @@ const changePassNew = document.getElementById('change-pass-new');
 const changePassConfirm = document.getElementById('change-pass-confirm');
 const submitChangePasswordBtn = document.getElementById('submit-change-password-btn');
 
+const modalAuditLogs = document.getElementById('modal-audit-logs');
+const auditLogsTableBody = document.getElementById('audit-logs-table-body');
+
 // Toast
 const toast = document.getElementById('toast');
 
@@ -368,27 +371,31 @@ function setupTheme() {
     btnThemeChoiceDark.addEventListener('click', () => setTheme('dark'));
   }
 
+  const btnCloseSettingsModal = document.getElementById('btn-close-settings-modal');
+  if (btnCloseSettingsModal) {
+    btnCloseSettingsModal.addEventListener('click', () => {
+      if (modalSettings) modalSettings.classList.add('hidden');
+    });
+  }
+
   if (btnSettingsChangePassword) {
     btnSettingsChangePassword.addEventListener('click', () => {
       if (modalSettings) modalSettings.classList.add('hidden');
-      const btnChangePw = document.getElementById('btn-change-password-modal');
-      if (btnChangePw) btnChangePw.click();
+      openChangePasswordModal();
     });
   }
 
   if (btnSettingsBackup) {
     btnSettingsBackup.addEventListener('click', () => {
       if (modalSettings) modalSettings.classList.add('hidden');
-      const btnBkp = document.getElementById('btn-create-backup');
-      if (btnBkp) btnBkp.click();
+      handleCreateBackup();
     });
   }
 
   if (btnSettingsAuditLogs) {
     btnSettingsAuditLogs.addEventListener('click', () => {
       if (modalSettings) modalSettings.classList.add('hidden');
-      const btnAudit = document.getElementById('btn-open-audit-logs');
-      if (btnAudit) btnAudit.click();
+      openAuditLogsModal();
     });
   }
 }
@@ -2011,77 +2018,97 @@ submitReviewMetadataBtn.addEventListener('click', async () => {
 });
 
 // Change Password Modal
-btnChangePasswordModal.addEventListener('click', () => {
+function openChangePasswordModal() {
   clearInlineError('change-pass-error-banner');
-  changePassCurrent.value = '';
-  changePassNew.value = '';
-  changePassConfirm.value = '';
-  modalChangePassword.classList.remove('hidden');
-});
+  if (changePassCurrent) changePassCurrent.value = '';
+  if (changePassNew) changePassNew.value = '';
+  if (changePassConfirm) changePassConfirm.value = '';
+  if (modalChangePassword) modalChangePassword.classList.remove('hidden');
+}
 
-changePassCurrent.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
-changePassNew.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
-changePassConfirm.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
+if (btnChangePasswordModal) {
+  btnChangePasswordModal.addEventListener('click', openChangePasswordModal);
+}
 
-submitChangePasswordBtn.addEventListener('click', async () => {
-  clearInlineError('change-pass-error-banner');
-  const oldPassword = changePassCurrent.value;
-  const newPassword = changePassNew.value;
-  const confirmPassword = changePassConfirm.value;
+if (changePassCurrent) {
+  changePassCurrent.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
+}
+if (changePassNew) {
+  changePassNew.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
+}
+if (changePassConfirm) {
+  changePassConfirm.addEventListener('input', () => clearInlineError('change-pass-error-banner'));
+}
 
-  if (!oldPassword) {
-    showInlineError('change-pass-error-banner', 'Please enter your current password.');
-    showToast('Please enter your current password', 'error');
-    return;
-  }
-  if (newPassword.length < 8) {
-    showInlineError('change-pass-error-banner', 'New password must be at least 8 characters long.');
-    showToast('New password must be at least 8 characters long', 'error');
-    return;
-  }
-  if (newPassword !== confirmPassword) {
-    showInlineError('change-pass-error-banner', 'New passwords do not match. Please verify.');
-    showToast('New passwords do not match', 'error');
-    return;
-  }
-
-  submitChangePasswordBtn.disabled = true;
-  submitChangePasswordBtn.textContent = 'Rewrapping Master Key...';
-
-  try {
-    await window.familyVault.changePassword({ oldPassword, newPassword });
+if (submitChangePasswordBtn) {
+  submitChangePasswordBtn.addEventListener('click', async () => {
     clearInlineError('change-pass-error-banner');
-    modalChangePassword.classList.add('hidden');
-    showToast('Master password updated successfully', 'success');
-  } catch (err) {
-    showInlineError('change-pass-error-banner', 'Password change error: ' + err.message);
-    showToast('Password change error: ' + err.message, 'error');
-  } finally {
-    submitChangePasswordBtn.disabled = false;
-    submitChangePasswordBtn.textContent = 'Update Password';
-  }
-});
+    const oldPassword = changePassCurrent ? changePassCurrent.value : '';
+    const newPassword = changePassNew ? changePassNew.value : '';
+    const confirmPassword = changePassConfirm ? changePassConfirm.value : '';
+
+    if (!oldPassword) {
+      showInlineError('change-pass-error-banner', 'Please enter your current password.');
+      showToast('Please enter your current password', 'error');
+      return;
+    }
+    if (newPassword.length < 8) {
+      showInlineError('change-pass-error-banner', 'New password must be at least 8 characters long.');
+      showToast('New password must be at least 8 characters long', 'error');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showInlineError('change-pass-error-banner', 'New passwords do not match. Please verify.');
+      showToast('New passwords do not match', 'error');
+      return;
+    }
+
+    submitChangePasswordBtn.disabled = true;
+    submitChangePasswordBtn.textContent = 'Rewrapping Master Key...';
+
+    try {
+      await window.familyVault.changePassword({ oldPassword, newPassword });
+      clearInlineError('change-pass-error-banner');
+      if (modalChangePassword) modalChangePassword.classList.add('hidden');
+      showToast('Master password updated successfully', 'success');
+    } catch (err) {
+      showInlineError('change-pass-error-banner', 'Password change error: ' + err.message);
+      showToast('Password change error: ' + err.message, 'error');
+    } finally {
+      submitChangePasswordBtn.disabled = false;
+      submitChangePasswordBtn.textContent = 'Update Password';
+    }
+  });
+}
 
 // Create Portable Encrypted Backup
-btnCreateBackup.addEventListener('click', async () => {
+async function handleCreateBackup() {
   try {
-    const vaultBase = activeVaultName.textContent.replace(/\.vault$/, '');
+    const vaultBase = activeVaultName ? activeVaultName.textContent.replace(/\.vault$/, '') : 'vault';
     const defaultName = `${vaultBase}-backup-${new Date().toISOString().substring(0, 10)}.fvbackup`;
     const destinationFilePath = await window.familyVault.saveBackupFileDialog({ defaultName });
     if (!destinationFilePath) return;
 
-    btnCreateBackup.disabled = true;
-    btnCreateBackup.textContent = 'Backing up...';
+    if (btnCreateBackup) {
+      btnCreateBackup.disabled = true;
+      btnCreateBackup.textContent = 'Backing up...';
+    }
 
     const res = await window.familyVault.createBackup(destinationFilePath);
     showToast(`Encrypted backup created successfully (${res.objectCount} documents saved)`, 'success');
   } catch (err) {
     showToast('Backup failed: ' + err.message, 'error');
   } finally {
-    btnCreateBackup.disabled = false;
-    btnCreateBackup.textContent = 'Backup';
+    if (btnCreateBackup) {
+      btnCreateBackup.disabled = false;
+      btnCreateBackup.textContent = 'Backup';
+    }
   }
-});
+}
+
+if (btnCreateBackup) {
+  btnCreateBackup.addEventListener('click', handleCreateBackup);
+}
 
 // Grounded Local AI Document Assistant
 function autoResizeAiInput() {
@@ -2399,14 +2426,9 @@ async function runAiQuery(queryOverride = null, searchAllDocuments = false) {
     if (addPersonBtn) {
       addPersonBtn.addEventListener('click', () => {
         const pName = addPersonBtn.getAttribute('data-person-name');
-        if (modalQuickAddMember) {
-          modalAiQa.classList.add('hidden');
-          if (btnReturnToChat) btnReturnToChat.classList.remove('hidden');
-          const quickNameInput = document.getElementById('quick-member-name-input');
-          if (quickNameInput) quickNameInput.value = pName || '';
-          modalQuickAddMember.classList.remove('hidden');
-          if (quickNameInput) quickNameInput.focus();
-        }
+        if (modalAiQa) modalAiQa.classList.add('hidden');
+        if (btnReturnToChat) btnReturnToChat.classList.remove('hidden');
+        openQuickAddMemberModal(pName);
       });
     }
 
@@ -2864,56 +2886,56 @@ if (btnCopyAiAnswer) {
 }
 
 // Encrypted Audit Logs Modal
-const modalAuditLogs = document.getElementById('modal-audit-logs');
 const btnOpenAuditLogs = document.getElementById('btn-open-audit-logs');
-const auditLogsTableBody = document.getElementById('audit-logs-table-body');
+
+async function openAuditLogsModal() {
+  if (modalAuditLogs) modalAuditLogs.classList.remove('hidden');
+  if (auditLogsTableBody) {
+    auditLogsTableBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading encrypted audit records...</td></tr>';
+  }
+
+  try {
+    const logs = await window.familyVault.getAuditLogs(100);
+    if (!logs || logs.length === 0) {
+      if (auditLogsTableBody) {
+        auditLogsTableBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">No audit events recorded yet.</td></tr>';
+      }
+      return;
+    }
+
+    if (auditLogsTableBody) {
+      auditLogsTableBody.innerHTML = '';
+      logs.forEach(log => {
+        const tr = document.createElement('tr');
+        tr.style.cssText = 'border-bottom: 1px solid rgba(255,255,255,0.05);';
+
+        let badgeClass = 'badge-blue';
+        if (log.eventType.includes('DELETE') || log.eventType.includes('LOCK')) badgeClass = 'badge-gray';
+        if (log.eventType.includes('PASSWORD')) badgeClass = 'badge-orange';
+        if (log.eventType.includes('BACKUP') || log.eventType.includes('CREATE') || log.eventType.includes('REVIEW')) badgeClass = 'badge-green';
+
+        const dateStr = new Date(log.timestamp).toLocaleString();
+        const detailsStr = Object.keys(log.details || {}).length > 0
+          ? Object.entries(log.details).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' | ')
+          : '-';
+
+        tr.innerHTML = `
+          <td style="padding: 8px 12px; color: #94a3b8; font-family: monospace; font-size: 11px;">${escapeHtml(dateStr)}</td>
+          <td style="padding: 8px 12px;"><span class="badge ${badgeClass}">${escapeHtml(log.eventType)}</span></td>
+          <td style="padding: 8px 12px; color: #cbd5e1; word-break: break-all; font-size: 11px;">${escapeHtml(detailsStr)}</td>
+        `;
+        auditLogsTableBody.appendChild(tr);
+      });
+    }
+  } catch (err) {
+    if (auditLogsTableBody) {
+      auditLogsTableBody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px; color: #f87171;">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+}
 
 if (btnOpenAuditLogs) {
-  btnOpenAuditLogs.addEventListener('click', async () => {
-    if (modalAuditLogs) modalAuditLogs.classList.remove('hidden');
-    if (auditLogsTableBody) {
-      auditLogsTableBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading encrypted audit records...</td></tr>';
-    }
-
-    try {
-      const logs = await window.familyVault.getAuditLogs(100);
-      if (!logs || logs.length === 0) {
-        if (auditLogsTableBody) {
-          auditLogsTableBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">No audit events recorded yet.</td></tr>';
-        }
-        return;
-      }
-
-      if (auditLogsTableBody) {
-        auditLogsTableBody.innerHTML = '';
-        logs.forEach(log => {
-          const tr = document.createElement('tr');
-          tr.style.cssText = 'border-bottom: 1px solid rgba(255,255,255,0.05);';
-
-          let badgeClass = 'badge-blue';
-          if (log.eventType.includes('DELETE') || log.eventType.includes('LOCK')) badgeClass = 'badge-gray';
-          if (log.eventType.includes('PASSWORD')) badgeClass = 'badge-orange';
-          if (log.eventType.includes('BACKUP') || log.eventType.includes('CREATE') || log.eventType.includes('REVIEW')) badgeClass = 'badge-green';
-
-          const dateStr = new Date(log.timestamp).toLocaleString();
-          const detailsStr = Object.keys(log.details || {}).length > 0
-            ? Object.entries(log.details).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' | ')
-            : '-';
-
-          tr.innerHTML = `
-            <td style="padding: 8px 12px; color: #94a3b8; font-family: monospace; font-size: 11px;">${escapeHtml(dateStr)}</td>
-            <td style="padding: 8px 12px;"><span class="badge ${badgeClass}">${escapeHtml(log.eventType)}</span></td>
-            <td style="padding: 8px 12px; color: #cbd5e1; word-break: break-all; font-size: 11px;">${escapeHtml(detailsStr)}</td>
-          `;
-          auditLogsTableBody.appendChild(tr);
-        });
-      }
-    } catch (err) {
-      if (auditLogsTableBody) {
-        auditLogsTableBody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px; color: #f87171;">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
-      }
-    }
-  });
+  btnOpenAuditLogs.addEventListener('click', openAuditLogsModal);
 }
 
 // Export Audit Logs to JSON file
