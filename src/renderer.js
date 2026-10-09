@@ -253,8 +253,149 @@ function formatDate(isoStr) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// Theme Management
+const THEME_STORAGE_KEY = 'familyvault_theme';
+
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) || 'light';
+  } catch (e) {
+    return 'light';
+  }
+}
+
+function applyTheme(theme) {
+  const effectiveTheme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', effectiveTheme);
+  if (document.body) {
+    document.body.setAttribute('data-theme', effectiveTheme);
+  }
+
+  const isLight = effectiveTheme === 'light';
+
+  // Update Settings Modal theme cards
+  const btnLightChoice = document.getElementById('btn-theme-choice-light');
+  const btnDarkChoice = document.getElementById('btn-theme-choice-dark');
+  if (btnLightChoice && btnDarkChoice) {
+    if (isLight) {
+      btnLightChoice.classList.add('active-theme');
+      btnDarkChoice.classList.remove('active-theme');
+    } else {
+      btnDarkChoice.classList.add('active-theme');
+      btnLightChoice.classList.remove('active-theme');
+    }
+  }
+
+  // Update legacy elements if present
+  const themeToggleIcon = document.getElementById('theme-toggle-icon');
+  const themeToggleText = document.getElementById('theme-toggle-text');
+  const btnThemeToggle = document.getElementById('btn-theme-toggle');
+  const launcherThemeIcon = document.querySelector('.launcher-theme-icon');
+  const btnLauncherTheme = document.getElementById('btn-launcher-theme-toggle');
+
+  if (themeToggleIcon) themeToggleIcon.textContent = isLight ? '🌙' : '☀️';
+  if (themeToggleText) themeToggleText.textContent = isLight ? 'Dark' : 'Light';
+  if (btnThemeToggle) btnThemeToggle.title = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode';
+
+  if (launcherThemeIcon) launcherThemeIcon.textContent = isLight ? '🌙' : '☀️';
+  if (btnLauncherTheme) btnLauncherTheme.title = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode';
+}
+
+function setTheme(theme) {
+  const targetTheme = theme === 'dark' ? 'dark' : 'light';
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, targetTheme);
+  } catch (e) {}
+  applyTheme(targetTheme);
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+  const nextTheme = currentTheme === 'light' ? 'dark' : 'light';
+  setTheme(nextTheme);
+}
+
+function setupTheme() {
+  applyTheme(getStoredTheme());
+
+  const btnThemeToggle = document.getElementById('btn-theme-toggle');
+  if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', toggleTheme);
+  }
+
+  const btnLauncherTheme = document.getElementById('btn-launcher-theme-toggle');
+  if (btnLauncherTheme) {
+    btnLauncherTheme.addEventListener('click', toggleTheme);
+  }
+
+  // Settings Modal wiring
+  const modalSettings = document.getElementById('modal-settings');
+  const btnOpenSettings = document.getElementById('btn-open-settings');
+  const btnLauncherSettings = document.getElementById('btn-launcher-settings');
+  const btnThemeChoiceLight = document.getElementById('btn-theme-choice-light');
+  const btnThemeChoiceDark = document.getElementById('btn-theme-choice-dark');
+  const btnSettingsChangePassword = document.getElementById('btn-settings-change-password');
+  const btnSettingsBackup = document.getElementById('btn-settings-backup');
+  const btnSettingsAuditLogs = document.getElementById('btn-settings-audit-logs');
+  const settingsVaultSection = document.getElementById('settings-vault-section');
+
+  const openSettings = () => {
+    applyTheme(getStoredTheme());
+    if (modalSettings) {
+      modalSettings.classList.remove('hidden');
+    }
+  };
+
+  if (btnOpenSettings) {
+    btnOpenSettings.addEventListener('click', () => {
+      if (settingsVaultSection) settingsVaultSection.classList.remove('hidden');
+      openSettings();
+    });
+  }
+
+  if (btnLauncherSettings) {
+    btnLauncherSettings.addEventListener('click', () => {
+      if (settingsVaultSection) settingsVaultSection.classList.add('hidden');
+      openSettings();
+    });
+  }
+
+  if (btnThemeChoiceLight) {
+    btnThemeChoiceLight.addEventListener('click', () => setTheme('light'));
+  }
+
+  if (btnThemeChoiceDark) {
+    btnThemeChoiceDark.addEventListener('click', () => setTheme('dark'));
+  }
+
+  if (btnSettingsChangePassword) {
+    btnSettingsChangePassword.addEventListener('click', () => {
+      if (modalSettings) modalSettings.classList.add('hidden');
+      const btnChangePw = document.getElementById('btn-change-password-modal');
+      if (btnChangePw) btnChangePw.click();
+    });
+  }
+
+  if (btnSettingsBackup) {
+    btnSettingsBackup.addEventListener('click', () => {
+      if (modalSettings) modalSettings.classList.add('hidden');
+      const btnBkp = document.getElementById('btn-create-backup');
+      if (btnBkp) btnBkp.click();
+    });
+  }
+
+  if (btnSettingsAuditLogs) {
+    btnSettingsAuditLogs.addEventListener('click', () => {
+      if (modalSettings) modalSettings.classList.add('hidden');
+      const btnAudit = document.getElementById('btn-open-audit-logs');
+      if (btnAudit) btnAudit.click();
+    });
+  }
+}
+
 // Initialize and check status on load
 async function initApp() {
+  setupTheme();
   try {
     const status = await window.familyVault.getStatus();
     if (status.isUnlocked) {
@@ -851,7 +992,7 @@ function renderDocuments() {
       let expiryBadgeHtml = '';
 
       if (expiryStatus === 'expired') {
-        expiryBadgeHtml = `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">Expired</span>`;
+        expiryBadgeHtml = `<span class="badge badge-expired">Expired</span>`;
       } else if (expiryStatus === 'expiring_soon') {
         expiryBadgeHtml = `<span class="badge badge-orange">Expiring Soon</span>`;
       } else if (expiryStatus === 'active') {
@@ -1017,20 +1158,24 @@ sidebarItems.forEach(item => {
 if (searchModeKeywordBtn && searchModeSemanticBtn) {
   searchModeKeywordBtn.addEventListener('click', () => {
     searchMode = 'keyword';
-    searchModeKeywordBtn.style.background = '#3b82f6';
-    searchModeKeywordBtn.style.color = '#fff';
-    searchModeSemanticBtn.style.background = 'transparent';
-    searchModeSemanticBtn.style.color = '#94a3b8';
+    searchModeKeywordBtn.classList.add('active-mode');
+    searchModeSemanticBtn.classList.remove('active-mode');
+    searchModeKeywordBtn.style.background = '';
+    searchModeKeywordBtn.style.color = '';
+    searchModeSemanticBtn.style.background = '';
+    searchModeSemanticBtn.style.color = '';
     searchInput.placeholder = 'Search documents by title, tags, or notes...';
     loadDocuments();
   });
 
   searchModeSemanticBtn.addEventListener('click', () => {
     searchMode = 'semantic';
-    searchModeSemanticBtn.style.background = '#3b82f6';
-    searchModeSemanticBtn.style.color = '#fff';
-    searchModeKeywordBtn.style.background = 'transparent';
-    searchModeKeywordBtn.style.color = '#94a3b8';
+    searchModeSemanticBtn.classList.add('active-mode');
+    searchModeKeywordBtn.classList.remove('active-mode');
+    searchModeKeywordBtn.style.background = '';
+    searchModeKeywordBtn.style.color = '';
+    searchModeSemanticBtn.style.background = '';
+    searchModeSemanticBtn.style.color = '';
     searchInput.placeholder = 'Search by meaning (e.g., "dental checkup coverage")...';
     loadDocuments();
   });
@@ -1081,9 +1226,9 @@ async function openDocumentDrawer(documentId) {
       if (meta.expiryDate) {
         drawerExpiryDate.textContent = meta.expiryDate;
         if (meta.expiryStatus === 'expired') {
-          drawerExpiryBadge.className = 'badge';
-          drawerExpiryBadge.style.background = 'rgba(239, 68, 68, 0.2)';
-          drawerExpiryBadge.style.color = '#f87171';
+          drawerExpiryBadge.className = 'badge badge-expired';
+          drawerExpiryBadge.style.background = '';
+          drawerExpiryBadge.style.color = '';
           drawerExpiryBadge.textContent = `Expired (${Math.abs(meta.daysRemaining)}d ago)`;
         } else if (meta.expiryStatus === 'expiring_soon') {
           drawerExpiryBadge.className = 'badge badge-orange';
@@ -2899,7 +3044,7 @@ function renderUsersList(profiles, preferredSelectedName = null) {
 
     item.innerHTML = `
       <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-        <strong style="font-size: 12px; color: #fff;">${escapeHtml(u.name)}</strong>
+        <strong style="font-size: 12px; color: var(--text-primary);">${escapeHtml(u.name)}</strong>
         ${conflictBadge}
       </div>
       <div style="display: flex; gap: 6px; font-size: 10px; color: var(--text-muted); margin-top: 2px;">
@@ -2958,16 +3103,17 @@ async function loadUserProfileDetails(personName) {
 
       for (const [key, item] of Object.entries(data.contradictions)) {
         const row = document.createElement('div');
-        row.style.cssText = 'background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;';
+        row.className = 'user-contradiction-item-row';
+        row.style.cssText = 'border-radius: 6px; padding: 8px 10px; margin-bottom: 6px;';
 
-        const titleHtml = `<div style="font-weight: 600; color: #fca5a5; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+        const titleHtml = `<div style="font-weight: 600; color: #dc2626; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
           <span>${escapeHtml(item.fieldLabel)}</span>
-          <span class="badge" style="background: rgba(239, 68, 68, 0.25); color: #f87171; font-size: 9px;">Contradiction</span>
+          <span class="badge badge-expired" style="font-size: 9px;">Contradiction</span>
         </div>`;
 
         const valuesHtml = item.conflictingValues.map(cv => `
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; padding-left: 6px; border-left: 2px solid #ef4444;">
-            <span style="font-weight: 500; color: #fff;">"${escapeHtml(cv.value)}"</span>
+            <span class="user-contradiction-value" style="font-weight: 500;">"${escapeHtml(cv.value)}"</span>
             <span style="color: var(--text-muted); font-size: 10px;">in <em>${escapeHtml(cv.documentTitle || cv.fileName || 'Document')}</em></span>
           </div>
         `).join('');
@@ -2994,7 +3140,8 @@ async function loadUserProfileDetails(personName) {
     if (data.sourceDocuments && data.sourceDocuments.length > 0) {
       data.sourceDocuments.forEach(doc => {
         const item = document.createElement('div');
-        item.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.4); padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); font-size: 11px;';
+        item.className = 'user-source-doc-item';
+        item.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); font-size: 11px;';
         item.innerHTML = `
           <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px;">
             <strong style="color: var(--text-primary);">${escapeHtml(doc.title)}</strong>
@@ -3448,6 +3595,8 @@ function closeAllModals() {
   if (modalConfirmRemoveUser) modalConfirmRemoveUser.classList.add('hidden');
   if (modalQuickAddMember) modalQuickAddMember.classList.add('hidden');
   if (modalFirstRunWelcome) modalFirstRunWelcome.classList.add('hidden');
+  const modalSettings = document.getElementById('modal-settings');
+  if (modalSettings) modalSettings.classList.add('hidden');
   documentIdPendingDelete = null;
 }
 

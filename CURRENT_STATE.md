@@ -35,7 +35,8 @@ The repository contains a complete, fully tested, functional implementation of F
   - `src/main/ipc.js`: Strictly typed and validated IPC handlers including pre-analysis (`document:pre-analyze`), family member enumeration (`vault:list-family-members`), metadata review, upcoming expiries, AI assistant Q&A, 1-click Gemma-4-E2B download/setup, semantic vector search, encrypted audit log queries, and encrypted backup/restore.
   - `src/preload.js`: Secure context-isolated bridge exposing `window.familyVault`.
   - `src/index.js`: Electron main process with strict Content Security Policy (`connect-src 'none'`), sandbox mode, and lock-on-exit key cleanup.
-  - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive dark-mode desktop UI supporting:
+  - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive desktop UI with dual-theme architecture (Dark Mode and Warm Off-White Light Mode) supporting:
+    - 1-click Light / Dark Mode theme switcher in both the vault launcher and top navigation bar, with instant local persistence (`localStorage`), zero flash of unstyled content, and an elegant off-white palette (`#f7f6f2` ivory canvas, `#f0eee8` warm stone sidebar, `#ffffff` elevated cards, `#1f2328` deep charcoal text, `#ded9ce` linen borders, and emerald accents).
     - Secure vault launcher with password-only unlock and restore tabs.
     - Category sidebar filters and dynamic Family Member (Person) dropdown filter.
     - Time-sensitive Expiry Alert Banner with quick-view and session dismissal.
@@ -118,13 +119,14 @@ The repository contains a complete, fully tested, functional implementation of F
       - **Duplicate Family Member Validation**: Both quick and full family member additions check for name collisions against existing vault members, displaying inline error banners and warning toasts.
       - **Global UI Error Boundaries**: `window.addEventListener('error')` and `window.addEventListener('unhandledrejection')` safely catch unhandled exceptions and promise rejections with non-crashing notifications.
     - **Instant "Encrypt & Save" Optimization**: Pre-analyzed document metadata (tags, title, category, person, dates, issuer, OCR words) from the in-modal AI analysis is passed directly to `importDocument`, eliminating the redundant second local LLM re-analysis call and making document saving virtually instantaneous (<100ms) with background profile processing.
+    - **Off-White Light & Dark Theme System with Settings Hub (`#modal-settings`)**: Dedicated Settings gear icon in both launcher and application shell top-bar opening a modal containing explicit theme cards (**☀️ Light Mode** with off-white warm ivory canvas `#f7f6f2` / `#f0eee8` and **🌙 Dark Mode** with stealth slate `#212121`), complete with live active badges, seamless `localStorage` persistence, and quick shortcuts for Master Password, Vault Backups, and Audit Logs. Hardened dropdown select styling with explicit `background-repeat: no-repeat !important` and consistent quote delimited SVG URLs prevents parser drops and repetition glitches across both themes.
 
 ## Verification Commands Used
 
 ```bash
 npm test
 ```
-All 100 automated tests pass across 11 test suites:
+All 128 automated tests pass across 12 test suites:
 - `tests/crypto.test.js`
 - `tests/vaultService.test.js`
 - `tests/userProfile.test.js`
@@ -136,6 +138,7 @@ All 100 automated tests pass across 11 test suites:
 - `tests/llmService.test.js`
 - `tests/backup.test.js`
 - `tests/ipcValidation.test.js`
+- `tests/theme.test.js`
 
 ```bash
 npm run package

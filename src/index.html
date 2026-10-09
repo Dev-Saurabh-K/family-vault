@@ -1,15 +1,36 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FamilyVault — Secure Offline Document Vault</title>
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('familyvault_theme');
+          if (t === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+          } else {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch(e) {}
+      })();
+    </script>
     <link rel="stylesheet" href="index.css" />
   </head>
   <body>
     <div id="app">
       <!-- 1. LAUNCHER SCREEN (Create / Unlock Vault) -->
       <section id="view-launcher" class="launcher-container">
+        <button id="btn-launcher-settings" class="window-control-btn launcher-theme-btn" title="Settings" aria-label="Settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+        <button id="btn-launcher-theme-toggle" class="window-control-btn launcher-theme-btn hidden" style="display: none;" title="Switch Theme (Light / Dark)" aria-label="Switch theme">
+          <span class="launcher-theme-icon">🌙</span>
+        </button>
         <button id="btn-launcher-close" class="window-control-btn launcher-close-btn" aria-label="Close app">×</button>
         <div class="launcher-card">
           <div class="launcher-header">
@@ -132,6 +153,17 @@
             <button id="btn-open-audit-logs" class="btn btn-secondary">Audit Log</button>
             <button id="btn-create-backup" class="btn btn-secondary">Backup</button>
             <button id="btn-change-password-modal" class="btn btn-secondary">Change Password</button>
+            <button id="btn-open-settings" class="btn btn-secondary btn-settings" title="Settings" aria-label="Settings">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              <span>Settings</span>
+            </button>
+            <button id="btn-theme-toggle" class="btn btn-secondary btn-theme-toggle hidden" style="display: none;" title="Switch Theme (Light / Dark)" aria-label="Switch theme">
+              <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
+              <span id="theme-toggle-text">Dark</span>
+            </button>
             <button id="btn-lock-vault" class="btn btn-danger">Lock Vault</button>
           </div>
 
@@ -262,9 +294,9 @@
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
               </div>
-              <div class="search-mode-group" style="display: flex; gap: 4px; background: #1e293b; padding: 3px; border-radius: 6px; border: 1px solid #334155;">
-                <button id="search-mode-keyword" class="btn active-mode" style="padding: 4px 10px; font-size: 12px; background: #3b82f6; color: #fff;">Keyword</button>
-                <button id="search-mode-semantic" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px; background: transparent; border: none;">Semantic</button>
+              <div class="search-mode-group">
+                <button id="search-mode-keyword" class="btn active-mode">Keyword</button>
+                <button id="search-mode-semantic" class="btn">Semantic</button>
               </div>
               <button id="btn-open-import" class="btn btn-primary">
                 <span>+</span> Import Document
@@ -1276,7 +1308,7 @@
           <div id="first-run-error-banner" class="form-error-banner hidden" style="margin-bottom: 12px;"></div>
 
           <!-- Option 1: Quick Add Family Member Card -->
-          <div style="background: rgba(255, 255, 255, 0.035); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 12px;">
+          <div class="first-run-option-card" style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 12px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -1297,7 +1329,7 @@
           </div>
 
           <!-- Option 2: Quick Import Document Card -->
-          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+          <div class="first-run-option-card" style="border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
             <div style="display: flex; align-items: center; gap: 10px;">
               <span style="font-size: 18px;">📄</span>
               <div>
@@ -1317,6 +1349,85 @@
             <button id="btn-first-run-skip" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;">
               Explore Vault
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 13. MODAL: SETTINGS & APPEARANCE -->
+      <div id="modal-settings" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 500px;">
+          <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              <h3 style="margin: 0; font-size: 16px;">Settings</h3>
+            </div>
+            <button class="btn btn-secondary modal-close-btn" style="padding: 4px 8px;">✕</button>
+          </div>
+
+          <!-- Section: Appearance & Theme -->
+          <div class="settings-section">
+            <h4 class="settings-section-title">Appearance &amp; Theme</h4>
+            <p class="settings-section-desc">Select how FamilyVault looks on your screen.</p>
+            <div class="theme-choice-grid">
+              <button type="button" id="btn-theme-choice-light" class="theme-choice-card" aria-label="Select Light Theme">
+                <div class="theme-choice-header">
+                  <span class="theme-choice-icon">☀️</span>
+                  <div class="theme-choice-text">
+                    <strong>Light Mode</strong>
+                    <span>Warm ivory canvas</span>
+                  </div>
+                </div>
+                <span id="badge-theme-active-light" class="theme-status-pill">Active</span>
+              </button>
+
+              <button type="button" id="btn-theme-choice-dark" class="theme-choice-card" aria-label="Select Dark Mode">
+                <div class="theme-choice-header">
+                  <span class="theme-choice-icon">🌙</span>
+                  <div class="theme-choice-text">
+                    <strong>Dark Mode</strong>
+                    <span>Classic stealth slate</span>
+                  </div>
+                </div>
+                <span id="badge-theme-active-dark" class="theme-status-pill">Active</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section: Vault & Security Shortcuts -->
+          <div id="settings-vault-section" class="settings-section">
+            <h4 class="settings-section-title">Vault &amp; Security</h4>
+            <p class="settings-section-desc">Quick shortcuts to manage credentials and backups.</p>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <button type="button" id="btn-settings-change-password" class="btn btn-secondary settings-row-btn">
+                <span style="display: flex; align-items: center; gap: 8px;">
+                  <span>🔑</span>
+                  <strong>Change Master Password</strong>
+                </span>
+                <span style="font-size: 11px; color: var(--text-muted);">Update credentials</span>
+              </button>
+              <button type="button" id="btn-settings-backup" class="btn btn-secondary settings-row-btn">
+                <span style="display: flex; align-items: center; gap: 8px;">
+                  <span>💾</span>
+                  <strong>Create Vault Backup</strong>
+                </span>
+                <span style="font-size: 11px; color: var(--text-muted);">Encrypted .vault.enc</span>
+              </button>
+              <button type="button" id="btn-settings-audit-logs" class="btn btn-secondary settings-row-btn">
+                <span style="display: flex; align-items: center; gap: 8px;">
+                  <span>📋</span>
+                  <strong>Inspect Audit Logs</strong>
+                </span>
+                <span style="font-size: 11px; color: var(--text-muted);">Tamper-evident logs</span>
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 14px; margin-top: 4px;">
+            <span style="font-size: 11px; color: var(--text-muted);">🔒 100% Offline &amp; Encrypted</span>
+            <button type="button" id="btn-close-settings-modal" class="btn btn-primary modal-close-btn" style="min-width: 80px; font-size: 12px; padding: 6px 14px;">Done</button>
           </div>
         </div>
       </div>
