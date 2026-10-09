@@ -99,16 +99,22 @@ test('Theme: renderer.js theme management and event handlers', () => {
   assert.ok(jsContent.includes('searchModeSemanticBtn.classList.add(\'active-mode\');'), 'Must toggle active-mode on semantic button');
 });
 
-test('UI Actions & Modals: renderer.js script integrity and topbar action bindings', () => {
+test('UI Actions & Settings: duplicate dashboard buttons removed and settings buttons wired', () => {
   const jsPath = path.join(__dirname, '..', 'src', 'renderer.js');
   const htmlPath = path.join(__dirname, '..', 'src', 'index.html');
   const jsContent = fs.readFileSync(jsPath, 'utf8');
   const htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
-  // Verify topbar action buttons exist in index.html
-  assert.ok(htmlContent.includes('id="btn-open-audit-logs"'), 'index.html must contain btn-open-audit-logs');
-  assert.ok(htmlContent.includes('id="btn-create-backup"'), 'index.html must contain btn-create-backup');
-  assert.ok(htmlContent.includes('id="btn-change-password-modal"'), 'index.html must contain btn-change-password-modal');
+  // Verify duplicate action buttons are removed from dashboard / topbar
+  assert.ok(!htmlContent.includes('id="btn-open-audit-logs"'), 'Dashboard top-bar must not contain duplicate btn-open-audit-logs');
+  assert.ok(!htmlContent.includes('id="btn-create-backup"'), 'Dashboard top-bar must not contain duplicate btn-create-backup');
+  assert.ok(!htmlContent.includes('id="btn-change-password-modal"'), 'Dashboard top-bar must not contain duplicate btn-change-password-modal');
+
+  // Verify settings modal contains the action buttons
+  assert.ok(htmlContent.includes('id="btn-settings-change-password"'), 'Settings modal must contain btn-settings-change-password');
+  assert.ok(htmlContent.includes('id="btn-settings-backup"'), 'Settings modal must contain btn-settings-backup');
+  assert.ok(htmlContent.includes('id="btn-settings-audit-logs"'), 'Settings modal must contain btn-settings-audit-logs');
+  assert.ok(htmlContent.includes('id="btn-close-settings-modal"'), 'Settings modal must contain btn-close-settings-modal');
 
   // Verify helper functions exist and are declared in renderer.js
   assert.ok(jsContent.includes('function openChangePasswordModal()'), 'renderer.js must define openChangePasswordModal');
@@ -116,10 +122,28 @@ test('UI Actions & Modals: renderer.js script integrity and topbar action bindin
   assert.ok(jsContent.includes('async function openAuditLogsModal()'), 'renderer.js must define openAuditLogsModal');
   assert.ok(jsContent.includes('function openQuickAddMemberModal('), 'renderer.js must define openQuickAddMemberModal');
 
-  // Verify modal handlers are safely guarded
+  // Verify settings action buttons are wired in renderer.js
+  assert.ok(jsContent.includes('btnSettingsChangePassword.addEventListener(\'click\''), 'renderer.js must wire btnSettingsChangePassword');
+  assert.ok(jsContent.includes('btnSettingsBackup.addEventListener(\'click\''), 'renderer.js must wire btnSettingsBackup');
+  assert.ok(jsContent.includes('btnSettingsAuditLogs.addEventListener(\'click\''), 'renderer.js must wire btnSettingsAuditLogs');
+
+  // Verify legacy modal handlers are safely guarded
   assert.ok(jsContent.includes('if (btnChangePasswordModal)'), 'btnChangePasswordModal must be guarded');
   assert.ok(jsContent.includes('if (btnCreateBackup)'), 'btnCreateBackup must be guarded');
   assert.ok(jsContent.includes('if (btnOpenAuditLogs)'), 'btnOpenAuditLogs must be guarded');
+
+  // Verify settings modal contains no emojis and uses clean SVG icons
+  const settingsModalMatch = htmlContent.match(/<div id="modal-settings"[\s\S]*?<\/div>\s*<\/div>\s*<!-- Toast Notification -->/);
+  assert.ok(settingsModalMatch, 'Settings modal must exist in HTML');
+  const settingsModalHtml = settingsModalMatch[0];
+  assert.ok(!settingsModalHtml.includes('☀️'), 'Settings modal must not contain sun emoji');
+  assert.ok(!settingsModalHtml.includes('🌙'), 'Settings modal must not contain moon emoji');
+  assert.ok(!settingsModalHtml.includes('🔑'), 'Settings modal must not contain key emoji');
+  assert.ok(!settingsModalHtml.includes('💾'), 'Settings modal must not contain floppy disk emoji');
+  assert.ok(!settingsModalHtml.includes('📋'), 'Settings modal must not contain clipboard emoji');
+  assert.ok(!settingsModalHtml.includes('🔒'), 'Settings modal must not contain lock emoji');
+  assert.ok(settingsModalHtml.includes('class="settings-action-icon"'), 'Settings modal must use settings-action-icon elements');
+  assert.ok(settingsModalHtml.includes('<svg'), 'Settings modal must contain SVG icons');
 
   // Verify script compiles cleanly
   const vm = require('node:vm');

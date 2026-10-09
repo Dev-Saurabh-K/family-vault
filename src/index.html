@@ -150,9 +150,6 @@
               <span id="btn-topbar-download-icon" aria-hidden="true"></span>
               <span id="btn-topbar-download-text">Download AI Model</span>
             </button>
-            <button id="btn-open-audit-logs" class="btn btn-secondary">Audit Log</button>
-            <button id="btn-create-backup" class="btn btn-secondary">Backup</button>
-            <button id="btn-change-password-modal" class="btn btn-secondary">Change Password</button>
             <button id="btn-open-settings" class="btn btn-secondary btn-settings" title="Settings" aria-label="Settings">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3"></circle>
@@ -1374,7 +1371,19 @@
             <div class="theme-choice-grid">
               <button type="button" id="btn-theme-choice-light" class="theme-choice-card" aria-label="Select Light Theme">
                 <div class="theme-choice-header">
-                  <span class="theme-choice-icon">☀️</span>
+                  <span class="theme-choice-icon" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="5"></circle>
+                      <line x1="12" y1="1" x2="12" y2="3"></line>
+                      <line x1="12" y1="21" x2="12" y2="23"></line>
+                      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                      <line x1="1" y1="12" x2="3" y2="12"></line>
+                      <line x1="21" y1="12" x2="23" y2="12"></line>
+                      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                  </span>
                   <div class="theme-choice-text">
                     <strong>Light Mode</strong>
                     <span>Warm ivory canvas</span>
@@ -1385,7 +1394,11 @@
 
               <button type="button" id="btn-theme-choice-dark" class="theme-choice-card" aria-label="Select Dark Mode">
                 <div class="theme-choice-header">
-                  <span class="theme-choice-icon">🌙</span>
+                  <span class="theme-choice-icon" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                  </span>
                   <div class="theme-choice-text">
                     <strong>Dark Mode</strong>
                     <span>Classic stealth slate</span>
@@ -1402,22 +1415,40 @@
             <p class="settings-section-desc">Quick shortcuts to manage credentials and backups.</p>
             <div style="display: flex; flex-direction: column; gap: 8px;">
               <button type="button" id="btn-settings-change-password" class="btn btn-secondary settings-row-btn">
-                <span style="display: flex; align-items: center; gap: 8px;">
-                  <span>🔑</span>
+                <span style="display: flex; align-items: center; gap: 9px;">
+                  <span class="settings-action-icon" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5M15 8l-8.5 8.5a2.121 2.121 0 0 1-3 0 2.121 2.121 0 0 1 0-3L12 5"></path>
+                      <circle cx="16.5" cy="7.5" r="2.5"></circle>
+                    </svg>
+                  </span>
                   <strong>Change Master Password</strong>
                 </span>
                 <span style="font-size: 11px; color: var(--text-muted);">Update credentials</span>
               </button>
               <button type="button" id="btn-settings-backup" class="btn btn-secondary settings-row-btn">
-                <span style="display: flex; align-items: center; gap: 8px;">
-                  <span>💾</span>
+                <span style="display: flex; align-items: center; gap: 9px;">
+                  <span class="settings-action-icon" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                      <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                  </span>
                   <strong>Create Vault Backup</strong>
                 </span>
                 <span style="font-size: 11px; color: var(--text-muted);">Encrypted .vault.enc</span>
               </button>
               <button type="button" id="btn-settings-audit-logs" class="btn btn-secondary settings-row-btn">
-                <span style="display: flex; align-items: center; gap: 8px;">
-                  <span>📋</span>
+                <span style="display: flex; align-items: center; gap: 9px;">
+                  <span class="settings-action-icon" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                      <path d="M9 12h6"></path>
+                      <path d="M9 16h6"></path>
+                    </svg>
+                  </span>
                   <strong>Inspect Audit Logs</strong>
                 </span>
                 <span style="font-size: 11px; color: var(--text-muted);">Tamper-evident logs</span>
@@ -1426,7 +1457,13 @@
           </div>
 
           <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 14px; margin-top: 4px;">
-            <span style="font-size: 11px; color: var(--text-muted);">🔒 100% Offline &amp; Encrypted</span>
+            <span style="font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+              <span>100% Offline &amp; Encrypted</span>
+            </span>
             <button type="button" id="btn-close-settings-modal" class="btn btn-primary modal-close-btn" style="min-width: 80px; font-size: 12px; padding: 6px 14px;">Done</button>
           </div>
         </div>

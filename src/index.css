@@ -367,7 +367,30 @@ label { color: var(--text-secondary); display: block; font-size: 13px; font-weig
   gap: 10px;
 }
 .theme-choice-icon {
-  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+.theme-choice-card.active-theme .theme-choice-icon {
+  color: var(--accent);
+}
+.settings-action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+.settings-row-btn:hover .settings-action-icon {
+  color: var(--accent);
 }
 .theme-choice-text {
   display: flex;
@@ -2803,5 +2826,11 @@ select.input-field:disabled {
 }
 [data-theme="light"] .settings-row-btn:hover {
   background: #f5f3ec !important;
+}
+[data-theme="light"] .theme-choice-card.active-theme .theme-choice-icon {
+  color: #0d8f70;
+}
+[data-theme="light"] .settings-row-btn:hover .settings-action-icon {
+  color: #0d8f70;
 }
 

@@ -36,7 +36,9 @@ The repository contains a complete, fully tested, functional implementation of F
   - `src/preload.js`: Secure context-isolated bridge exposing `window.familyVault`.
   - `src/index.js`: Electron main process with strict Content Security Policy (`connect-src 'none'`), sandbox mode, and lock-on-exit key cleanup.
   - `src/index.html`, `src/index.css`, `src/renderer.js`: Responsive desktop UI with dual-theme architecture (Dark Mode and Warm Off-White Light Mode) supporting:
-    - 1-click Light / Dark Mode theme switcher in both the vault launcher and top navigation bar, with instant local persistence (`localStorage`), zero flash of unstyled content, and an elegant off-white palette (`#f7f6f2` ivory canvas, `#f0eee8` warm stone sidebar, `#ffffff` elevated cards, `#1f2328` deep charcoal text, `#ded9ce` linen borders, and emerald accents).
+    - Centralized Settings modal (`#modal-settings`) accessible via gear icon in workspace top-bar and launcher header, housing Appearance & Theme choice cards (Warm Off-White Light Mode `#f7f6f2` and Stealth Slate Dark Mode `#212121`), along with Vault & Security actions (Change Master Password, Create Vault Backup, Inspect Audit Logs).
+    - Streamlined dashboard top bar free of duplicate actions: Audit Log, Backup, and Change Password buttons relocated exclusively to Settings modal.
+    - 1-click Light / Dark Mode theme switching with instant local persistence (`localStorage`), zero flash of unstyled content, active status pills, and an elegant off-white palette (`#f7f6f2` ivory canvas, `#f0eee8` warm stone sidebar, `#ffffff` elevated cards, `#1f2328` deep charcoal text, `#ded9ce` linen borders, and emerald accents).
     - Secure vault launcher with password-only unlock and restore tabs.
     - Category sidebar filters and dynamic Family Member (Person) dropdown filter.
     - Time-sensitive Expiry Alert Banner with quick-view and session dismissal.
